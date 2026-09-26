@@ -589,8 +589,8 @@ Also published as `docs/threat-model.md`.
   validation, stale `/approve`, `/restore` without `CONFIRM`, startup resync
   not executed, backoff).
 - **shellcheck** on all shell code.
-- Every test suite runs in GitHub Actions on push. No Hermes image is built or
-  pulled in CI.
+- Every test suite runs in CI on every push and pull request (§15.2). No Hermes
+  image is built or pulled in that workflow.
 
 ### 14.2 Mutation testing
 
@@ -610,7 +610,8 @@ detect real faults**:
   mutant is either killed by a new test or listed in `docs/mutation-report.md`
   with the reason it is equivalent (behaviour-identical). The report records
   counts per module and the date and commit it was run on.
-- Mutation runs are a release gate, not a per-push CI step (they are slow).
+- Mutation runs are a release gate, run by the release workflow (§15.3), not
+  on every push (they are slow).
 
 ### 14.3 Integration test
 
@@ -623,17 +624,76 @@ existing install.
 
 A script re-verifies the facts in §3 against a real image and the Hermes repo
 (revision label, `HERMES_SKIP_CONFIG_MIGRATION` behaviour, the in-container
-user of the boot migration, dashboard auth variables, registry tag format). It
-runs before each Talaria release; a changed fact blocks the release.
+user of the boot migration, dashboard auth variables, registry tag format). It runs
+weekly and before each Talaria release (§15.4); a changed fact blocks the
+release.
 
-## 15. Publishing
+## 15. Publishing, CI/CD, dependencies
 
-- Public repo, MIT licence. Releases are git tags; `talaria self-update <tag>`
-  checks out a tag and re-runs `setup` (idempotent).
+### 15.1 Repository
+
+- Public GitHub repo, MIT licence.
+- Commits use the GitHub no-reply address
+  (`<id>+<login>@users.noreply.github.com`), never a personal email.
+- `main` is protected: changes land through pull requests with CI green.
 - README: what it is and that it is opinionated; second paragraph: *"Setting
   this up with a coding agent? Point it at `AGENTS.md`."*; requirements; what
   it changes on the system (user, units, files); threat model link.
 - Docs contain no deployment-specific values.
+
+### 15.2 CI (`.github/workflows/ci.yml`)
+
+On every push and pull request, on `ubuntu-latest`:
+
+- `shellcheck` on all shell code;
+- bats suite;
+- unittest suite on Python 3.10 and 3.12 (the supported floor and a current
+  version);
+- a lint check that the docs and templates contain no values from a real
+  deployment (IPs, Telegram IDs, tokens) — a simple pattern scan.
+
+Workflow hygiene, applied to every workflow:
+
+- third-party actions pinned by **commit SHA**, not tag;
+- `permissions: contents: read` at the top level; any job that needs more
+  declares exactly that;
+- tools come from `pixi.toml`/`pixi.lock`, the same versions as local
+  development.
+
+### 15.3 Releases (`.github/workflows/release.yml`)
+
+Triggered by pushing a tag `vMAJOR.MINOR.PATCH` (semver; `0.x` until the first
+stable release). The workflow:
+
+1. runs everything from §15.2;
+2. runs the **mutation gate** (§14.2) and fails below the threshold;
+3. runs the upstream-fact checks (§14.4);
+4. creates the GitHub release with notes generated from the commits since the
+   previous tag.
+
+There are no build artefacts: a release is the tagged source.
+`talaria self-update <tag>` checks out a tag and re-runs `setup`
+(idempotent); `check` finds new releases with `git ls-remote --tags` (§7.1).
+The integration test on a disposable VM (§14.3) is a manual checklist item in
+the release pull request, not automated.
+
+### 15.4 Scheduled (`.github/workflows/upstream.yml`)
+
+Weekly: the upstream-fact checks (§14.4) against the newest Hermes release.
+This pulls one Hermes image on the runner. A failure means upstream changed
+something Talaria relies on, and shows as a failed workflow run.
+
+### 15.5 Dependencies
+
+- **Dependabot** (`.github/dependabot.yml`) for the `github-actions`
+  ecosystem, weekly, grouped into one pull request. It keeps the SHA-pinned
+  actions current.
+- **pixi dev tools**: a monthly workflow runs `pixi update` and opens a pull
+  request with the new lock file, so bats, shellcheck and mutmut stay current
+  through the same review-and-CI path. Only this job gets `contents: write`
+  and `pull-requests: write`.
+- Runtime has no dependencies to track (§2). The Hermes image is tracked by
+  Talaria itself, not by Dependabot.
 
 ## 16. Open questions
 
