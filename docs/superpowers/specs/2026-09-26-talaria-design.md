@@ -49,7 +49,9 @@ Talaria makes updates boring:
 ## 2. Assumptions and requirements
 
 - Linux with systemd (user instance, linger) and **rootless podman ≥ 4.9**.
-- `git`, `curl`, `python3` ≥ 3.10 (stdlib only), `gzip`, `tar`, `shred`, `flock`.
+- `git`, `python3` ≥ 3.10 (stdlib only), `gzip`, `tar`, `shred`, `flock`.
+  All HTTP (Telegram, dashboard probe, summary endpoint) goes through Python's
+  `urllib`; there is no `curl` dependency.
 - One Hermes per host, run by a **dedicated service user** (default `hermes`).
 - amd64 or arm64 (the architectures upstream publishes).
 - Runtime code: bash + Python stdlib. **No runtime dependencies beyond the
@@ -92,11 +94,14 @@ Each fact is re-checked by a test against a real image before a Talaria release
                                    ▼
                     ┌────────────────────────────┐
                     │  bin/talaria  (bash)       │  the only thing that changes anything
-                    └──────────────▲─────────────┘
-                                   │ fixed argv, never a shell
-                    ┌──────────────┴─────────────┐
-  talaria-telegram  │ telegram.py (stdlib)       │  long-poll; one pinned user
-                    └────────────────────────────┘
+                    └───────▲──────────────┬─────┘
+       fixed argv, never    │              │ writes one file per message
+       a shell              │              ▼
+                            │   ~/.local/state/talaria/outbox/
+                            │              │ read, send, delete
+                    ┌───────┴──────────────▼─────┐
+  talaria-telegram  │ telegram.py (stdlib)       │  long-poll; one pinned user;
+                    └────────────────────────────┘  the only process talking to Telegram
         ┌───────────────────────────────────────────────┐
         │ hermes.container (Quadlet)                    │  never sees Talaria's files
         │ mounts only <data_dir> → /opt/data            │
@@ -111,9 +116,11 @@ AGENTS.md            the agent runbook (§5.3)
 LICENSE              MIT
 bin/talaria          entry point, argument parsing, dispatch
 lib/*.sh             one module per concern: conf, podman, images, backup,
-                     rehearse, deploy, history, setup, notify
+                     rehearse, deploy, history, setup, outbox
 lib/*.py             confdiff.py (semantic YAML diff), doctordiff.py,
-                     migrations.py (per-tag migration extractor)
+                     migrations.py (per-tag migration extractor),
+                     probe.py (HTTP checks: Telegram getMe / 409 probe /
+                     setup ID read, dashboard /api/status)
 telegram.py          the Telegram connector
 templates/           hermes.container, talaria-updater.{service,timer},
                      talaria-telegram.service, hermes.env
@@ -144,7 +151,7 @@ host) simple.
 | `~/.config/talaria/hermes.env` | dashboard credentials only, mode 600, passed to the container |
 | `~/.config/containers/systemd/hermes.container` | Quadlet |
 | `~/.config/systemd/user/talaria-*.{service,timer}` | Talaria units |
-| `~/.local/state/talaria/` | `backups/`, `history/` (git), `staging/`, `logs/`, `state.json`, `lock` |
+| `~/.local/state/talaria/` | `backups/`, `history/` (git), `staging/`, `outbox/`, `logs/`, `state.json`, `lock` |
 | `<data_dir>` (default `~/hermes-data`) | Hermes data, mounted at `/opt/data` |
 
 `state.json`: deployed tag, digest, revision, config version; previous
@@ -415,6 +422,13 @@ the agent has tools and memory, and release notes are untrusted text.
 - Accepts messages only from `TALARIA_TELEGRAM_USER_ID` (numeric), only in a
   private chat. Everything else is logged and dropped without reply.
 - `Restart=always`; retries with backoff when Telegram is unreachable.
+- Commands run as **background** subprocesses: the bot acknowledges at once
+  ("started: deploy v2026.8.3") and keeps polling. Results do not come back
+  through the bot's own subprocess handling; `talaria` reports them through the
+  outbox like any other message. Concurrent commands are refused by
+  `talaria`'s lock, and the refusal arrives the same way.
+- Messages are sent as **plain text** (no `parse_mode`), so upstream-derived
+  text in a report cannot inject markup or links that look like buttons.
 
 ### 8.2 Startup resync
 
@@ -436,7 +450,7 @@ never run.
 | `/restore <id> CONFIRM` | restore (§9.2) |
 | `/logs [n]` | last gateway log lines (default 50, max 200) |
 
-### 8.4 When Talaria sends a message
+### 8.4 What goes into the outbox
 
 Only: a candidate is ready (the report); deploy, rollback or restore finished
 or failed; a failure (fetch, pull, verify, rehearsal, disk floor); a new
@@ -446,6 +460,30 @@ The candidate report: tag, image digest, schema from → to, migration steps
 that fire (from the per-tag extractor, §7.9), the semantic diff with changed
 values first, doctor result, optional summary (§7.10), and the `/approve` and
 `/reject` commands to send.
+
+### 8.5 The outbox
+
+`talaria` never talks to Telegram. It writes each message as one JSON file into
+`~/.local/state/talaria/outbox/` (mode 700): written under a temporary name,
+then renamed, so a reader never sees a partial file. Fields: `id`, `created`,
+`kind` (`candidate`, `deployed`, `rolled_back`, `restored`, `failed`,
+`talaria_release`, `ack`, `refused`), `text`, and optional `commands` (e.g.
+`["/approve v2026.8.3", "/reject v2026.8.3"]`).
+
+`telegram.py` checks the outbox between two long-polls (every ≤ 30 s), sends
+files oldest first, and deletes each only after Telegram confirms delivery.
+If Telegram or the bot is down, messages wait and go out later, in order;
+nothing is lost. A message older than 7 days is sent with a note of its age
+rather than dropped.
+
+Consequences:
+
+- One component owns Telegram: the token, retries and backoff live only in
+  `telegram.py`. `talaria` needs no network code for notifications.
+- `talaria`'s core does not know which connector delivers messages. A later
+  connector reads the same outbox; with several connectors, each keeps its
+  own delivered-marker instead of deleting (not built in v1).
+- Latency is up to ~30 s, irrelevant for daily updates.
 
 ## 9. Data safety
 
@@ -569,8 +607,11 @@ Also published as `docs/threat-model.md`.
 ### 14.1 Unit and component tests
 
 - **bats** for `bin/talaria` and `lib/*.sh`, with `podman`, `systemctl`, `git`,
-  `curl` and `sleep` replaced by stubs on `PATH` that record calls and replay
-  fixtures. Covered at least:
+  `sleep` and `lib/probe.py` replaced by stubs on `PATH` that record calls and
+  replay fixtures. Covered at least:
+  - outbox: one file per message, written atomically (no partial file ever
+    visible), correct `kind` for each outcome, nothing written for silent
+    operations (`history`, a `check` without a new candidate);
   - candidate selection: git ∩ registry, rejected tags, `-desktop`/`latest`/`main`
     ignored, tag ordering incl. `.N` suffixes;
   - revision verification pass/fail; downgrade guard;
@@ -588,7 +629,10 @@ Also published as `docs/threat-model.md`.
 - **unittest** for `confdiff.py` (formatting-only → no diff; inert removals;
   changed values), `doctordiff.py` (regression, pre-existing warning ignored,
   vanished check, malformed input), `migrations.py` (both registry layouts;
-  missing registry fails loudly), `telegram.py` (foreign ID, group chat, tag
+  missing registry fails loudly), `probe.py`, `telegram.py` (outbox sent
+  oldest first and deleted only after confirmed delivery, kept on failure,
+  partial temp files ignored; commands run in the background and the poll
+  loop keeps going; plain-text sending; foreign ID, group chat, tag
   validation, stale `/approve`, `/restore` without `CONFIRM`, startup resync
   not executed, backoff).
 - **shellcheck** on all shell code.
