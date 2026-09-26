@@ -53,8 +53,10 @@ Talaria makes updates boring:
 - One Hermes per host, run by a **dedicated service user** (default `hermes`).
 - amd64 or arm64 (the architectures upstream publishes).
 - Runtime code: bash + Python stdlib. **No runtime dependencies beyond the
-  above.** Development tools (bats, shellcheck, mutmut) come from a `pixi.toml`
-  in the repo and are never needed on a deployed host.
+  above.** Development tools are never needed on a deployed host:
+  `mutmut` and `shellcheck` (via `shellcheck-py`) come from `pyproject.toml` +
+  `uv.lock` (uv); `bats-core`, `bats-support` and `bats-assert` are git
+  submodules under `tests/lib/`. Both are kept current by Dependabot (§15.5).
 
 ## 3. Facts about upstream this design relies on
 
@@ -115,9 +117,10 @@ lib/*.py             confdiff.py (semantic YAML diff), doctordiff.py,
 telegram.py          the Telegram connector
 templates/           hermes.container, talaria-updater.{service,timer},
                      talaria-telegram.service, hermes.env
-tests/               bats (bash), unittest (python), fixtures, mutation tooling
+tests/               bats (bash), unittest (python), fixtures, mutation tooling;
+                     tests/lib/ holds the bats submodules
 docs/                threat-model.md, buildkit.md (§6.4), mutation-report.md
-pixi.toml            dev tools only
+pyproject.toml       dev tools only (uv); uv.lock committed
 ```
 
 Each `lib/` module has one purpose and a small function interface, so it can be
@@ -657,7 +660,8 @@ Workflow hygiene, applied to every workflow:
 - third-party actions pinned by **commit SHA**, not tag;
 - `permissions: contents: read` at the top level; any job that needs more
   declares exactly that;
-- tools come from `pixi.toml`/`pixi.lock`, the same versions as local
+- tools come from `uv.lock` (`uv sync --frozen`) and the bats submodules
+  (`actions/checkout` with `submodules: true`), the same versions as local
   development.
 
 ### 15.3 Releases (`.github/workflows/release.yml`)
@@ -685,13 +689,29 @@ something Talaria relies on, and shows as a failed workflow run.
 
 ### 15.5 Dependencies
 
-- **Dependabot** (`.github/dependabot.yml`) for the `github-actions`
-  ecosystem, weekly, grouped into one pull request. It keeps the SHA-pinned
-  actions current.
-- **pixi dev tools**: a monthly workflow runs `pixi update` and opens a pull
-  request with the new lock file, so bats, shellcheck and mutmut stay current
-  through the same review-and-CI path. Only this job gets `contents: write`
-  and `pull-requests: write`.
+**Dependabot** (`.github/dependabot.yml`) covers every development
+dependency; there is no other update bot or update workflow:
+
+| Ecosystem | What it updates |
+|---|---|
+| `github-actions` | the SHA-pinned actions |
+| `uv` | `mutmut`, `shellcheck-py` in `pyproject.toml` / `uv.lock` |
+| `gitsubmodule` | `bats-core`, `bats-support`, `bats-assert` |
+
+All three: weekly, grouped into one pull request, and
+`cooldown: default-days: 14`, so a change is only proposed once it has been
+public for two weeks.
+
+The bats submodules track their upstream default branches (`master` /
+`main`). Dependabot follows commits on the tracked branch, not release tags,
+and none of the three repos has a release branch. The cooldown filters out
+short-lived commits; CI runs the full suite on every update, so a bats change
+that breaks the tests is never merged. (bats-support's last release is from
+2022; its default branch is the newer code anyway.)
+
+pixi is deliberately not used here: Dependabot cannot read `pixi.toml` or
+`pixi.lock` (checked 2026-09-26 in dependabot-core; its `conda` ecosystem
+reads only `environment.yml`), while it does support uv and submodules.
 - Runtime has no dependencies to track (§2). The Hermes image is tracked by
   Talaria itself, not by Dependabot.
 
