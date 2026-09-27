@@ -1,0 +1,22 @@
+[project]
+name = "talaria"
+version = "0.1.0"
+description = "Safe, approved updates for self-hosted Hermes Agent on rootless podman"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=8", "mutmut>=3.2", "pyyaml>=6", "shellcheck-py>=0.10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["e2e: needs systemd + rootless podman (TALARIA_E2E=1)",
+           "contract: needs network + real Hermes image (TALARIA_CONTRACT=1)"]
+addopts = "-m 'not e2e and not contract'"
+
+[tool.mutmut]
+paths_to_mutate = ["talaria/", "helpers/"]
+do_not_mutate = ["helpers/_upstream.py"]
+tests_dir = ["tests/"]
+pytest_add_cli_args = ["-q", "-x"]

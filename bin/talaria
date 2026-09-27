@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Thin wrapper: resolve the checkout (this file may be reached via a symlink).
+set -euo pipefail
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m talaria "$@"

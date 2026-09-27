@@ -1,0 +1,25 @@
+name: ci
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        python: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --locked
+      - run: uv run shellcheck bin/talaria
+      - run: uv run pytest -v
+      - name: no deployment-specific values
+        run: |
+          ! grep -rnE '100\.[0-9]+\.[0-9]+\.[0-9]+|openclaw|@gmail\.com' \
+              --include='*.md' --include='*.py' --include='*.container' \
+              --include='*.service' --include='*.timer' \
+              README.md AGENTS.md talaria helpers templates docs 2>/dev/null \
+            | grep -v 'docs/superpowers/'
