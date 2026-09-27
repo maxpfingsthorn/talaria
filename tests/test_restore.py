@@ -130,3 +130,27 @@ def test_restore_extract_exact_and_private(tmp_path, monkeypatch):
     assert tar == ["tar", "-xzf", str(b.path), "-C", str(d.with_name(f"{d.name}.restore-{b.id}"))]
     assert ctx.sh.timeouts[ctx.sh.calls.index(tar)] == 3600
     assert not (d / restore.DONE).exists()
+
+
+# ---- review I2: a leftover .old-<id> must not turn a restore into a no-op ----
+
+def test_stale_old_dir_does_not_skip_restore(tmp_path):
+    ctx, b = setup_ctx(tmp_path)
+    d = ctx.conf.data_dir
+    old = d.with_name(f"{d.name}.old-{b.id}")
+    old.mkdir()
+    (old / "leftover").write_text("from an earlier restore")
+    restore.restore_data(ctx, b)
+    check_end_state(ctx, b)
+
+
+def test_undeletable_leftover_refuses_before_changing_anything(tmp_path, monkeypatch):
+    ctx, b = setup_ctx(tmp_path)
+    d = ctx.conf.data_dir
+    old = d.with_name(f"{d.name}.old-{b.id}")
+    old.mkdir()
+    monkeypatch.setattr(restore.shutil, "rmtree", lambda p, ignore_errors=False: None)
+    with pytest.raises(restore.RestoreError) as e:
+        restore.restore_data(ctx, b)
+    assert str(e.value) == f"cannot remove the leftover directory {old}"
+    assert (d / "config.yaml").read_text() == "new\n"

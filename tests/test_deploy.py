@@ -140,7 +140,7 @@ def test_state_and_marker_during_migration(tmp_path, monkeypatch):
     bid = load(ctx)["last_deploy"]["backup"]
     assert seen["ctx_ok"] and seen["rec"] == NEW and seen["script"] == "migrate.py"
     assert seen["data"] == ctx.conf.data_dir and seen["work"] == ctx.paths.staging
-    assert seen["op"] == {"op": "deploy", "tag": "v2026.9.24", "backup": bid,
+    assert seen["op"] == {"op": "deploy", "tag": "v2026.9.24", "backup": bid, "changed": True,
                           "started": "2026-09-27T04:30:00+00:00"}
     assert seen["marker"] == {"op": "deploy", "backup": bid, "image": CUR,
                               "written": "2026-09-27T04:30:00+00:00"}

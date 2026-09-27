@@ -1,3 +1,4 @@
+import pytest
 from talaria import backup, deploy, marker, rollback, state
 from tests.opsfakes import CUR, NEW, load, ops_ctx
 
@@ -159,7 +160,8 @@ def test_user_rollback_marker_and_op(tmp_path, monkeypatch):
     rollback.rollback_cmd(ctx)
     assert seen == [{"marker": {"op": "rollback", "backup": bid, "image": CUR,
                                 "written": "2026-09-27T04:30:00+00:00"},
-                     "op": {"op": "rollback", "backup": bid, "started": "2026-09-27T04:30:00+00:00"},
+                     "op": {"op": "rollback", "backup": bid, "changed": True,
+                            "started": "2026-09-27T04:30:00+00:00"},
                      "backup": bid}]
     st = load(ctx)
     assert (st["current"], st["previous"], st["last_deploy"], st["op"]) == (CUR, None, None, None)
@@ -228,7 +230,7 @@ def test_restore_markers_op_and_texts(tmp_path, monkeypatch):
     assert pre.meta["image"] == NEW
     assert seen[0]["marker"] == {"op": "restore", "backup": pre.id, "image": NEW,
                                  "written": "2026-09-27T04:30:00+00:00"}
-    assert seen[0]["op"] == {"op": "restore", "backup": target,
+    assert seen[0]["op"] == {"op": "restore", "backup": target, "changed": True,
                              "started": "2026-09-27T04:30:00+00:00"}
     m = ctx.notify.sent[-1]
     assert (m.text, m.commands) == (f"Restored backup {target} (Hermes v2026.8.3).",
@@ -267,3 +269,92 @@ def test_restore_needs_space_for_two_copies(tmp_path, monkeypatch):
     monkeypatch.setattr(disk, "free_bytes", lambda p: int(b.meta["data_size"] * 1.5))
     rollback.restore_cmd(ctx, b.id)
     assert "refused: need " in ctx.notify.sent[-1].text
+
+
+# ---- review I3/I4/I5: every path that stops Hermes can be recovered ----
+
+def test_deploy_records_op_before_stopping(tmp_path, monkeypatch):
+    ctx = _ops(tmp_path, monkeypatch)
+    seen = []
+    real_stop = deploy.hermes.stop
+    monkeypatch.setattr(deploy.hermes, "stop", lambda c: (seen.append(load(c)["op"]), real_stop(c))[1])
+    deploy.deploy(ctx, "v2026.9.24")
+    assert seen[0] == {"op": "deploy", "tag": "v2026.9.24", "backup": None, "changed": False,
+                       "started": "2026-09-27T04:30:00+00:00"}
+
+
+def test_crash_during_deploy_backup_is_recovered_by_starting(tmp_path, monkeypatch):
+    ctx = _ops(tmp_path, monkeypatch)
+    real = backup.create
+    monkeypatch.setattr(backup, "create", lambda *a: (_ for _ in ()).throw(KeyboardInterrupt()))
+    with pytest.raises(KeyboardInterrupt):
+        deploy.deploy(ctx, "v2026.9.24")
+    monkeypatch.setattr(backup, "create", real)
+    assert marker.read(ctx.paths) is None and load(ctx)["op"]["changed"] is False
+    assert "not running" in __import__("talaria.status", fromlist=["x"]).interrupted_text(ctx, load(ctx))
+    ctx.sh.calls.clear()
+    rollback.rollback_cmd(ctx)
+    assert ctx.notify.sent[-1].text == ("Hermes v2026.8.3 is running again. The interrupted "
+                                        "deploy had nothing left to undo.")
+    assert ctx.sh.called("systemctl", "--user", "start", "hermes.service")
+    st = load(ctx)
+    assert st["op"] is None and st["current"] == CUR and st["pending"]["tag"] == "v2026.9.24"
+
+
+def test_deploy_early_failure_clears_op(tmp_path, monkeypatch):
+    ctx = _ops(tmp_path, monkeypatch)
+    monkeypatch.setattr(backup, "create", lambda *a: (_ for _ in ()).throw(OSError("disk")))
+    deploy.deploy(ctx, "v2026.9.24")
+    assert load(ctx)["op"] is None
+
+
+def test_crash_after_rollback_swap_is_recovered(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    monkeypatch.setattr(rollback.hermes, "post_start_check",
+                        lambda c: (_ for _ in ()).throw(KeyboardInterrupt()))
+    with pytest.raises(KeyboardInterrupt):
+        rollback.rollback_cmd(ctx)
+    assert marker.read(ctx.paths) is None and load(ctx)["op"]["op"] == "rollback"
+    monkeypatch.setattr(rollback.hermes, "post_start_check", lambda c: None)
+    assert "/rollback CONFIRM" in rollback.describe(ctx)
+    rollback.rollback_cmd(ctx)
+    assert ctx.notify.sent[-1].text == ("Hermes v2026.8.3 is running again. The interrupted "
+                                        "rollback had nothing left to undo.")
+    assert load(ctx)["op"] is None
+
+
+def test_resume_failure_is_reported(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    st = load(ctx)
+    st["op"] = {"op": "restore", "backup": "b", "changed": True, "started": "x"}
+    state.save(ctx.paths, st)
+    ctx.checks[:] = ["still down"]
+    rollback.rollback_cmd(ctx)
+    assert ctx.notify.sent[-1].text == ("Recovery failed: still down. Hermes is stopped. "
+                                        "Manual recovery: see README, section 'Manual recovery'.")
+    assert load(ctx)["op"]["op"] == "restore"
+
+
+def test_restore_pre_backup_failure_restarts_hermes(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    target = load(ctx)["last_deploy"]["backup"]
+    monkeypatch.setattr(backup, "create", lambda *a: (_ for _ in ()).throw(OSError("unreadable")))
+    rollback.restore_cmd(ctx, target)
+    assert ctx.notify.sent[-1].text == (f"Restore of {target} failed before changing anything: "
+                                        "unreadable. Hermes was started again.")
+    assert ctx.sh.calls[-1] == ["systemctl", "--user", "start", "hermes.service"]
+    assert load(ctx)["op"] is None and load(ctx)["current"] == NEW
+
+
+def test_interrupted_text_reports_real_service_state(tmp_path, monkeypatch):
+    from talaria import status
+    ctx = deployed(tmp_path, monkeypatch)
+    st = load(ctx)
+    st["op"] = {"op": "deploy", "tag": "v2026.9.24", "backup": "b", "changed": True,
+                "started": ctx.now().isoformat()}
+    ctx.sh.on("systemctl", "--user", "is-active", out="active\n")
+    assert status.interrupted_text(ctx, st) == (
+        "Interrupted deploy v2026.9.24 (0m ago): Hermes is running but the change was not "
+        "verified. Send /rollback CONFIRM to recover.")
+    ctx.sh.on("systemctl", "--user", "is-active", out="inactive\n")
+    assert "Hermes is not running but" in status.interrupted_text(ctx, st)

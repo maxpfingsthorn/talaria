@@ -47,9 +47,23 @@ def _step_move_excluded(ctx, old: Path, data: Path) -> None:
         _move_missing(old / ex, data / ex)
 
 
+class RestoreError(Exception):
+    pass
+
+
+def _remove(old: Path) -> None:
+    shutil.rmtree(old, ignore_errors=True)
+    if os.path.lexists(old):
+        raise RestoreError(f"cannot remove the leftover directory {old}")
+
+
 def restore_data(ctx, b) -> None:
     data = Path(ctx.conf.data_dir)
     new, old = _names(data, b.id)
+    if old.exists() and data.exists() and not (data / DONE).exists():
+        # a finished swap (or a leftover of one): complete it, then restore from scratch
+        _step_move_excluded(ctx, old, data)
+        _remove(old)
     if not old.exists():
         if not (new / DONE).exists():
             _step_extract(ctx, b, new)
@@ -58,4 +72,4 @@ def restore_data(ctx, b) -> None:
         _step_rename_new(ctx, new, data)
     (data / DONE).unlink(missing_ok=True)
     _step_move_excluded(ctx, old, data)
-    shutil.rmtree(old, ignore_errors=True)
+    shutil.rmtree(old, ignore_errors=True)   # a leftover is handled at the next restore

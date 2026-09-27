@@ -48,16 +48,22 @@ def deploy(ctx, tag: str) -> None:
         ctx.notify.send(Message(f"Deploy of {tag} refused: {e}. Nothing was stopped."))
         return
     old = st["current"]
+    # recorded before Hermes stops, so a crash in the backup can be recovered (§7.7)
+    st["op"] = {"op": "deploy", "tag": tag, "backup": None, "changed": False,
+                "started": ctx.now().isoformat()}
+    state.save(ctx.paths, st)
     try:
         hermes.stop(ctx)
         history.commit(ctx, st, f"before deploy {tag}")
         b = backup.create(ctx, f"pre-{tag}", old)
     except Exception as e:
         hermes.start(ctx)
+        st["op"] = None
+        state.save(ctx.paths, st)
         ctx.notify.send(Message(f"Deploy of {tag} failed before changing anything: {e}. "
                                 "Hermes was started again."))
         return
-    st["op"] = {"op": "deploy", "tag": tag, "backup": b.id, "started": ctx.now().isoformat()}
+    st["op"].update(backup=b.id, changed=True)
     state.save(ctx.paths, st)
     marker.write(ctx.paths, "deploy", b.id, old, ctx.now())
     _crash_point("after_marker")

@@ -27,8 +27,31 @@ def target(ctx, st) -> tuple[str, dict] | None:
     return None
 
 
+def needs_resume(ctx, st) -> bool:
+    """An interrupted op without a marker left data and image consistent: it changed
+    nothing yet, or it was a rollback/restore whose swap had finished."""
+    op = st.get("op")
+    return bool(op) and marker.read(ctx.paths) is None and (
+        not op.get("changed") or op["op"] in ("rollback", "restore"))
+
+
+def resume(ctx) -> str | None:
+    hermes.start(ctx)
+    reason = hermes.post_start_check(ctx)
+    if reason:
+        hermes.stop(ctx)
+        return reason
+    st = state.load(ctx.paths)
+    st["op"] = None
+    state.save(ctx.paths, st)
+    return None
+
+
 def describe(ctx) -> str:
     st = state.load(ctx.paths)
+    if needs_resume(ctx, st):
+        return (f"The interrupted {st['op']['op']} left nothing to undo. Send /rollback CONFIRM "
+                "to start Hermes and check it.")
     t = target(ctx, st)
     if not t:
         return "Nothing to roll back: no interrupted change and no previous deploy."
@@ -64,7 +87,8 @@ def rollback(ctx) -> str | None:
     disk.ensure_space(ctx, int(b.meta.get("data_size", 0)), ctx.conf.data_dir.parent)
     op = (marker.read(ctx.paths) or {}).get("op", "rollback")
     if not st.get("op"):
-        st["op"] = {"op": "rollback", "backup": bid, "started": ctx.now().isoformat()}
+        st["op"] = {"op": "rollback", "backup": bid, "changed": True,
+                    "started": ctx.now().isoformat()}
         state.save(ctx.paths, st)
     reason = _swap(ctx, b, image, op, (bid, image))
     if reason:
@@ -78,6 +102,19 @@ def rollback(ctx) -> str | None:
 
 
 def rollback_cmd(ctx) -> None:
+    st = state.load(ctx.paths)
+    if needs_resume(ctx, st):
+        op = st["op"]["op"]
+        try:
+            reason = resume(ctx)
+        except Exception as e:
+            reason = str(e)
+        if reason:
+            ctx.notify.send(Message(f"Recovery failed: {reason}. Hermes is stopped. {MANUAL}"))
+        else:
+            ctx.notify.send(Message(f"Hermes {(st.get('current') or {}).get('tag')} is running "
+                                    f"again. The interrupted {op} had nothing left to undo."))
+        return
     try:
         reason = rollback(ctx)
     except Unavailable:
@@ -123,9 +160,20 @@ def restore_cmd(ctx, bid: str) -> None:
         return
     st = state.load(ctx.paths)
     old = st["current"]
-    hermes.stop(ctx)
-    pre = backup.create(ctx, "pre-restore", old)
-    st["op"] = {"op": "restore", "backup": bid, "started": ctx.now().isoformat()}
+    st["op"] = {"op": "restore", "backup": bid, "changed": False,
+                "started": ctx.now().isoformat()}
+    state.save(ctx.paths, st)
+    try:
+        hermes.stop(ctx)
+        pre = backup.create(ctx, "pre-restore", old)
+    except Exception as e:
+        hermes.start(ctx)
+        st["op"] = None
+        state.save(ctx.paths, st)
+        ctx.notify.send(Message(f"Restore of {bid} failed before changing anything: {e}. "
+                                "Hermes was started again."))
+        return
+    st["op"]["changed"] = True
     state.save(ctx.paths, st)
     reason = _swap(ctx, b, image, "restore", (pre.id, old))
     if reason:

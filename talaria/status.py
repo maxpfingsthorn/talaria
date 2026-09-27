@@ -19,8 +19,9 @@ def interrupted_text(ctx, st) -> str | None:
     if marker.read(ctx.paths):
         return (f"Interrupted {what} ({when} ago). Hermes is stopped. "
                 "Send /rollback CONFIRM to restore the state before it.")
-    return (f"Interrupted {what} ({when} ago): the new version is running but was not "
-            "verified. /rollback CONFIRM goes back.")
+    running = "running" if hermes.is_active(ctx) else "not running"
+    return (f"Interrupted {what} ({when} ago): Hermes is {running} but the change was not "
+            "verified. Send /rollback CONFIRM to recover.")
 
 
 def status_text(ctx) -> str:

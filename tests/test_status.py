@@ -98,8 +98,8 @@ def test_interrupted_texts_exact(tmp_path):
     st = {"op": {"op": "restore", "backup": "B1", "started": ctx.now().isoformat()}}
     ctx.clock.sleep(120)
     assert status.interrupted_text(ctx, st) == (
-        "Interrupted restore B1 (2m ago): the new version is running but was not verified. "
-        "/rollback CONFIRM goes back.")
+        "Interrupted restore B1 (2m ago): Hermes is running but the change was not verified. "
+        "Send /rollback CONFIRM to recover.")
     with lock.op_lock(ctx.paths):
         assert status.interrupted_text(ctx, st) == "An operation is in progress: restore B1."
     st = {"op": {"op": "rollback", "started": ctx.now().isoformat()}}
