@@ -1,5 +1,5 @@
 name: ci
-on: [push, pull_request]
+on: [push, pull_request, workflow_call]
 permissions:
   contents: read
 jobs:
@@ -23,3 +23,18 @@ jobs:
               --include='*.service' --include='*.timer' \
               README.md AGENTS.md talaria helpers templates docs 2>/dev/null \
             | grep -v 'docs/superpowers/'
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: TALARIA_E2E=1 uv run pytest -m e2e tests/e2e -v -x
+      - if: failure()
+        run: |
+          sudo journalctl --no-pager -n 300 _UID=$(id -u hermes) || true
+          sudo -u hermes -H ls -la /home/hermes/.local/state/talaria || true

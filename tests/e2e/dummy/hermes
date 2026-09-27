@@ -1,0 +1,40 @@
+#!/opt/hermes/.venv/bin/python
+import json
+import os
+import sys
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+from dummy_build import LATEST, MODE
+
+args = sys.argv[1:]
+if args == ["--version"]:
+    print(f"Hermes Agent v0.0.{LATEST} (2026.1.{LATEST})")
+    sys.exit(0)
+if args[:1] == ["doctor"]:
+    print("✓ dummy doctor")
+    sys.exit(0)
+if args[:2] == ["gateway", "run"]:
+    from hermes_state import SessionDB
+    SessionDB(os.path.join(os.environ["HERMES_HOME"], "state.db")).close()
+    if MODE == "crash":
+        time.sleep(3)
+        sys.exit(1)
+    auth = bool(os.environ.get("HERMES_DASHBOARD_BASIC_AUTH_PASSWORD"))
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/api/status":
+                body = json.dumps({"auth_required": auth}).encode()
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    HTTPServer(("0.0.0.0", 9119), H).serve_forever()
+sys.exit(2)

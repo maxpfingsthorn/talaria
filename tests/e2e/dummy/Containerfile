@@ -1,0 +1,17 @@
+FROM docker.io/library/python:3.13-slim
+ARG LATEST=1
+ARG MODE=ok
+ARG REVISION=unknown
+LABEL org.opencontainers.image.revision=$REVISION
+RUN pip install --no-cache-dir pyyaml \
+ && mkdir -p /opt/hermes/.venv/bin /opt/hermes/scripts \
+ && ln -s /usr/local/bin/python /opt/hermes/.venv/bin/python \
+ && printf 'LATEST = %s\nMODE = "%s"\n' "$LATEST" "$MODE" > /opt/hermes/dummy_build.py
+COPY hermes_cli/ /opt/hermes/hermes_cli/
+COPY hermes_state.py /opt/hermes/
+COPY scripts/docker_config_migrate.py /opt/hermes/scripts/
+COPY --chmod=755 hermes /opt/hermes/.venv/bin/hermes
+ENV HERMES_HOME=/opt/data PYTHONPATH=/opt/hermes
+USER 10000:10000
+ENTRYPOINT ["/opt/hermes/.venv/bin/hermes"]
+CMD ["gateway", "run"]

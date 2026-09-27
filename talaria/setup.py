@@ -103,8 +103,8 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         say("STOP", "this checkout is not at a release tag; check out the latest tag "
                     "(or pass --dev)")
         return 1
-    url = sh.run(["git", "-C", str(REPO), "remote", "get-url", "origin"],
-                 check=False).stdout.strip() or str(REPO)
+    url = str(REPO) if args.dev else (sh.run(["git", "-C", str(REPO), "remote", "get-url",
+                                              "origin"], check=False).stdout.strip() or str(REPO))
     if args.plan:
         say("PLAN", f"install Talaria {ref} for {user} from {url}")
         say("PLAN", "then: detect Hermes (fresh or adopt), dashboard password, Telegram bot "

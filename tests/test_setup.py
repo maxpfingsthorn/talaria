@@ -193,3 +193,11 @@ def test_set_token_validates(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr("sys.stdin", io.StringIO("not-a-token\n"))
     assert setup.set_token(ctx) == 1
     assert not ctx.paths.env_file.exists()
+
+
+def test_dev_install_clones_local_checkout(monkeypatch, tmp_path):
+    sh, run, calls = op_env(monkeypatch, tmp_path, tag=None)
+    sh.on("git", "-C", str(setup.REPO), "rev-parse", out="abc123\n")
+    run(args(user="hermes", dev=True))
+    clone = [c for c in sh.calls if "clone" in c][0]
+    assert str(setup.REPO) in clone
