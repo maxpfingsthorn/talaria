@@ -26,7 +26,7 @@ class FakeAPI:
         self.failures = list(failures)
         self.calls = []
 
-    def call(self, method, timeout=35, **params):
+    def call(self, method, **params):
         self.calls.append((method, params))
         if self.failures:
             raise self.failures.pop(0)
@@ -63,3 +63,28 @@ def test_send_without_token_only_logs(capsys):
     n = TelegramNotifier(Conf(data_dir=None), api=FakeAPI([]), sleep=lambda s: None)
     n.send(Message("x"))
     assert "x" in capsys.readouterr().err
+
+
+def test_api_passes_timeout_to_telegram_and_waits_longer(monkeypatch):
+    import io
+    import urllib.request
+    from talaria.notify import TelegramAPI
+    seen = {}
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout):
+        seen["timeout"], seen["body"] = timeout, json.loads(req.data)
+        return Resp(b'{"ok": true, "result": []}')
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    api = TelegramAPI("http://x", "t")
+    assert api.call("getUpdates", offset=-1, timeout=0) == []
+    assert seen["body"] == {"offset": -1, "timeout": 0} and seen["timeout"] >= 10
+    api.call("getUpdates", offset=5, timeout=30)
+    assert seen["body"]["timeout"] == 30 and seen["timeout"] > 30

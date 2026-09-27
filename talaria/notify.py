@@ -53,12 +53,14 @@ class TelegramAPI:
     def __init__(self, base: str, token: str):
         self.base, self.token = base.rstrip("/"), token
 
-    def call(self, method: str, timeout: float = 35, **params):
+    def call(self, method: str, **params):
+        # `timeout` in params is Telegram's long-poll timeout; the HTTP timeout must exceed it
+        http_timeout = float(params.get("timeout") or 0) + 15
         req = urllib.request.Request(
             f"{self.base}/bot{self.token}/{method}",
             data=json.dumps(params).encode(), headers={"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with urllib.request.urlopen(req, timeout=http_timeout) as r:
                 body = json.loads(r.read())
         except urllib.error.HTTPError as e:
             retry = None

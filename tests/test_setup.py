@@ -124,7 +124,7 @@ class PairAPI:
     def __init__(self):
         self.calls = []
 
-    def call(self, method, timeout=35, **p):
+    def call(self, method, **p):
         self.calls.append(method)
         return []
 

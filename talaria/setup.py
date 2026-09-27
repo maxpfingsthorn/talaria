@@ -254,7 +254,7 @@ def set_token(ctx) -> int:
         print("That does not look like a Telegram bot token.", file=sys.stderr)
         return 1
     try:
-        me = TelegramAPI(ctx.conf.telegram_api, token).call("getMe", timeout=15)
+        me = TelegramAPI(ctx.conf.telegram_api, token).call("getMe")
     except ApiError as e:
         print(f"Telegram did not accept the token ({e}).", file=sys.stderr)
         return 1

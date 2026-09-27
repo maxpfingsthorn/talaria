@@ -11,10 +11,11 @@ class FakeAPI:
     def __init__(self, ctx, batches=()):
         self.ctx, self.batches, self.calls = ctx, list(batches), []
 
-    def call(self, method, timeout=35, **params):
+    def call(self, method, **params):     # same signature as TelegramAPI.call
         self.calls.append((method, params))
         if method == "getUpdates":
-            if timeout > 0:          # `timeout` is a named parameter of TelegramAPI.call
+            timeout = params.get("timeout", 0)
+            if timeout > 0:
                 self.ctx.clock.sleep(timeout)
             if len(self.calls) > 1000:
                 raise AssertionError("runaway polling loop")
