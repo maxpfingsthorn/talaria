@@ -486,3 +486,24 @@ def test_restore_describe_carries_button(bot, monkeypatch):
     b.handle(upd(1, "/restore 20260927T043000Z-manual"))
     (params,) = calls(api, "sendMessage")
     assert params["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "rs:20260927T043000Z-manual"
+
+
+@pytest.mark.parametrize("failing", ["answerCallbackQuery", "editMessageReplyMarkup"])
+def test_button_handling_survives_api_errors(bot, failing, capsys):
+    # a late tap makes Telegram answer 400 ("query is too old"); the rest must still happen
+    ctx, api, b = bot
+    pending(ctx)
+    real = api.call
+
+    def call(method, **p):
+        if method == failing:
+            api.calls.append((method, p))
+            raise ApiError(400, None)
+        return real(method, **p)
+
+    api.call = call
+    b.handle(cb("ap:v2026.9.24"))
+    assert ctx.sh.called("systemd-run")[0][-2:] == ["deploy", "v2026.9.24"]
+    assert [m for m, _ in api.calls if m == "editMessageReplyMarkup"]
+    assert api.sent()[-1] == "Deploying v2026.9.24. I will report the result."
+    assert f"[talaria] telegram {failing}: telegram api status 400" in capsys.readouterr().err

@@ -140,12 +140,19 @@ class Bot:
             toast, answer = self.on_button(q.get("data"))
         except Exception as e:
             toast, answer = "Error", f"Error: {e}"
-        self.api.call("answerCallbackQuery", callback_query_id=q.get("id"), text=toast)
+        # a late tap gets 400 "query is too old"; that must not stop the rest
+        self._try("answerCallbackQuery", callback_query_id=q.get("id"), text=toast)
         if answer is None:
             return
-        self.api.call("editMessageReplyMarkup", chat_id=chat.get("id"),
-                      message_id=msg.get("message_id"), reply_markup={"inline_keyboard": []})
+        self._try("editMessageReplyMarkup", chat_id=chat.get("id"),
+                  message_id=msg.get("message_id"), reply_markup={"inline_keyboard": []})
         self.reply(answer)
+
+    def _try(self, method: str, **params) -> None:
+        try:
+            self.api.call(method, **params)
+        except ApiError as e:
+            print(f"[talaria] telegram {method}: {e}", file=sys.stderr)
 
     def handle(self, u: dict) -> None:
         if "callback_query" in u:
