@@ -29,28 +29,37 @@ def keyboard(rows) -> dict | None:
     return {"inline_keyboard": out} if out else None
 
 
-def _assemble(text: str, blocks: list[str], commands: list[str]) -> str:
+def _split(block) -> tuple:
+    """An untrusted block is either text or (title, text); the title is ours."""
+    return block if isinstance(block, tuple) else (None, block)
+
+
+def _assemble(text: str, blocks: list, bodies: list, commands: list[str]) -> str:
     parts = [html.escape(text)]
-    parts += [f"<pre>{html.escape(b)}</pre>" for b in blocks]
+    for block, body in zip(blocks, bodies):
+        title, _ = _split(block)
+        pre = f"<pre>{html.escape(body)}</pre>"
+        parts.append(f"<b>{html.escape(title)}</b>\n{pre}" if title else pre)
     if commands:
         parts.append(" · ".join(f"<code>{html.escape(c)}</code>" for c in commands))
     return "\n\n".join(parts)
 
 
 def render(m: Message, limit: int = LIMIT) -> str:
-    out = _assemble(m.text, m.untrusted, m.commands)
+    bodies = [_split(b)[1] for b in m.untrusted]
+    out = _assemble(m.text, m.untrusted, bodies, m.commands)
     if len(out) <= limit or not m.untrusted:
         return out[:limit]
-    fixed = len(_assemble(m.text, ["" for _ in m.untrusted], m.commands))
-    budget = max(0, (limit - fixed) // len(m.untrusted))
-    blocks = []
-    for b in m.untrusted:
+    fixed = len(_assemble(m.text, m.untrusted, ["" for _ in bodies], m.commands))
+    budget = max(0, (limit - fixed) // len(bodies))
+    cut = []
+    for b in bodies:
         # escaping can grow text up to 6x (&quot;); shrink until it fits
         n = min(len(b), budget)
         while n > 0 and len(html.escape(b[:n] + CUT)) > budget:
             n = int(n * 0.8)
-        blocks.append(b if len(html.escape(b)) <= budget else b[:n] + CUT)
-    return _assemble(m.text, blocks, m.commands)[:limit]
+        cut.append(b if len(html.escape(b)) <= budget else b[:n] + CUT)
+    return _assemble(m.text, m.untrusted, cut, m.commands)[:limit]
 
 
 class ApiError(Exception):
@@ -92,7 +101,8 @@ class TelegramNotifier:
         self.api = api or TelegramAPI(conf.telegram_api, conf.telegram_token)
 
     def send(self, m: Message) -> None:
-        print(f"[talaria] message: {m.text}", *m.untrusted, file=sys.stderr, sep="\n")
+        blocks = [f"{t}:\n{x}" if t else x for t, x in map(_split, m.untrusted)]
+        print(f"[talaria] message: {m.text}", *blocks, file=sys.stderr, sep="\n")
         if not self.conf.telegram_token or not self.conf.telegram_user_id:
             return
         text = render(m)

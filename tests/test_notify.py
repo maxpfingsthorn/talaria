@@ -270,3 +270,16 @@ def test_keyboard_drops_buttons_over_64_bytes():
     assert keyboard([[("ok", "a" * 64), ("too long", "b" * 65)], [("x", "c" * 70)]]) == {
         "inline_keyboard": [[{"text": "ok", "callback_data": "a" * 64}]]}
     assert keyboard([]) is None
+
+
+# ---- titled untrusted blocks ----
+
+def test_render_titled_blocks():
+    m = Message("T", untrusted=[("Migrations <2>", "a\nb"), "plain"])
+    assert render(m) == "T\n\n<b>Migrations &lt;2&gt;</b>\n<pre>a\nb</pre>\n\n<pre>plain</pre>"
+
+
+def test_render_titled_blocks_truncate_within_limit():
+    m = Message("T", untrusted=[("Big", "x" * 9000), ("Also big", "y" * 9000)])
+    out = render(m)
+    assert len(out) <= 4096 and out.count("<pre>") == 2 and "<b>Also big</b>" in out

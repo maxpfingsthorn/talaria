@@ -80,7 +80,7 @@ def test_rehearse_sets_pending_and_reports(happy):
     assert "v2026.9.24" in msg.text and "27 → 30" in msg.text
     assert "25 → 28 (held back" in msg.text
     assert msg.commands == ["/approve v2026.9.24", "/reject v2026.9.24"]
-    joined = "\n".join(msg.untrusted)
+    joined = "\n".join(body for _, body in msg.untrusted)
     assert "Turned off verify-on-stop" in joined and "~ model.name: a → b" in joined
     assert "+ ✗ new problem" in joined
     assert [c[1] for c in happy.helper_calls] == ["migrate.py", "dbopen.py", "confdiff.py"]
@@ -177,7 +177,9 @@ def test_candidate_message_exact(happy):
                       "v2026.9.24\n"
                       "Config version: 27 → 30\n"
                       "state.db: 25 → 28 (held back; image supports 30)")
-    assert m.untrusted == ["✓ Turned off verify-on-stop", "~ model.name: a → b", "+ ✗ new problem"]
+    assert m.untrusted == [("Migrations that ran (1)", "✓ Turned off verify-on-stop"),
+                           ("Config changes: 1 changed", "~ model.name: a → b"),
+                           ("Doctor: new or fixed problems (1)", "+ ✗ new problem")]
 
 
 def test_candidate_message_variants(happy):
@@ -189,7 +191,9 @@ def test_candidate_message_variants(happy):
     m = rehearse.candidate_message(happy, {"current": None}, report, "v1")
     assert m.text == ("Hermes v2 is ready to deploy (current unknown). The rehearsal on a copy "
                       "passed.\nConfig version: 1 → 2\nstate.db: 30 → 30\nReplaces the pending v1.")
-    assert m.untrusted == ["a\nb", "+ k: 1\n- r: 2", "+ x\n- y"]
+    assert m.untrusted == [("Migrations that ran (2)", "a\nb"),
+                           ("Config changes: 1 added, 1 removed", "+ k\n- r"),
+                           ("Doctor: new or fixed problems (2)", "+ x\n- y")]
 
 
 def test_candidate_message_no_db_and_empty_blocks(happy):
@@ -197,22 +201,24 @@ def test_candidate_message_no_db_and_empty_blocks(happy):
               "db": {"before": None, "after": None, "schema_version": 30},
               "messages": [], "diff": {}, "doctor": []}
     m = rehearse.candidate_message(happy, {}, report, None)
-    assert m.text.endswith("state.db: None → None") and m.untrusted == []
+    assert m.text.endswith("state.db: None → None\nDoctor: no new problems.")
+    assert m.untrusted == []
     report["db"] = {"before": 3, "after": 3, "schema_version": None}
-    assert rehearse.candidate_message(happy, {}, report, None).text.endswith("state.db: 3 → 3")
+    assert rehearse.candidate_message(happy, {}, report, None).text.endswith(
+        "state.db: 3 → 3\nDoctor: no new problems.")
 
 
 def test_doctor_changes_rules():
-    before = "same\n\n  \nold\n"
-    after = "same\n\n  \nnew\n" + "".join(f"n{i}\n" for i in range(45))
+    before = "same\n\n  \n✗ old\n"
+    after = "same\n\n  \n✗ new\n" + "".join(f"✗ n{i}\n" for i in range(45))
     out = rehearse._doctor_changes(before, after)
-    assert out[:2] == ["+ new", "+ n0"] and len(out) == 40
-    assert rehearse._doctor_changes("a\nb\n", "a\n") == ["- b"]
+    assert out[:2] == ["+ ✗ new", "+ ✗ n0"] and len(out) == 40
+    assert rehearse._doctor_changes("a\n⚠ b\n", "a\n") == ["- ⚠ b"]
 
 
 def test_fmt_diff_partial_keys():
-    assert rehearse._fmt_diff({"removed": [["a", 1]]}) == "- a: 1"
-    assert rehearse._fmt_diff({"changed": [["a", 1, 2]], "added": [["b", 3]]}) == "~ a: 1 → 2\n+ b: 3"
+    assert rehearse._fmt_diff({"removed": [["a", 1]]}) == "- a"
+    assert rehearse._fmt_diff({"changed": [["a", 1, 2]], "added": [["b", 3]]}) == "~ a: 1 → 2\n+ b"
 
 
 def test_config_copy_passed_to_confdiff(happy):
@@ -320,3 +326,36 @@ def test_candidate_message_has_buttons(happy):
     rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
     assert happy.notify.sent[-1].buttons == [[("Approve v2026.9.24", "ap:v2026.9.24"),
                                               ("Reject", "rj:v2026.9.24")]]
+
+
+# ---- readable candidate report ----
+
+def test_doctor_changes_only_problems():
+    before = "  ✓ ok\n  ⚠ old warning\n"
+    after = "  ✓ ok\n  ✓ brand new check\n  ✗ Gateway not reachable\n  → detail line\n  ⚠ disk low\n"
+    assert rehearse._doctor_changes(before, after) == ["+ ✗ Gateway not reachable", "+ ⚠ disk low",
+                                                        "- ⚠ old warning"]
+
+
+def test_fmt_diff_lists_added_and_removed_keys_only():
+    d = {"changed": [["a.b", 1, 2]], "added": [["n1", {"big": "value"}]],
+         "removed": [[f"old{i}", "v"] for i in range(13)]}
+    assert rehearse._fmt_diff(d) == "\n".join(
+        ["~ a.b: 1 → 2", "+ n1"] + [f"- old{i}" for i in range(10)] + ["… and 3 more removed"])
+
+
+def test_candidate_message_titles_and_summary(happy):
+    report = {"tag": "v2", "cfg_before": 1, "cfg_after": 2,
+              "db": {"before": 30, "after": 30, "schema_version": 30},
+              "messages": ["m1", "m2"],
+              "diff": {"changed": [["k", 1, 2]], "added": [], "removed": [["r", 1], ["s", 2]]},
+              "doctor": []}
+    m = rehearse.candidate_message(happy, {"current": {"tag": "v1"}}, report, None)
+    assert m.text.endswith("Doctor: no new problems.")
+    assert m.untrusted == [("Migrations that ran (2)", "m1\nm2"),
+                           ("Config changes: 1 changed, 2 removed", "~ k: 1 → 2\n- r\n- s")]
+    report["doctor"] = ["+ ✗ x"]
+    report["diff"] = {}
+    m = rehearse.candidate_message(happy, {"current": {"tag": "v1"}}, report, None)
+    assert m.untrusted[-1] == ("Doctor: new or fixed problems (1)", "+ ✗ x")
+    assert "Doctor: no new problems." not in m.text

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sqlite3
 import stat
@@ -71,18 +72,36 @@ def _sqlite_copy(src: Path, dst: Path) -> None:
         s.close()
 
 
+PROBLEM = re.compile(r"[✗✘✖⚠❌]|\b(error|fail(ed|ure)?|warning)\b", re.I)
+MAX_KEYS = 10
+
+
 def _doctor_changes(before: str, after: str) -> list[str]:
+    """Only problem lines that are new ("+") or gone ("-"); passing checks are noise."""
     b, a = before.splitlines(), after.splitlines()
-    out = [f"+ {l}" for l in a if l.strip() and l not in b]
-    out += [f"- {l}" for l in b if l.strip() and l not in a]
+    out = [f"+ {l.strip()}" for l in a if PROBLEM.search(l) and l not in b]
+    out += [f"- {l.strip()}" for l in b if PROBLEM.search(l) and l not in a]
     return out[:40]
 
 
+def _keys(sign: str, items: list, word: str) -> list[str]:
+    lines = [f"{sign} {k}" for k, *_ in items[:MAX_KEYS]]
+    if len(items) > MAX_KEYS:
+        lines.append(f"… and {len(items) - MAX_KEYS} more {word}")
+    return lines
+
+
 def _fmt_diff(d: dict) -> str:
+    """Changed values in full; added and removed keys by name only."""
     lines = [f"~ {k}: {o} → {n}" for k, o, n in d.get("changed", [])]
-    lines += [f"+ {k}: {v}" for k, v in d.get("added", [])]
-    lines += [f"- {k}: {v}" for k, v in d.get("removed", [])]
+    lines += _keys("+", d.get("added", []), "added")
+    lines += _keys("-", d.get("removed", []), "removed")
     return "\n".join(lines)
+
+
+def _diff_title(d: dict) -> str:
+    counts = [f"{len(d.get(k, []))} {k}" for k in ("changed", "added", "removed") if d.get(k)]
+    return "Config changes: " + ", ".join(counts)
 
 
 def candidate_message(ctx, st, report: dict, replaced: str | None) -> Message:
@@ -98,8 +117,17 @@ def candidate_message(ctx, st, report: dict, replaced: str | None) -> Message:
                  + (f" (held back; image supports {db['schema_version']})" if held else ""))
     if replaced:
         lines.append(f"Replaces the pending {replaced}.")
-    blocks = [b for b in ("\n".join(report["messages"]), _fmt_diff(report["diff"]),
-                          "\n".join(report["doctor"])) if b]
+    blocks = []
+    if report["messages"]:
+        blocks.append((f"Migrations that ran ({len(report['messages'])})",
+                       "\n".join(report["messages"])))
+    if _fmt_diff(report["diff"]):
+        blocks.append((_diff_title(report["diff"]), _fmt_diff(report["diff"])))
+    if report["doctor"]:
+        blocks.append((f"Doctor: new or fixed problems ({len(report['doctor'])})",
+                       "\n".join(report["doctor"])))
+    else:
+        lines.append("Doctor: no new problems.")
     return Message("\n".join(lines), untrusted=blocks,
                    commands=[f"/approve {tag}", f"/reject {tag}"],
                    buttons=[[(f"Approve {tag}", f"ap:{tag}"), ("Reject", f"rj:{tag}")]])
