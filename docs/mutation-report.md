@@ -68,7 +68,7 @@ They were **not** individually reviewed. The largest groups are:
 - arguments to stubbed collaborators in setup's fresh-install path;
 - directory modes of directories the fixtures pre-create;
 - config parsing of rarely used value forms;
-- CLI help-free parser details.
+- CLI parser details.
 
 The deploy, rollback and restore modules have 20 survivors between them, and the
 marker module has none. List them with `uv run mutmut results` after a run.
