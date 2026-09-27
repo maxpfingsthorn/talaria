@@ -38,3 +38,7 @@ jobs:
         run: |
           sudo journalctl --no-pager -n 300 _UID=$(id -u hermes) || true
           sudo -u hermes -H ls -la /home/hermes/.local/state/talaria || true
+          ls -la /usr/lib/systemd/user-generators/ /usr/libexec/podman/ || true
+          sudo -u hermes -H cat /home/hermes/.config/containers/systemd/hermes.container || true
+          cd / && sudo -u hermes -H env -i HOME=/home/hermes PATH=/usr/bin:/bin \
+            /usr/libexec/podman/quadlet -dryrun -user -v 2>&1 | head -60 || true
