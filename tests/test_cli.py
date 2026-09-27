@@ -25,3 +25,13 @@ def test_unknown_command_exits_2():
         assert e.code == 2
     else:
         raise AssertionError("expected SystemExit")
+
+
+def test_bin_wrapper_ignores_callers_cwd(tmp_path):
+    fake = tmp_path / "talaria"
+    fake.mkdir()
+    (fake / "__init__.py").write_text("__version__ = 'impostor'\n")
+    (fake / "__main__.py").write_text("print('impostor')\n")
+    out = subprocess.run([str(ROOT / "bin/talaria"), "version"], cwd=tmp_path,
+                         capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == talaria.__version__

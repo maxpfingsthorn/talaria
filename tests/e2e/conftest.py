@@ -1,5 +1,7 @@
 """e2e fixtures. Needs: Linux, systemd, rootless podman, passwordless sudo (GitHub runner).
-Enabled only with TALARIA_E2E=1. Spike outcome (Task 22 Step 1): <record here>."""
+Enabled only with TALARIA_E2E=1. Spike outcome (Task 22 Step 1): rootless podman with keep-id:uid=10000 and
+systemd-run work on ubuntu-24.04 runners once the AppArmor userns sysctl is off; restarting
+user@<uid>.service times out, so test_08 simulates the boot instead."""
 import os
 import re
 import shutil
