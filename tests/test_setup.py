@@ -1,4 +1,5 @@
 import argparse
+import os
 import io
 from types import SimpleNamespace
 from pathlib import Path
@@ -210,3 +211,11 @@ def test_handoff_drops_callers_xdg_dirs(monkeypatch, tmp_path):
     for var in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"):
         assert argv[argv.index(var) - 1] == "-u"
     assert "HOME=/home/hermes" in argv
+
+
+def test_setup_leaves_callers_cwd(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(setup, "operator_phase", lambda sh, a: seen.append(os.getcwd()) or 0)
+    monkeypatch.chdir(tmp_path)
+    assert setup.setup(args()) == 0
+    assert seen == ["/"]      # the service user may not be able to enter the caller's cwd

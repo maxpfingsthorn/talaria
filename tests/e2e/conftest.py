@@ -34,7 +34,7 @@ def as_user(*argv, user=USER, env=(), check=True, **kw):
               f"LOGNAME={user}", "PATH=/usr/local/bin:/usr/bin:/bin",
               f"XDG_RUNTIME_DIR=/run/user/{u}",
               f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{u}/bus", *env, *argv,
-              check=check, **kw)
+              check=check, cwd="/", **kw)
 
 
 def bus_ready(user=USER) -> bool:

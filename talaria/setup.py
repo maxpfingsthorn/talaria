@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import getpass
+import os
 import pwd
 import re
 import secrets
@@ -267,4 +268,5 @@ def setup(args) -> int:
     from talaria.shell import Shell
     if args.as_service:
         return service_phase(make_ctx(), args)
+    os.chdir("/")  # commands run as the service user, which may not enter the caller's cwd
     return operator_phase(Shell(), args)

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Feasibility check for the e2e suite (spec §13.2). Run on a fresh ubuntu-24.04 runner.
 set -euxo pipefail
+cd /   # the spike user cannot enter the runner workspace
 sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 sudo useradd --create-home --shell /bin/bash spike
 sudo loginctl enable-linger spike
