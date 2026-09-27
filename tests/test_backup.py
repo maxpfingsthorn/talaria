@@ -146,3 +146,41 @@ def test_orphan_sidecar_still_bumps_the_id(tmp_path):
     ctx.paths.backups.mkdir(parents=True)
     (ctx.paths.backups / "20260927T043000Z-manual.json").write_text("{}")
     assert backup.create(ctx, "manual", None).id == "20260927T043000Z-manual-2"
+
+
+def test_bad_label_rejected_and_nothing_written(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    with pytest.raises(backup.BackupError) as e:
+        backup.create(ctx, "Bad Label", None)
+    assert str(e.value) == "bad backup label: 'Bad Label'"
+    assert list(ctx.paths.backups.iterdir()) == []
+
+
+def test_sidecar_exact(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    (ctx.conf.data_dir / "config.yaml").write_text("_config_version: 5\n")
+    b = backup.create(ctx, "manual", {"tag": "t"})
+    import hashlib
+    assert b.meta == {"id": b.id, "label": "manual", "created": "2026-09-27T04:30:00+00:00",
+                      "image": {"tag": "t"}, "cfg_version": 5,
+                      "sha256": hashlib.sha256(b.path.read_bytes()).hexdigest(),
+                      "size": b.path.stat().st_size, "data_size": 19}
+    assert json.loads((ctx.paths.backups / f"{b.id}.json").read_text()) == b.meta
+    assert (ctx.paths.backups.stat().st_mode & 0o777) == 0o700
+
+
+def test_list_ignores_bad_sidecars(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    b = backup.create(ctx, "manual", None)
+    (ctx.paths.backups / "junk.json").write_text("{}")
+    (ctx.paths.backups / "20260927T043000Z-x.json").write_text("not json")
+    (ctx.paths.backups / "20260927T043000Z-x.tar.gz").write_text("")
+    assert [x.id for x in backup.list_backups(ctx)] == [b.id]
+
+
+def test_prune_removes_stray_tmp(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    backup.create(ctx, "manual", None)
+    (ctx.paths.backups / ".x.tar.gz.tmp").write_text("partial")
+    backup.prune(ctx, set())
+    assert not (ctx.paths.backups / ".x.tar.gz.tmp").exists()

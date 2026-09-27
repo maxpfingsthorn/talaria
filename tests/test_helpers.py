@@ -1,3 +1,4 @@
+import pytest
 import json
 import sqlite3
 
@@ -245,3 +246,38 @@ def test_confdiff_main_reads_sys_argv_and_ignores_extra(tmp_path, monkeypatch):
     assert json.loads(out.read_text())["changed"] == [["x", 1, 2]]
     confdiff.main([str(tmp_path / "a.yaml"), str(tmp_path / "b.yaml"), "extra"])
     assert json.loads(out.read_text())["changed"] == [["x", 1, 2]]
+
+
+def test_confdiff_main_values_and_empty_files(tmp_path, monkeypatch):
+    (tmp_path / "a.yaml").write_text("")
+    (tmp_path / "b.yaml").write_text("d: 2020-01-02\n")
+    out = tmp_path / "r.json"
+    monkeypatch.setenv("TALARIA_RESULT", str(out))
+    confdiff.main([str(tmp_path / "a.yaml"), str(tmp_path / "b.yaml")])
+    assert json.loads(out.read_text()) == {"ok": True, "error": None, "changed": [],
+                                           "added": [["d", "2020-01-02"]], "removed": []}
+    (tmp_path / "b.yaml").write_text("")
+    confdiff.main([str(tmp_path / "a.yaml"), str(tmp_path / "b.yaml")])
+    assert json.loads(out.read_text())["added"] == []
+
+
+def test_confdiff_main_error_exact(tmp_path, monkeypatch):
+    out = tmp_path / "r.json"
+    monkeypatch.setenv("TALARIA_RESULT", str(out))
+    confdiff.main([str(tmp_path / "missing.yaml"), str(tmp_path / "b.yaml")])
+    r = json.loads(out.read_text())
+    assert r["error"].startswith("FileNotFoundError: ")
+    assert r == {"ok": False, "error": r["error"], "changed": [], "added": [], "removed": []}
+
+
+def test_confdiff_flatten_empty_dict_is_a_value():
+    assert confdiff.flatten({"a": {}, "b": {"c": 1}}) == {"a": {}, "b.c": 1}
+    assert confdiff.flatten(None) == {}
+
+
+@pytest.mark.parametrize("key,masked", [("api_key", True), ("TOKEN", True), ("db.password", True),
+                                        ("x.passwd", True), ("secret_x", True),
+                                        ("credentials", True), ("keyboard", True),
+                                        ("model", False), ("key_path.name", False)])
+def test_confdiff_mask(key, masked):
+    assert (confdiff.mask(key, "v") == "***") is masked

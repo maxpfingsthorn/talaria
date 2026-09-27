@@ -67,3 +67,12 @@ def test_marker_roundtrip(tmp_path):
     marker.clear(p)
     marker.clear(p)  # idempotent
     assert marker.read(p) is None
+
+
+def test_write_json_atomic_exact(tmp_path):
+    f = tmp_path / "d" / "x.json"
+    state.write_json_atomic(f, {"b": 1, "a": [1, 2]})
+    assert f.read_text() == '{\n  "a": [\n    1,\n    2\n  ],\n  "b": 1\n}'
+    assert (f.stat().st_mode & 0o777) == 0o600
+    assert (f.parent.stat().st_mode & 0o777) == 0o700
+    assert [p.name for p in f.parent.iterdir()] == ["x.json"]

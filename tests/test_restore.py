@@ -74,3 +74,59 @@ def test_damaged_backup_changes_nothing(tmp_path):
     with pytest.raises(backup.BackupError):
         restore.restore_data(ctx, b)
     assert (ctx.conf.data_dir / "config.yaml").read_text() == "new\n"
+
+
+# ---- _move_missing (mutation testing) ----
+
+def test_move_missing_cases(tmp_path):
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    (src / "a/b").mkdir(parents=True)
+    (src / "a/b/new.txt").write_text("n")
+    (src / "a/keep.txt").write_text("src version")
+    (src / "file_vs_dir").write_text("f")
+    (src / "linkdir").symlink_to(src / "a")
+    (dst / "a").mkdir(parents=True)
+    (dst / "a/keep.txt").write_text("dst version")
+    (dst / "file_vs_dir").mkdir()
+    (dst / "linkdir").mkdir()
+    restore._move_missing(src / "a", dst / "a")
+    restore._move_missing(src / "file_vs_dir", dst / "file_vs_dir")
+    restore._move_missing(src / "linkdir", dst / "linkdir")
+    restore._move_missing(src / "missing", dst / "missing")
+    restore._move_missing(src / "a/b", dst / "deep/er/b")
+    assert (dst / "a/keep.txt").read_text() == "dst version"
+    assert (dst / "a/b/new.txt").read_text() == "n"
+    assert (dst / "file_vs_dir").is_dir() and (src / "file_vs_dir").exists()
+    assert not (dst / "linkdir/b").exists()
+    assert not (dst / "missing").exists()
+
+
+def test_move_missing_dangling_symlink_is_moved(tmp_path):
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    src.mkdir()
+    dst.mkdir()
+    (src / "dangling").symlink_to(tmp_path / "nowhere")
+    restore._move_missing(src / "dangling", dst / "dangling")
+    assert (dst / "dangling").is_symlink()
+
+
+def test_restore_extract_exact_and_private(tmp_path, monkeypatch):
+    ctx, b = setup_ctx(tmp_path)
+    ctx.conf.data_dir.chmod(0o750)
+    b = backup.create(ctx, "pre-y", None)        # tar restores the mode of "." from the archive
+    modes = []
+    real = restore._step_rename_old
+
+    def spy(c, data, old):
+        new = data.with_name(f"{data.name}.restore-{b.id}")
+        modes.append(oct(new.stat().st_mode & 0o777))
+        return real(c, data, old)
+
+    monkeypatch.setattr(restore, "_step_rename_old", spy)
+    restore.restore_data(ctx, b)
+    assert modes == ["0o750"]
+    tar = [c for c in ctx.sh.calls if c[0] == "tar"][0]
+    d = ctx.conf.data_dir
+    assert tar == ["tar", "-xzf", str(b.path), "-C", str(d.with_name(f"{d.name}.restore-{b.id}"))]
+    assert ctx.sh.timeouts[ctx.sh.calls.index(tar)] == 3600
+    assert not (d / restore.DONE).exists()
