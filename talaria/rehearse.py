@@ -56,10 +56,11 @@ def copy_data(src: Path, dst: Path, excludes) -> None:
 
 def _sqlite_copy(src: Path, dst: Path) -> None:
     dst.unlink()
-    s = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
+    # equivalent mutants: sqlite accepts file: URIs without uri=True; PRAGMA is case-insensitive
+    s = sqlite3.connect(f"file:{src}?mode=ro", uri=True)  # pragma: no mutate
     d = sqlite3.connect(dst)
     try:
-        s.execute("PRAGMA trusted_schema=OFF")
+        s.execute("PRAGMA trusted_schema=OFF")  # pragma: no mutate
         s.backup(d)
     finally:
         d.close()

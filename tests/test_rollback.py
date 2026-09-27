@@ -131,3 +131,139 @@ def test_age_units(tmp_path):
                        (86399, "23h"), (86400, "1d"), (3 * 86400 + 7200, "3d")]:
         ctx.clock.slept = secs
         assert rollback.age(ctx, t) == want
+
+
+# ---- exact behaviour (mutation testing) ----
+
+from talaria import disk, images
+from tests.opsfakes import ops_ctx as _ops
+
+
+def spy_swap(monkeypatch, ctx):
+    seen = []
+    from talaria import restore
+    real = rollback.restore_data
+
+    def spy(c, b):
+        seen.append({"marker": marker.read(ctx.paths), "op": load(ctx)["op"], "backup": b.id})
+        return real(c, b)
+
+    monkeypatch.setattr(rollback, "restore_data", spy)
+    return seen
+
+
+def test_user_rollback_marker_and_op(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    bid = load(ctx)["last_deploy"]["backup"]
+    seen = spy_swap(monkeypatch, ctx)
+    rollback.rollback_cmd(ctx)
+    assert seen == [{"marker": {"op": "rollback", "backup": bid, "image": CUR,
+                                "written": "2026-09-27T04:30:00+00:00"},
+                     "op": {"op": "rollback", "backup": bid, "started": "2026-09-27T04:30:00+00:00"},
+                     "backup": bid}]
+    st = load(ctx)
+    assert (st["current"], st["previous"], st["last_deploy"], st["op"]) == (CUR, None, None, None)
+    assert ctx.notify.sent[-1].text == "Rolled back to Hermes v2026.8.3."
+
+
+def test_interrupted_deploy_keeps_its_op_and_marker_name(tmp_path, monkeypatch):
+    ctx = _ops(tmp_path, monkeypatch)
+    b = backup.create(ctx, "pre-v2026.9.24", CUR)
+    st = load(ctx)
+    st["op"] = {"op": "deploy", "tag": "v2026.9.24", "backup": b.id, "started": "x"}
+    state.save(ctx.paths, st)
+    marker.write(ctx.paths, "deploy", b.id, CUR, ctx.now())
+    seen = spy_swap(monkeypatch, ctx)
+    rollback.rollback_cmd(ctx)
+    assert seen[0]["marker"]["op"] == "deploy" and seen[0]["op"]["op"] == "deploy"
+
+
+def test_rollback_failure_keeps_op_name_in_marker(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    ctx.checks[:] = ["broken"]
+    rollback.rollback_cmd(ctx)
+    m = marker.read(ctx.paths)
+    assert m["op"] == "rollback" and m["image"] == CUR
+    assert ctx.notify.sent[-1].text == ("Rollback failed: broken. Hermes is stopped. "
+                                        "Manual recovery: see README, section 'Manual recovery'.")
+
+
+def test_rollback_exception_text_exact(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    monkeypatch.setattr(rollback, "restore_data", lambda c, b: (_ for _ in ()).throw(OSError("io")))
+    rollback.rollback_cmd(ctx)
+    assert ctx.notify.sent[-1].text == ("Rollback failed: io. Hermes may be stopped. "
+                                        "Manual recovery: see README, section 'Manual recovery'.")
+
+
+def test_rollback_nothing_text_exact(tmp_path, monkeypatch):
+    ctx = _ops(tmp_path, monkeypatch)
+    rollback.rollback_cmd(ctx)
+    assert ctx.notify.sent[-1].text == ("Nothing to roll back: no interrupted change and no "
+                                        "previous deploy.")
+
+
+def test_rollback_needs_space_for_the_data(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    b = backup.get(ctx, load(ctx)["last_deploy"]["backup"])
+    monkeypatch.setattr(disk, "free_bytes", lambda p: b.meta["data_size"] - 1)
+    rollback.rollback_cmd(ctx)
+    assert ctx.notify.sent[-1].text.startswith("Rollback failed: need ")
+    assert load(ctx)["current"] == NEW
+
+
+def test_target_needs_previous_too(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    st = load(ctx)
+    st["previous"] = None
+    assert rollback.target(ctx, st) is None
+
+
+def test_restore_markers_op_and_texts(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    target = load(ctx)["last_deploy"]["backup"]
+    seen = spy_swap(monkeypatch, ctx)
+    rollback.restore_cmd(ctx, target)
+    pre = [b for b in backup.list_backups(ctx) if b.meta["label"] == "pre-restore"][0]
+    assert pre.meta["image"] == NEW
+    assert seen[0]["marker"] == {"op": "restore", "backup": pre.id, "image": NEW,
+                                 "written": "2026-09-27T04:30:00+00:00"}
+    assert seen[0]["op"] == {"op": "restore", "backup": target,
+                             "started": "2026-09-27T04:30:00+00:00"}
+    m = ctx.notify.sent[-1]
+    assert (m.text, m.commands) == (f"Restored backup {target} (Hermes v2026.8.3).",
+                                    [f"/restore {pre.id} CONFIRM"])
+    assert load(ctx)["op"] is None and marker.read(ctx.paths) is None
+
+
+def test_restore_failure_texts_exact(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    target = load(ctx)["last_deploy"]["backup"]
+    ctx.checks[:] = ["broken", None]
+    rollback.restore_cmd(ctx, target)
+    assert ctx.notify.sent[-1].text == (f"Restore of {target} failed: broken. Hermes reverted to "
+                                        "the state before the restore.")
+    ctx.checks[:] = ["broken", "still broken"]
+    rollback.restore_cmd(ctx, target)
+    assert ctx.notify.sent[-1].text == (
+        f"Restore of {target} failed: broken. Reverting failed too: still broken. Hermes is "
+        "stopped. Manual recovery: see README, section 'Manual recovery'.")
+    assert marker.read(ctx.paths)["op"] == "restore"
+
+
+def test_restore_refusals_exact(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    b = backup.create(ctx, "manual", None)
+    rollback.restore_cmd(ctx, b.id)
+    assert ctx.notify.sent[-1].text == (f"Restore of {b.id} refused: the backup records no image. "
+                                        "Nothing was changed.")
+    rollback.restore_cmd(ctx, "20200101T000000Z-x")
+    assert ctx.notify.sent[-1].text == "No backup 20200101T000000Z-x. /backups lists them."
+
+
+def test_restore_needs_space_for_two_copies(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    b = backup.get(ctx, load(ctx)["last_deploy"]["backup"])
+    monkeypatch.setattr(disk, "free_bytes", lambda p: int(b.meta["data_size"] * 1.5))
+    rollback.restore_cmd(ctx, b.id)
+    assert "refused: need " in ctx.notify.sent[-1].text
