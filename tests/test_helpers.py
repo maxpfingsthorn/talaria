@@ -130,3 +130,11 @@ def test_confdiff_main_bad_yaml(tmp_path, monkeypatch):
     monkeypatch.setenv("TALARIA_RESULT", str(out))
     confdiff.main([str(tmp_path / "a.yaml"), str(tmp_path / "b.yaml")])
     assert not json.loads(out.read_text())["ok"]
+
+
+def test_dbopen_create_opens_missing(tmp_path):
+    class CreatingUp(DbUp):
+        def open_state_db(self, path):
+            make_db(path, 30)
+    r = dbopen.dbopen(CreatingUp(), tmp_path / "state.db", create=True)
+    assert r["ok"] and r["before"] is None and r["after"] == 30

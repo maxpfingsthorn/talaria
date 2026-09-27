@@ -18,14 +18,14 @@ def read_version(path):
         return None
 
 
-def dbopen(up, db_path: Path) -> dict:
+def dbopen(up, db_path: Path, create: bool = False) -> dict:
     res = {"ok": False, "before": None, "after": None, "schema_version": None, "error": None}
     try:
         res["schema_version"] = up.schema_version()
-        if not Path(db_path).exists():
+        if not Path(db_path).exists() and not create:
             res["ok"] = True
             return res
-        res["before"] = read_version(db_path)
+        res["before"] = read_version(db_path) if Path(db_path).exists() else None
         up.open_state_db(db_path)
         res["after"] = read_version(db_path)
         res["ok"] = True
@@ -34,9 +34,11 @@ def dbopen(up, db_path: Path) -> dict:
     return res
 
 
-def main() -> None:
+def main(argv=None) -> None:
     import _upstream
-    res = dbopen(_upstream, Path(os.environ.get("HERMES_HOME", "/opt/data")) / "state.db")
+    create = "--create" in (argv if argv is not None else sys.argv[1:])
+    res = dbopen(_upstream, Path(os.environ.get("HERMES_HOME", "/opt/data")) / "state.db",
+                 create=create)
     with open(os.environ["TALARIA_RESULT"], "w") as f:
         json.dump(res, f)
 
