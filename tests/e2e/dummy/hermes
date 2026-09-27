@@ -17,6 +17,10 @@ if args[:1] == ["doctor"]:
 if args[:2] == ["gateway", "run"]:
     from hermes_state import SessionDB
     SessionDB(os.path.join(os.environ["HERMES_HOME"], "state.db")).close()
+    cfg = os.path.join(os.environ["HERMES_HOME"], "config.yaml")
+    if not os.path.exists(cfg):          # real Hermes seeds a config on first start
+        with open(cfg, "w") as f:
+            f.write(f"_config_version: {LATEST}\nmodel: dummy\n")
     if MODE == "crash":
         time.sleep(3)
         sys.exit(1)
