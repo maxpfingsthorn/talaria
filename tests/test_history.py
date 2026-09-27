@@ -89,3 +89,37 @@ def test_new_error_reported_again(tmp_path):
     history.commit(ctx, st, "b")
     assert len(ctx.notify.sent) == 2
     assert ctx.notify.sent[0].text.startswith("History commit failed: git -C ")
+
+
+# ---- review C1: never write through a symlink in the history repo ----
+
+def test_symlink_planted_in_repo_is_replaced_not_followed(tmp_path):
+    ctx, st = gctx(tmp_path)
+    history.commit(ctx, st, "first")
+    victim = tmp_path / "victim.txt"
+    victim.write_text("precious")
+    target = ctx.paths.history / "memories/one.md"
+    target.unlink()
+    os.symlink(victim, target)
+    (ctx.conf.data_dir / "memories/one.md").write_text("agent content")
+    history.commit(ctx, st, "second")
+    assert victim.read_text() == "precious"
+    assert not target.is_symlink() and target.read_text() == "agent content"
+
+
+def test_source_swapped_to_symlink_is_not_read(tmp_path, monkeypatch):
+    ctx, st = gctx(tmp_path)
+    secret = tmp_path / "secret"
+    secret.write_text("SECRET")
+    real = history._wanted
+
+    def racy(data):
+        out = real(data)
+        (data / "config.yaml").unlink()
+        os.symlink(secret, data / "config.yaml")     # swapped after the check
+        return out
+
+    monkeypatch.setattr(history, "_wanted", racy)
+    history.commit(ctx, st, "x")
+    copied = ctx.paths.history / "config.yaml"
+    assert not copied.exists() or "SECRET" not in copied.read_text()

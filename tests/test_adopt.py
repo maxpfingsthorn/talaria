@@ -42,7 +42,7 @@ def test_detect_finds_hermes_and_quadlet(tmp_path):
 def test_detect_skips_own_managed_container(tmp_path):
     ctx = actx(tmp_path, [container("hermes", "hermes.service")])
     ctx.paths.quadlet.parent.mkdir(parents=True)
-    ctx.paths.quadlet.write_text("x")
+    ctx.paths.quadlet.write_text("# Managed by Talaria. x\n")
     assert adopt.detect(ctx) == []
 
 
@@ -347,3 +347,36 @@ def test_manual_steps_without_backup_or_quadlet(tmp_path):
                          f"  mv {u}.talaria-orig {u}   # if it exists\n"
                          "  systemctl --user daemon-reload\n"
                          "  systemctl --user enable --now hermes-gateway.service")
+
+
+# ---- review C2: only Talaria's own hermes.container counts as managed ----
+
+def test_users_own_hermes_container_is_detected(tmp_path):
+    ctx = actx(tmp_path, [container("hermes", "hermes.service")])
+    ctx.paths.quadlet_dir.mkdir(parents=True)
+    ctx.paths.quadlet.write_text("[Container]\nImage=x\n")      # written by the user
+    found = adopt.detect(ctx)
+    assert [f.unit for f in found] == ["hermes.service"]
+    assert found[0].quadlet == ctx.paths.quadlet
+
+
+def test_is_managed(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    assert adopt.is_managed(ctx) is False
+    ctx.paths.quadlet_dir.mkdir(parents=True)
+    ctx.paths.quadlet.write_text("[Container]\n")
+    assert adopt.is_managed(ctx) is False
+    ctx.paths.quadlet.write_text("# Managed by Talaria. Re-run ...\n[Unit]\n")
+    assert adopt.is_managed(ctx) is True
+
+
+def test_stopped_quadlets_found(tmp_path):
+    ctx = actx(tmp_path, [])
+    ctx.sh.on("podman", "ps", out="[]")
+    ctx.paths.quadlet_dir.mkdir(parents=True)
+    (ctx.paths.quadlet_dir / "old.container").write_text("[Container]\nVolume=/d:/opt/data\n")
+    (ctx.paths.quadlet_dir / "db.container").write_text("[Container]\nImage=postgres\n")
+    (ctx.paths.quadlet_dir / "x.container.talaria-orig").write_text("Volume=/d:/opt/data\n")
+    assert adopt.stopped_quadlets(ctx, []) == [ctx.paths.quadlet_dir / "old.container"]
+    f = adopt.Found("old.service", "c", "n", "i", [], {}, ctx.paths.quadlet_dir / "old.container")
+    assert adopt.stopped_quadlets(ctx, [f]) == []

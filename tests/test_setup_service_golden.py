@@ -197,7 +197,7 @@ def test_rerun_stopped_hermes_is_started(s, capsys):
 
 def test_rerun_with_changed_quadlet_restarts(s, capsys):
     run(s, capsys)
-    s.paths.quadlet.write_text("old")
+    s.paths.quadlet.write_text("# Managed by Talaria. older version\n")
     s.sh.on("systemctl", "--user", "is-active", out="active\n")
     s.sh.calls.clear()
     s.sh.timeouts.clear()
@@ -308,3 +308,27 @@ def test_managed_install_skips_detection(s, monkeypatch, capsys):
     monkeypatch.setattr(setup.adopt, "detect", lambda c: pytest.fail("detected again"))
     rc, out, cmds = run(s, capsys)
     assert rc == 0
+
+
+# ---- review C2 ----
+
+def test_foreign_hermes_container_stops_fresh_install(s, capsys):
+    s.paths.quadlet_dir.mkdir(parents=True)
+    s.paths.quadlet.write_text("[Container]\nImage=mine\n")
+    rc, out, cmds = run(s, capsys)
+    assert rc == 1 and cmds == []
+    assert out == (f"STOP: {H}/.config/containers/systemd/hermes.container exists but was not "
+                   "written by Talaria; start that Hermes and run setup again to adopt it, or "
+                   "move the file away\n")
+    assert s.paths.quadlet.read_text() == "[Container]\nImage=mine\n"
+
+
+def test_stopped_quadlet_install_stops(s, monkeypatch, capsys):
+    s.paths.quadlet_dir.mkdir(parents=True)
+    q = s.paths.quadlet_dir / "old.container"
+    q.write_text("[Container]\nVolume=/d:/opt/data\n")
+    rc, out, cmds = run(s, capsys)
+    assert rc == 1
+    assert out == (f"STOP: found a Hermes Quadlet that is not running: {H}/.config/containers/"
+                   "systemd/old.container; start it (systemctl --user start old.service) and run "
+                   "setup again\n")

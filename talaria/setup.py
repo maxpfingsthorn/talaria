@@ -148,7 +148,7 @@ def service_phase(ctx, args, api=None) -> int:
     if not p.conf_file.exists():
         p.conf_file.write_text("# Talaria settings; see README.\ndata_dir = ~/hermes-data\n")
     st = state.load(p)
-    managed = p.quadlet.exists() and st.get("current") is not None
+    managed = adopt.is_managed(ctx) and st.get("current") is not None
     found = plan = None
     if not managed:
         cands = adopt.detect(ctx)
@@ -157,6 +157,16 @@ def service_phase(ctx, args, api=None) -> int:
             if not cands:
                 say("STOP", f"no Hermes install with unit {args.adopt}")
                 return 1
+        stopped = adopt.stopped_quadlets(ctx, cands)
+        if stopped and not args.adopt:
+            q = stopped[0]
+            say("STOP", f"found a Hermes Quadlet that is not running: {q}; start it "
+                        f"(systemctl --user start {q.stem}.service) and run setup again")
+            return 1
+        if not cands and p.quadlet.exists():
+            say("STOP", f"{p.quadlet} exists but was not written by Talaria; start that "
+                        "Hermes and run setup again to adopt it, or move the file away")
+            return 1
         if len(cands) > 1:
             for f in cands:
                 say("FOUND", f"Hermes unit {f.unit} (container {f.name})")

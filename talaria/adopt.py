@@ -45,6 +45,30 @@ def _env(lst) -> dict:
     return dict(e.split("=", 1) for e in lst or [] if "=" in e)
 
 
+MANAGED_HEADER = "# Managed by Talaria."
+
+
+def is_managed(ctx) -> bool:
+    """True only for a hermes.container that Talaria itself wrote."""
+    try:
+        return ctx.paths.quadlet.read_text().startswith(MANAGED_HEADER)
+    except FileNotFoundError:
+        return False
+
+
+def stopped_quadlets(ctx, found: list) -> list:
+    """Hermes-looking Quadlet files that no detected container belongs to."""
+    seen = {f.quadlet for f in found}
+    out = []
+    for q in sorted(ctx.paths.quadlet_dir.glob("*.container")) if ctx.paths.quadlet_dir.is_dir() else []:
+        if q in seen or (q == ctx.paths.quadlet and is_managed(ctx)):
+            continue
+        text = q.read_text(errors="replace")
+        if "/opt/data" in text or "HERMES_HOME" in text:
+            out.append(q)
+    return out
+
+
 def detect(ctx) -> list[Found]:
     ids = [c["Id"] for c in json.loads(
         ctx.sh.run(["podman", "ps", "-a", "--format", "json"]).stdout or "[]")]
@@ -57,7 +81,7 @@ def detect(ctx) -> list[Found]:
             continue
         labels = c["Config"].get("Labels") or {}
         unit = labels.get("PODMAN_SYSTEMD_UNIT") or f"container-{c['Name']}.service"
-        if unit == "hermes.service" and ctx.paths.quadlet.exists():
+        if unit == "hermes.service" and is_managed(ctx):
             continue
         q = ctx.paths.quadlet_dir / (unit[:-len(".service")] + ".container")
         out.append(Found(unit=unit, container=c["Id"], name=c["Name"], image_id=c["Image"],
