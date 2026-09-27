@@ -22,7 +22,7 @@ MENU = [("status", "Hermes version, state, pending update"),
         ("rollback", "Undo the last change (asks to confirm)"),
         ("backups", "List backups"),
         ("restore", "Restore a backup: /restore <id> (asks to confirm)")]
-STALE = "That button is out of date. /status shows the current state."
+STALE = "Out of date — send /status"
 
 
 def new_code() -> str:
@@ -102,31 +102,36 @@ class Bot:
         return f"Not understood. Commands: {HELP}"
 
     def on_button(self, data) -> tuple[str, str | None]:
-        """(toast, reply). Each button names what it acts on and is checked against the
-        current state, so an old button never acts on a different target."""
+        """(toast, status). The status label replaces the buttons in place; None keeps them.
+        Each button names what it acts on and is checked against the current state, so an
+        old button never acts on a different target."""
         from talaria import state
         kind, _, arg = (data or "").partition(":")
+        if kind == "done":
+            return "Already handled", None
         st = state.load(self.ctx.paths)
         if kind in ("ap", "rj") and RELEASE_TAG.match(arg):
             if kind == "rj":
                 from talaria.cli import reject
-                return "Rejected", reject(self.ctx, arg)
+                if reject(self.ctx, arg).startswith("Busy"):
+                    return "Busy, try again in a minute", None
+                return "Rejected", f"❌ Rejected {arg}"
             if (st.get("pending") or {}).get("tag") != arg:
-                return "Out of date", STALE
+                return STALE, "⌛ Out of date"
             self.spawn("deploy", arg)
-            return "Deploying", f"Deploying {arg}. I will report the result."
+            return "Deploying", f"✅ Approved — deploying {arg}"
         if kind == "rb" and (arg == "resume" or ID_RE.match(arg)):
             resume = rollback.needs_resume(self.ctx, st)
             t = None if resume else rollback.target(self.ctx, st)
             if (arg == "resume" and resume) or (t and t[0] == arg):
                 self.spawn("rollback", "--confirm")
-                return "Rolling back", "Rolling back. I will report the result."
-            return "Out of date", STALE
+                return "Rolling back", "↩️ Rolling back…"
+            return STALE, "⌛ Out of date"
         if kind == "rs" and ID_RE.match(arg):
             if not rollback.describe_restore_buttons(self.ctx, arg):
-                return "Out of date", STALE
+                return STALE, "⌛ Out of date"
             self.spawn("restore", arg, "--confirm")
-            return "Restoring", f"Restoring {arg}. I will report the result."
+            return "Restoring", f"↩️ Restoring {arg}…"
         return "Unknown button", None
 
     def handle_button(self, q: dict) -> None:
@@ -137,16 +142,16 @@ class Bot:
             print(f"[talaria] ignored button {q.get('id')}", file=sys.stderr)
             return
         try:
-            toast, answer = self.on_button(q.get("data"))
+            toast, status = self.on_button(q.get("data"))
         except Exception as e:
-            toast, answer = "Error", f"Error: {e}"
-        # a late tap gets 400 "query is too old"; that must not stop the rest
+            toast, status = f"Error: {e}"[:200], None
+        # quiet: a late tap gets 400 "query is too old"; that must not stop the rest
         self._try("answerCallbackQuery", callback_query_id=q.get("id"), text=toast)
-        if answer is None:
+        if status is None:
             return
         self._try("editMessageReplyMarkup", chat_id=chat.get("id"),
-                  message_id=msg.get("message_id"), reply_markup={"inline_keyboard": []})
-        self.reply(answer)
+                  message_id=msg.get("message_id"),
+                  reply_markup={"inline_keyboard": [[{"text": status, "callback_data": "done"}]]})
 
     def _try(self, method: str, **params) -> None:
         try:

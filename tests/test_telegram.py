@@ -350,6 +350,11 @@ def cb(data, user=OWNER, chat_type="private", mid=55):
         "message": {"message_id": mid, "chat": {"id": user, "type": chat_type}}}}
 
 
+def status_markup(label):
+    return {"chat_id": OWNER, "message_id": 55,
+            "reply_markup": {"inline_keyboard": [[{"text": label, "callback_data": "done"}]]}}
+
+
 def calls(api, method):
     return [p for m, p in api.calls if m == method]
 
@@ -395,9 +400,8 @@ def test_approve_button_deploys_and_removes_buttons(bot):
     b.handle(cb("ap:v2026.9.24"))
     assert ctx.sh.called("systemd-run")[0][-2:] == ["deploy", "v2026.9.24"]
     assert calls(api, "answerCallbackQuery") == [{"callback_query_id": "q1", "text": "Deploying"}]
-    assert calls(api, "editMessageReplyMarkup") == [
-        {"chat_id": OWNER, "message_id": 55, "reply_markup": {"inline_keyboard": []}}]
-    assert api.sent()[-1] == "Deploying v2026.9.24. I will report the result."
+    assert calls(api, "editMessageReplyMarkup") == [status_markup("✅ Approved — deploying v2026.9.24")]
+    assert api.sent() == []                      # the outcome is shown in place, no extra message
 
 
 def test_stale_approve_button_is_refused(bot):
@@ -405,9 +409,8 @@ def test_stale_approve_button_is_refused(bot):
     pending(ctx, "v2026.10.1")
     b.handle(cb("ap:v2026.9.24"))
     assert ctx.sh.called("systemd-run") == []
-    assert calls(api, "answerCallbackQuery")[0]["text"] == "Out of date"
-    assert api.sent()[-1] == "That button is out of date. /status shows the current state."
-    assert calls(api, "editMessageReplyMarkup")
+    assert calls(api, "answerCallbackQuery")[0]["text"] == "Out of date — send /status"
+    assert calls(api, "editMessageReplyMarkup") == [status_markup("⌛ Out of date")]
 
 
 def test_reject_button(bot):
@@ -415,7 +418,7 @@ def test_reject_button(bot):
     pending(ctx)
     b.handle(cb("rj:v2026.9.24"))
     assert state.load(ctx.paths)["rejected"] == ["v2026.9.24"]
-    assert api.sent()[-1] == "Rejected v2026.9.24. It will not be offered again."
+    assert calls(api, "editMessageReplyMarkup") == [status_markup("❌ Rejected v2026.9.24")]
 
 
 def test_rollback_button_must_match_current_target(bot, monkeypatch):
@@ -428,7 +431,7 @@ def test_rollback_button_must_match_current_target(bot, monkeypatch):
                         lambda c, st: ("20260927T043000Z-pre-v2", {"tag": "v1"}))
     b.handle(cb("rb:20260927T043000Z-pre-v2"))
     assert ctx.sh.called("systemd-run")[0][-2:] == ["rollback", "--confirm"]
-    assert api.sent()[-1] == "Rolling back. I will report the result."
+    assert calls(api, "editMessageReplyMarkup")[-1] == status_markup("↩️ Rolling back…")
 
 
 def test_resume_button(bot, monkeypatch):
@@ -450,7 +453,7 @@ def test_restore_button(bot, monkeypatch):
     bk = backup.create(ctx, "manual", None)
     b.handle(cb(f"rs:{bk.id}"))
     assert ctx.sh.called("systemd-run")[0][-3:] == ["restore", bk.id, "--confirm"]
-    assert api.sent()[-1] == f"Restoring {bk.id}. I will report the result."
+    assert calls(api, "editMessageReplyMarkup")[-1] == status_markup(f"↩️ Restoring {bk.id}…")
 
 
 @pytest.mark.parametrize("update", [cb("ap:v2026.9.24", user=7), cb("ap:v2026.9.24", chat_type="group")])
@@ -505,5 +508,22 @@ def test_button_handling_survives_api_errors(bot, failing, capsys):
     b.handle(cb("ap:v2026.9.24"))
     assert ctx.sh.called("systemd-run")[0][-2:] == ["deploy", "v2026.9.24"]
     assert [m for m, _ in api.calls if m == "editMessageReplyMarkup"]
-    assert api.sent()[-1] == "Deploying v2026.9.24. I will report the result."
     assert f"[talaria] telegram {failing}: telegram api status 400" in capsys.readouterr().err
+
+
+
+def test_status_button_tap_does_nothing(bot):
+    ctx, api, b = bot
+    b.handle(cb("done"))
+    assert calls(api, "answerCallbackQuery") == [{"callback_query_id": "q1", "text": "Already handled"}]
+    assert calls(api, "editMessageReplyMarkup") == [] and ctx.sh.called("systemd-run") == []
+
+
+def test_reject_while_busy_keeps_the_buttons(bot):
+    ctx, api, b = bot
+    pending(ctx)
+    from talaria import lock
+    with lock.op_lock(ctx.paths):
+        b.handle(cb("rj:v2026.9.24"))
+    assert calls(api, "answerCallbackQuery")[0]["text"] == "Busy, try again in a minute"
+    assert calls(api, "editMessageReplyMarkup") == []

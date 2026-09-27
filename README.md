@@ -88,7 +88,7 @@ button in your chat (and nowhere else). Update offers come with **Approve** and
 **Reject** buttons; `/rollback` and `/restore <id>` answer with a confirm button, so
 you never have to type `CONFIRM`. Each button names what it acts on and is checked
 against the current state: an old button is refused instead of acting on something
-else. Tapped buttons are removed.
+else. After a tap, the buttons are replaced by one status button (for example "✅ Approved — deploying vX"); the report above stays.
 
 You get a message when an update is ready, after a deploy, rollback or restore, when
 something fails, after an interrupted change, and once per new Talaria release.

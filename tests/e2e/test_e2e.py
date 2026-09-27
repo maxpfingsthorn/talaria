@@ -86,7 +86,6 @@ def test_05_redeploy_by_tapping_the_button(env):
     markup = tg.buttons[tg.sent.index(msg)]
     assert markup["inline_keyboard"][0][0]["callback_data"] == "ap:v2026.1.2"
     tg.tap("ap:v2026.1.2")
-    tg.wait_sent("Deploying v2026.1.2")
     tg.wait_sent("Deployed Hermes v2026.1.2")
 
 
