@@ -20,6 +20,8 @@ class FakeShell:
         return self
 
     def run(self, argv, *, input=None, check=True, timeout=None):
+        assert isinstance(check, bool), f"check must be a bool, got {check!r}"
+        assert timeout is None or (isinstance(timeout, (int, float)) and timeout > 0), timeout
         argv = [str(a) for a in argv]
         self.calls.append(argv)
         self.timeouts.append(timeout)

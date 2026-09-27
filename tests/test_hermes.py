@@ -1,3 +1,5 @@
+import pytest
+
 from talaria import hermes
 from talaria.shell import Result
 from tests.fakes import make_test_ctx
@@ -66,3 +68,76 @@ def test_config_version(tmp_path):
     assert hermes.config_version(tmp_path) is None
     (tmp_path / "config.yaml").unlink()
     assert hermes.config_version(tmp_path) is None
+
+
+def test_post_start_check_exact_commands_and_timing(tmp_path):
+    ctx = active_ctx(tmp_path)
+    urls = []
+    ctx.http_get = lambda url, timeout: (urls.append((url, timeout)), (200, b'{"auth_required": true}'))[1]
+    assert hermes.post_start_check(ctx) is None
+    assert ctx.clock.slept == 10
+    assert urls == [("http://127.0.0.1:9119/api/status", 5.0)]
+    assert list(zip(ctx.sh.calls, ctx.sh.timeouts)) == [
+        (["systemctl", "--user", "show", "-p", "NRestarts", "--value", "hermes.service"], 600),
+        (["systemctl", "--user", "is-active", "hermes.service"], 600),
+        (["systemctl", "--user", "show", "-p", "NRestarts", "--value", "hermes.service"], 600),
+        (["systemctl", "--user", "is-active", "hermes.service"], 600),
+        (["systemctl", "--user", "show", "-p", "NRestarts", "--value", "hermes.service"], 600)]
+
+
+@pytest.mark.parametrize("settle,slept", [(5, 5), (6, 10), (11, 15)])
+def test_post_start_check_settle_rounds_up_to_5s(settle, slept, tmp_path):
+    ctx = active_ctx(tmp_path)
+    ctx.conf.settle_seconds = settle
+    hermes.post_start_check(ctx)
+    assert ctx.clock.slept == slept
+
+
+def test_post_start_check_status_recovers_after_retries(tmp_path):
+    ctx = active_ctx(tmp_path)
+    answers = [(0, b""), (503, b""), (200, b'{"auth_required": true}')]
+    ctx.http_get = lambda url, timeout: answers.pop(0)
+    assert hermes.post_start_check(ctx) is None
+    assert ctx.clock.slept == 10 + 10
+
+
+def test_post_start_check_messages_exact(tmp_path):
+    ctx = active_ctx(tmp_path, active="failed\n")
+    assert hermes.post_start_check(ctx) == "hermes.service is not active"
+    (tmp_path / "b").mkdir()
+    ctx = active_ctx(tmp_path / "b", restarts=("0", "1"))
+    assert hermes.post_start_check(ctx) == "hermes.service restarted"
+
+
+def test_api_status_messages_exact(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    for answer, msg in [((0, b""), "/api/status answered nothing"),
+                        ((502, b""), "/api/status answered 502"),
+                        ((200, b"not json"), "/api/status does not report auth_required: true"),
+                        ((200, b'{"auth_required": "yes"}'),
+                         "/api/status does not report auth_required: true"),
+                        ((200, b'{"auth_required": true}'), None)]:
+        ctx.http_get = lambda url, timeout, a=answer: a
+        assert hermes.api_status(ctx) == msg
+
+
+def test_nrestarts_empty_is_zero(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("systemctl", "--user", "show", out="\n")
+    assert hermes.nrestarts(ctx) == 0
+
+
+def test_start_continues_when_reset_failed_fails(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("systemctl").on("systemctl", "--user", "reset-failed", rc=1)
+    hermes.start(ctx)
+    assert ctx.sh.calls[-1] == ["systemctl", "--user", "start", "hermes.service"]
+
+
+def test_stop_and_is_active_exact(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("systemctl").on("systemctl", "--user", "is-active", rc=3, out="inactive\n")
+    hermes.stop(ctx)
+    assert hermes.is_active(ctx) is False
+    assert ctx.sh.calls == [["systemctl", "--user", "stop", "hermes.service"],
+                            ["systemctl", "--user", "is-active", "hermes.service"]]

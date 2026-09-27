@@ -52,7 +52,7 @@ def post_start_check(ctx) -> str | None:
             return "hermes.service is not active"
         if nrestarts(ctx) != base:
             return "hermes.service restarted"
-    reason = None
+    reason = None  # pragma: no mutate  (overwritten before it is returned)
     for _ in range(12):
         reason = api_status(ctx)
         if reason is None:

@@ -132,3 +132,17 @@ def test_ensure_space(tmp_path, monkeypatch):
     disk.ensure_space(ctx, 2 * disk.GB, tmp_path)
     with pytest.raises(disk.NoSpace, match="GB"):
         disk.ensure_space(ctx, int(2.5 * disk.GB), tmp_path)
+
+
+def test_third_backup_in_same_second(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    ids = [backup.create(ctx, "manual", None).id for _ in range(3)]
+    assert ids == ["20260927T043000Z-manual", "20260927T043000Z-manual-2",
+                   "20260927T043000Z-manual-3"]
+
+
+def test_orphan_sidecar_still_bumps_the_id(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    ctx.paths.backups.mkdir(parents=True)
+    (ctx.paths.backups / "20260927T043000Z-manual.json").write_text("{}")
+    assert backup.create(ctx, "manual", None).id == "20260927T043000Z-manual-2"

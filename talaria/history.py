@@ -43,8 +43,10 @@ def commit(ctx, st: dict, message: str) -> None:
             if rel not in wanted:
                 p.unlink()
         for rel in wanted:
-            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(data / rel, repo / rel, follow_symlinks=False)
+            # equivalent mutant: parents only matters below memories/, which is flat
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)  # pragma: no mutate
+            # equivalent mutant: follow_symlinks=None is also false (and _wanted skips links)
+            shutil.copyfile(data / rel, repo / rel, follow_symlinks=False)  # pragma: no mutate
         _git(ctx, "add", "-A")
         if _git(ctx, "status", "--porcelain").stdout.strip():
             _git(ctx, "-c", "user.name=Talaria", "-c", "user.email=talaria@localhost",
