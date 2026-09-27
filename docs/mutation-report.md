@@ -1,31 +1,31 @@
 # Mutation testing report
 
-Date: 2026-09-27 · Commit: 754f0c0 · Tool: mutmut 3.8.0 (Python 3.12)
+Date: 2026-09-27 · Commit: after the final review fixes · Tool: mutmut 3.8.0 (Python 3.12)
 
-**Score: 95.4 %** (threshold 85 %). 5,361 mutants: 5,108 killed, 6 timeouts (counted as
-killed), 247 survived, 0 without tests, 0 suspicious. Scoring is honest:
+**Score: 95.1 %** (threshold 85 %). 5,652 mutants: 5,365 killed, 8 timeouts (counted as
+killed), 277 survived, 0 without tests, 0 suspicious. Scoring is honest:
 `tests/mutation_score.py` counts no-tests and suspicious mutants as survivors.
 
 | Module | Mutants | Killed | Timeout | Survived |
 |---|---|---|---|---|
-| `talaria.setup` | 820 | 774 | 0 | 46 |
-| `talaria.adopt` | 492 | 484 | 0 | 8 |
-| `talaria.telegram` | 394 | 388 | 1 | 5 |
-| `talaria.rehearse` | 388 | 373 | 0 | 15 |
-| `talaria.rollback` | 370 | 361 | 0 | 9 |
+| `talaria.setup` | 859 | 813 | 0 | 46 |
+| `talaria.adopt` | 525 | 508 | 0 | 17 |
+| `talaria.rollback` | 470 | 450 | 0 | 20 |
+| `talaria.telegram` | 394 | 386 | 3 | 5 |
+| `talaria.rehearse` | 393 | 376 | 0 | 17 |
 | `talaria.cli` | 338 | 317 | 0 | 21 |
-| `talaria.deploy` | 292 | 290 | 0 | 2 |
+| `talaria.deploy` | 313 | 311 | 0 | 2 |
 | `talaria.images` | 236 | 233 | 0 | 3 |
 | `talaria.backup` | 196 | 171 | 0 | 25 |
 | `talaria.notify` | 178 | 165 | 0 | 13 |
 | `talaria.check` | 178 | 175 | 0 | 3 |
+| `talaria.history` | 174 | 170 | 0 | 4 |
 | `talaria.conf` | 140 | 116 | 0 | 24 |
 | `talaria.hermes` | 134 | 131 | 2 | 1 |
-| `talaria.status` | 124 | 117 | 0 | 7 |
-| `talaria.history` | 123 | 123 | 0 | 0 |
-| `helpers.confdiff` | 120 | 117 | 0 | 3 |
+| `talaria.status` | 132 | 125 | 0 | 7 |
+| `helpers.confdiff` | 127 | 125 | 0 | 2 |
+| `talaria.restore` | 119 | 105 | 0 | 14 |
 | `talaria.containers` | 107 | 105 | 0 | 2 |
-| `talaria.restore` | 101 | 92 | 0 | 9 |
 | `helpers.dbopen` | 76 | 72 | 0 | 4 |
 | `talaria.upstream` | 74 | 60 | 0 | 14 |
 | `talaria.units` | 71 | 65 | 0 | 6 |
@@ -35,7 +35,7 @@ killed), 247 survived, 0 without tests, 0 suspicious. Scoring is honest:
 | `talaria.tags` | 53 | 48 | 0 | 5 |
 | `talaria.retention` | 48 | 48 | 0 | 0 |
 | `talaria.shell` | 44 | 39 | 0 | 5 |
-| `talaria.disk` | 32 | 18 | 3 | 11 |
+| `talaria.disk` | 41 | 27 | 3 | 11 |
 | `talaria.ctx` | 22 | 19 | 0 | 3 |
 | `talaria.marker` | 15 | 15 | 0 | 0 |
 
@@ -63,12 +63,12 @@ Ten lines carry the pragma, each with its reason next to the code:
 
 ## Remaining survivors
 
-The 247 survivors (194 logic, 53 string-only) are spread thinly over many modules.
+The 277 survivors (214 logic, 63 string-only) are spread thinly over many modules.
 They were **not** individually reviewed. The largest groups are:
 - arguments to stubbed collaborators in setup's fresh-install path;
 - directory modes of directories the fixtures pre-create;
 - config parsing of rarely used value forms;
 - CLI parser details.
 
-The deploy, rollback and restore modules have 20 survivors between them, and the
+The deploy, rollback and restore modules have 36 survivors between them, and the
 marker module has none. List them with `uv run mutmut results` after a run.
