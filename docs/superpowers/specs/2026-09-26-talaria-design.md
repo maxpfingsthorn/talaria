@@ -662,3 +662,27 @@ Each of these was considered and left out of v1 on purpose:
 - `--import-data` from non-podman installs.
 - Building images; the recipe is in `docs/buildkit.md`.
 - SELinux enforcing.
+
+## 16. Related projects
+
+Checked on 2026-09-27.
+
+- **[NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell)** (0.1.x) is an agent
+  sandbox runtime. A gateway (the control plane) runs sandboxes through a
+  Docker, rootless Podman, Kubernetes or microVM driver. Policies control
+  filesystem, process and network access, and provider credentials are injected
+  outside the sandbox. Enforcement uses a proxy, OPA, Landlock and seccomp. It
+  can be used standalone, without NemoClaw.
+- **[NVIDIA NemoClaw](https://github.com/NVIDIA/NemoClaw)** (alpha, Apache 2.0)
+  is a full stack on top of OpenShell for Hermes, OpenClaw and others. It covers
+  onboarding, inference routing, messaging channels, snapshots and `rebuild`.
+  Docker is its main path; Hermes on rootless Podman is an experimental profile.
+  Its update path is still settling: issue #11248 describes updates stranding
+  existing Hermes sandboxes.
+
+**How they relate to Talaria.** NemoClaw replaces the whole deployment rather
+than adding to it. It has no approval step and does not rehearse migrations.
+OpenShell's network and credential policies are stronger isolation than plain
+podman offers. Running Hermes under OpenShell, instead of plain podman, is a
+candidate for v2 once its rootless Podman support matures. Re-evaluate both in
+early 2027.
