@@ -1,0 +1,267 @@
+from __future__ import annotations
+
+import getpass
+import pwd
+import re
+import secrets
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from talaria import adopt, hermes, images, lock, state, telegram, units
+from talaria.conf import load_conf, parse_kv, write_env_value
+from talaria.images import pull_verify
+from talaria.notify import ApiError, TelegramAPI
+from talaria.state import ensure_dir
+from talaria.tags import pick_candidate
+from talaria.upstream import git_release_tags, registry_tags
+
+REPO = Path(__file__).resolve().parent.parent
+TOKEN_RE = re.compile(r"^\d{3,}:[A-Za-z0-9_-]{30,}$")
+TOOLS = {  # tool: (Debian/Ubuntu, Fedora/RHEL, Arch)
+    "podman": ("podman", "podman", "podman"), "git": ("git", "git", "git"),
+    "tar": ("tar", "tar", "tar"), "gzip": ("gzip", "gzip", "gzip"),
+    "systemd-run": ("systemd", "systemd", "systemd"), "loginctl": ("systemd", "systemd", "systemd"),
+    "sudo": ("sudo", "sudo", "sudo"),
+}
+which = shutil.which
+
+
+def say(kind: str, text: str) -> None:
+    print(f"{kind}: {text}", flush=True)
+
+
+def prerequisites(sh) -> list[str]:
+    missing = []
+    for tool, (deb, fed, arch) in TOOLS.items():
+        if which(tool) is None:
+            missing.append(tool)
+            say("MISSING", tool)
+            print(f"  hint: Debian/Ubuntu: apt install {deb} · Fedora/RHEL: dnf install {fed}"
+                  f" · Arch: pacman -S {arch}")
+    if "podman" not in missing:
+        m = re.search(r"(\d+)\.(\d+)", sh.run(["podman", "--version"]).stdout)
+        if not m or (int(m[1]), int(m[2])) < (4, 9):
+            missing.append("podman")
+            say("MISSING", f"podman >= 4.9 (found {m[0] if m else 'unknown'})")
+    return missing
+
+
+def selinux_enforcing(sh) -> bool:
+    return bool(which("getenforce")) and \
+        sh.run(["getenforce"], check=False).stdout.strip() == "Enforcing"
+
+
+def root_block(user: str, operator: str, create: bool) -> str:
+    lines = []
+    if create:
+        lines += [f"useradd --create-home --shell /bin/bash {user}",
+                  f"grep -q '^{user}:' /etc/subuid || echo 'WARNING: {user} has no subuid range; see README'"]
+    rule = f"/etc/sudoers.d/talaria-{user}"
+    lines += [f"loginctl enable-linger {user}",
+              f"echo '{operator} ALL=({user}) NOPASSWD: ALL' > {rule}",
+              f"chmod 440 {rule}", f"visudo -cf {rule}"]
+    return "\n".join(lines)
+
+
+def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subprocess.call,
+                   linger_dir=Path("/var/lib/systemd/linger")) -> int:
+    operator = operator or getpass.getuser()
+    user = args.user or "hermes"
+    if prerequisites(sh):
+        return 10
+    if selinux_enforcing(sh):
+        say("STOP", "SELinux is enforcing; Talaria v1 does not support that")
+        return 1
+    try:
+        pw = getpwnam(user)
+    except KeyError:
+        say("ACTION REQUIRED", f"run this block as root, then run setup again:\n"
+            + root_block(user, operator, create=True))
+        return 10
+    sudo = ["sudo", "-n", "-u", user, "-H"]
+    home, install = pw.pw_dir, f"{pw.pw_dir}/.local/share/talaria"
+    sudo_ok = sh.run(["sudo", "-n", "-u", user, "true"], check=False).returncode == 0
+    installed = sudo_ok and sh.run(["sudo", "-n", "-u", user, "test", "-e", install],
+                                   check=False).returncode == 0
+    if not args.user and not installed:
+        say("FOUND", f"account {user} exists but Talaria is not installed for it")
+        say("STOP", f"confirm with the person, then re-run with --user {user}")
+        return 1
+    if not sudo_ok or not (Path(linger_dir) / user).exists():
+        say("ACTION REQUIRED", f"run this block as root, then run setup again:\n"
+            + root_block(user, operator, create=False))
+        return 10
+    tag = sh.run(["git", "-C", str(REPO), "describe", "--tags", "--exact-match"],
+                 check=False)
+    if tag.returncode == 0:
+        ref = tag.stdout.strip()
+    elif args.dev:
+        ref = sh.run(["git", "-C", str(REPO), "rev-parse", "HEAD"]).stdout.strip()
+    else:
+        say("STOP", "this checkout is not at a release tag; check out the latest tag "
+                    "(or pass --dev)")
+        return 1
+    url = sh.run(["git", "-C", str(REPO), "remote", "get-url", "origin"],
+                 check=False).stdout.strip() or str(REPO)
+    if args.plan:
+        say("PLAN", f"install Talaria {ref} for {user} from {url}")
+        say("PLAN", "then: detect Hermes (fresh or adopt), dashboard password, Telegram bot "
+                    "token and pairing, units, start Hermes, verify")
+        return 0
+    if not installed:
+        sh.run(sudo + ["git", "clone", "-q", url, install], timeout=600)
+    sh.run(sudo + ["git", "-C", install, "fetch", "-q", "--tags", "origin"], timeout=600)
+    sh.run(sudo + ["git", "-C", install, "checkout", "-q", ref])
+    sh.run(sudo + ["mkdir", "-p", f"{home}/.local/bin"])
+    sh.run(sudo + ["ln", "-sfn", f"{install}/bin/talaria", f"{home}/.local/bin/talaria"])
+    say("OK", f"Talaria {ref} installed for {user}")
+    rest = ["--adopt", args.adopt] if args.adopt else []
+    return call(sudo + ["env", f"XDG_RUNTIME_DIR=/run/user/{pw.pw_uid}",
+                        f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{pw.pw_uid}/bus",
+                        f"{home}/.local/bin/talaria", "setup", "--as-service", *rest])
+
+
+def _fresh_image(ctx, st) -> bool:
+    git = git_release_tags(ctx.sh, ctx.conf.hermes_repo)
+    reg = registry_tags(ctx.sh, ctx.conf.image, ctx.conf.registry_tls_verify)
+    tag = pick_candidate(git, reg, None, set(), ctx.conf.min_release)
+    if not tag:
+        say("STOP", "no Hermes release image found")
+        return False
+    st["current"] = pull_verify(ctx, tag, git[tag])
+    state.save(ctx.paths, st)
+    ctx.conf.data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    say("OK", f"Hermes {tag} pulled and verified")
+    return True
+
+
+def service_phase(ctx, args, api=None) -> int:
+    p = ctx.paths
+    ensure_dir(p.conf_dir)
+    ensure_dir(p.state_dir)
+    if not p.conf_file.exists():
+        p.conf_file.write_text("# Talaria settings; see README.\ndata_dir = ~/hermes-data\n")
+    st = state.load(p)
+    managed = p.quadlet.exists() and st.get("current") is not None
+    found = plan = None
+    if not managed:
+        cands = adopt.detect(ctx)
+        if args.adopt:
+            cands = [f for f in cands if f.unit == args.adopt]
+            if not cands:
+                say("STOP", f"no Hermes install with unit {args.adopt}")
+                return 1
+        if len(cands) > 1:
+            for f in cands:
+                say("FOUND", f"Hermes unit {f.unit} (container {f.name})")
+            say("STOP", "several Hermes installs; choose one with --adopt UNIT")
+            return 1
+        if cands:
+            found = cands[0]
+            plan = adopt.plan(ctx, found)
+            adopt.print_plan(plan)
+            if plan.problems:
+                for x in plan.problems:
+                    say("STOP", x)
+                return 1
+            if not args.adopt:
+                say("ACTION REQUIRED", "adopting stops and restarts the running agent. Review "
+                    f"the diff above, then run: talaria setup --adopt {found.unit}")
+                return 0 if args.plan else 10
+        else:
+            say("OK", "no existing Hermes found: fresh install")
+    if args.plan:
+        say("PLAN", "dashboard password, Telegram token and pairing, install units, "
+                    "start Hermes, verify")
+        return 0
+
+    env = parse_kv(p.hermes_env.read_text()) if p.hermes_env.exists() else {}
+    if "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD" not in env:
+        write_env_value(p.hermes_env, "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD",
+                        secrets.token_urlsafe(24))
+        say("OK", f"dashboard password generated in {p.hermes_env} (user admin)")
+
+    if not ctx.conf.telegram_token:
+        say("ACTION REQUIRED",
+            "create a Telegram bot: open @BotFather, send /newbot, copy the token. Then, in "
+            "your own terminal (not through an agent), run:\n"
+            f"  sudo -u {getpass.getuser()} -H {p.bin_link} set-token")
+        return 10
+    if not ctx.conf.telegram_user_id:
+        api = api or telegram.TelegramAPI(ctx.conf.telegram_api, ctx.conf.telegram_token)
+        code = telegram.new_code()
+        say("ACTION REQUIRED", f"in a private chat with your bot, send within 15 minutes:\n"
+                               f"  /pair {code}")
+        who = telegram.pair(ctx, api, code)
+        if not who:
+            say("STOP", "no /pair message arrived; run setup again for a new code")
+            return 10
+        write_env_value(p.env_file, "TALARIA_TELEGRAM_USER_ID", str(who["id"]))
+        ctx.conf.telegram_user_id = who["id"]
+        say("OK", f"paired with {who.get('first_name', '')} (@{who.get('username', '-')})")
+
+    if ctx.conf.dashboard_bind == "tailscale" and not ctx.conf.tailscale_ip:
+        ip = ctx.sh.run(["tailscale", "ip", "-4"]).stdout.split()[0]
+        with open(p.conf_file, "a") as f:
+            f.write(f"tailscale_ip = {ip}\n")
+        ctx.conf.tailscale_ip = ip
+    elif ctx.conf.dashboard_bind == "loopback" and which("tailscale"):
+        say("OK", "Tailscale found: set dashboard.bind = tailscale in talaria.conf and run "
+                  "setup again to reach the dashboard over your tailnet")
+
+    try:
+        with lock.op_lock(p):
+            if not managed:
+                if found:
+                    if adopt.apply(ctx, found, plan) != 0:
+                        return 1
+                    ctx.conf = load_conf(p)
+                elif not _fresh_image(ctx, st):
+                    return 1
+            changed = units.install_units(ctx)
+            ctx.sh.run(["systemctl", "--user", "enable", "--now", "talaria-check.timer",
+                        "talaria-telegram.service"])
+            ctx.sh.run(["systemctl", "--user", "restart", "talaria-telegram.service"])
+            images.retag(ctx, "current", state.load(p)["current"])
+            if changed or not hermes.is_active(ctx):
+                hermes.stop(ctx)
+                hermes.start(ctx)
+                reason = hermes.post_start_check(ctx)
+                if reason:
+                    say("STOP", f"Hermes did not come up: {reason}")
+                    if found:
+                        print(adopt.manual_steps(ctx, plan))
+                    return 1
+    except lock.Busy:
+        say("STOP", "a Talaria operation is running; run setup again in a minute")
+        return 1
+    say("OK", f"Hermes is running. Dashboard: http://{ctx.conf.bind_ip}:"
+              f"{ctx.conf.dashboard_port} (user admin, password in {p.hermes_env})")
+    print("DONE", flush=True)
+    return 0
+
+
+def set_token(ctx) -> int:
+    token = getpass.getpass("Telegram bot token: ") if sys.stdin.isatty() \
+        else sys.stdin.readline().strip()
+    if not TOKEN_RE.match(token):
+        print("That does not look like a Telegram bot token.", file=sys.stderr)
+        return 1
+    try:
+        me = TelegramAPI(ctx.conf.telegram_api, token).call("getMe", timeout=15)
+    except ApiError as e:
+        print(f"Telegram did not accept the token ({e}).", file=sys.stderr)
+        return 1
+    write_env_value(ctx.paths.env_file, "TALARIA_TELEGRAM_TOKEN", token)
+    print(f"OK: bot @{me.get('username')} saved. Now run talaria setup again.")
+    return 0
+
+
+def setup(args) -> int:
+    from talaria.ctx import make_ctx
+    from talaria.shell import Shell
+    if args.as_service:
+        return service_phase(make_ctx(), args)
+    return operator_phase(Shell(), args)

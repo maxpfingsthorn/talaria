@@ -101,9 +101,6 @@ def _locked(ctx, args) -> None:
         rollback.restore_cmd(ctx, args.id)
     elif cmd == "backup":
         _manual_backup(ctx)
-    elif cmd == "self-update":
-        from talaria import selfupdate
-        selfupdate.self_update(ctx, args.tag)
 
 
 def main(argv: list[str] | None = None, make=make_ctx) -> int:
@@ -121,6 +118,9 @@ def main(argv: list[str] | None = None, make=make_ctx) -> int:
     if args.cmd == "bot":
         from talaria import telegram
         return telegram.run(ctx)
+    if args.cmd == "self-update":     # not under the lock: it runs `setup`, which takes it
+        from talaria import selfupdate
+        return selfupdate.self_update(ctx, args.tag)
     if args.cmd == "status":
         print(status.status_text(ctx))
         return 0
