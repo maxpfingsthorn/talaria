@@ -57,9 +57,17 @@ Rare cases are documented, not engineered away. §15 lists what v1 leaves out.
 - A dedicated service user (default `hermes`).
 
 **Code.** Talaria is a stdlib Python package behind a thin `bin/talaria`
-wrapper. Logic lives in Python so tests and mutation testing reach it. Nothing
-that parses Hermes's YAML or imports Hermes code runs on the host. That code
-runs inside a Hermes image.
+wrapper. Nothing that parses Hermes's YAML or imports Hermes code runs on the
+host. That code runs inside a Hermes image.
+
+Python was chosen over bash and Rust:
+- The helpers must be Python anyway, because they import Hermes inside its
+  image. One language keeps one test and mutation setup.
+- Installing is a `git clone` with no build step and no per-architecture
+  binaries. Stdlib only means no dependencies on the host.
+- Rust would add a release build pipeline and a toolchain for contributors,
+  and would still need Python for the helpers. Its benefits, speed and a single
+  static binary, don't matter for a tool that runs once a day.
 
 ## 3. Facts about upstream
 
