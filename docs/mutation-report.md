@@ -53,12 +53,12 @@ non-Quadlet adoption printed a broken `mv` line.
 
 ## Equivalent mutants (excluded with `# pragma: no mutate`)
 
-Ten lines carry the pragma, each with its reason next to the code:
+Nine lines carry the pragma, each with its reason next to the code:
 - `helpers/dbopen.py`, `talaria/rehearse.py`: `uri=True` (Python's sqlite opens
   `file:` URIs anyway); SQL/PRAGMA keyword case.
 - `helpers/dbopen.py`: two guards whose mutated branch yields the same `None`.
 - `talaria/backup.py`: chunk size of the checksum loop (`read(None)` gives the same hash).
-- `talaria/history.py`: `follow_symlinks=None` (also false); `parents=` for a flat directory.
+- `talaria/history.py`: `parents=` for a flat directory.
 - `talaria/hermes.py`: the initial value of `reason`, always overwritten before use.
 
 ## Remaining survivors
