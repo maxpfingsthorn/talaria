@@ -1,6 +1,6 @@
 import argparse
 import io
-import pwd
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -16,7 +16,7 @@ def args(**kw):
     return argparse.Namespace(**base)
 
 
-PW = pwd.struct_passwd(("hermes", "x", 1001, 1001, "", "/home/hermes", "/bin/bash"))
+PW = SimpleNamespace(pw_name="hermes", pw_uid=1001, pw_gid=1001, pw_dir="/home/hermes")
 
 
 def op_env(monkeypatch, tmp_path, *, user_exists=True, sudo_ok=True, linger=True,
