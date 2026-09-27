@@ -243,3 +243,15 @@ def test_busy_message_exact_and_check_without_timer(run):
 
 def test_version_prints(capsys):
     assert cli.main(["version"]) == 0
+
+
+def test_check_crash_still_saves_state(run, monkeypatch):
+    ctx, main = run
+
+    def crash(c, st):
+        st["talaria_notified"] = "v9.9.9"
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(cli.check, "check", crash)
+    assert main("check", "--timer") == 1
+    assert state.load(ctx.paths)["talaria_notified"] == "v9.9.9"

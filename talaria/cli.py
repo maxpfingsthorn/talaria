@@ -86,13 +86,15 @@ def _locked(ctx, args) -> None:
     cmd = args.cmd
     if cmd == "check" or cmd == "rehearse" or cmd == "history":
         st = state.load(ctx.paths)
-        if cmd == "check":
-            check.check(ctx, st)
-        elif cmd == "rehearse":
-            check.rehearse_tag(ctx, st, args.tag)
-        else:
-            history.commit(ctx, st, "manual")
-        state.save(ctx.paths, st)
+        try:
+            if cmd == "check":
+                check.check(ctx, st)
+            elif cmd == "rehearse":
+                check.rehearse_tag(ctx, st, args.tag)
+            else:
+                history.commit(ctx, st, "manual")
+        finally:
+            state.save(ctx.paths, st)     # keep reminders and counters even after a crash
     elif cmd == "deploy":
         deploy.deploy(ctx, args.tag)
     elif cmd == "rollback":

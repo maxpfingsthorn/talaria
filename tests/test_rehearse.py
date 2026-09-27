@@ -283,3 +283,34 @@ def test_space_needs_the_data_size(happy, monkeypatch):
     monkeypatch.setattr(disk, "free_bytes", lambda p: size - 1)
     with pytest.raises(rehearse.Transient):
         rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
+
+
+# ---- review I6: live data dir changing or unreadable during the copy ----
+
+def test_copy_data_skips_file_that_vanishes(tmp_path, monkeypatch):
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    src.mkdir()
+    (src / "gone.txt").write_text("x")
+    (src / "stays.txt").write_text("y")
+    real = os.lstat
+    monkeypatch.setattr(rehearse.os, "lstat",
+                        lambda p, *a, **k: (_ for _ in ()).throw(FileNotFoundError(p))
+                        if str(p).endswith("gone.txt") else real(p, *a, **k))
+    rehearse.copy_data(src, dst, ())
+    assert (dst / "stays.txt").exists() and not (dst / "gone.txt").exists()
+
+
+def test_unreadable_file_is_transient_and_cleaned_up(happy):
+    if os.geteuid() == 0:
+        pytest.skip("root reads everything")
+    f = happy.conf.data_dir / "locked"
+    f.write_text("x")
+    f.chmod(0)
+    try:
+        with pytest.raises(rehearse.Transient) as e:
+            rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
+    finally:
+        f.chmod(0o600)
+    assert str(e.value).startswith("could not copy the data dir: ")
+    assert len(str(e.value)) <= 330
+    assert not any(happy.paths.staging.iterdir())

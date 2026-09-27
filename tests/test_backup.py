@@ -184,3 +184,14 @@ def test_prune_removes_stray_tmp(tmp_path):
     (ctx.paths.backups / ".x.tar.gz.tmp").write_text("partial")
     backup.prune(ctx, set())
     assert not (ctx.paths.backups / ".x.tar.gz.tmp").exists()
+
+
+# ---- review I7 ----
+
+def test_renamable(tmp_path, monkeypatch):
+    d = tmp_path / "data"
+    d.mkdir()
+    assert disk.renamable(d) is True
+    assert disk.renamable(tmp_path / "missing") is True
+    monkeypatch.setattr(disk.os.path, "ismount", lambda p: str(p) == str(d))
+    assert disk.renamable(d) is False

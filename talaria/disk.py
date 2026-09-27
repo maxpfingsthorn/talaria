@@ -39,3 +39,17 @@ def ensure_space(ctx, need_bytes: int, where) -> None:
     have = free_bytes(where)
     if have < need:
         raise NoSpace(f"need {need / GB:.1f} GB free on {where}, have {have / GB:.1f} GB")
+
+
+NOT_RENAMABLE = ("the data dir {} is a mount point or on another filesystem than its parent; "
+                 "Talaria restores by renaming it, so it must be a plain directory")
+
+
+def renamable(path) -> bool:
+    """Restore swaps the data dir by renaming it next to itself (§9.2)."""
+    p = Path(path)
+    if not p.exists():
+        return True
+    if os.path.ismount(p):
+        return False
+    return os.stat(p).st_dev == os.stat(p.parent).st_dev

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from talaria import adopt, hermes, images, lock, state, telegram, units
 from talaria.conf import load_conf, parse_kv, write_env_value
+from talaria.disk import NOT_RENAMABLE, renamable
 from talaria.images import pull_verify
 from talaria.notify import ApiError, TelegramAPI
 from talaria.state import ensure_dir
@@ -232,6 +233,9 @@ def service_phase(ctx, args, api=None) -> int:
                     if adopt.apply(ctx, found, plan) != 0:
                         return 1
                     ctx.conf = load_conf(p)
+                elif not renamable(ctx.conf.data_dir):
+                    say("STOP", NOT_RENAMABLE.format(ctx.conf.data_dir))
+                    return 1
                 elif not _fresh_image(ctx, st):
                     return 1
             changed = units.install_units(ctx)

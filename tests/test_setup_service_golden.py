@@ -332,3 +332,12 @@ def test_stopped_quadlet_install_stops(s, monkeypatch, capsys):
     assert out == (f"STOP: found a Hermes Quadlet that is not running: {H}/.config/containers/"
                    "systemd/old.container; start it (systemctl --user start old.service) and run "
                    "setup again\n")
+
+
+def test_fresh_refuses_mount_point_data_dir(s, monkeypatch, capsys):
+    monkeypatch.setattr(setup, "renamable", lambda p: False)
+    s.conf.telegram_user_id = 42
+    rc, out, cmds = run(s, capsys)
+    assert rc == 1 and out.endswith(
+        f"STOP: the data dir {H}/hermes-data is a mount point or on another filesystem than its "
+        "parent; Talaria restores by renaming it, so it must be a plain directory\n")

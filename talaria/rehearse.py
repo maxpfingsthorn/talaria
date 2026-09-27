@@ -36,7 +36,11 @@ def copy_data(src: Path, dst: Path, excludes) -> None:
         skip = []
         for n in names:
             rel = n if rel_dir == "." else f"{rel_dir}/{n}"
-            mode = os.lstat(os.path.join(dirpath, n)).st_mode
+            try:
+                mode = os.lstat(os.path.join(dirpath, n)).st_mode
+            except FileNotFoundError:        # production is running: files come and go
+                skip.append(n)
+                continue
             if (excluded(rel, excludes) or n.endswith(("-wal", "-shm"))
                     or not (stat.S_ISDIR(mode) or stat.S_ISREG(mode) or stat.S_ISLNK(mode))):
                 skip.append(n)
@@ -117,7 +121,10 @@ def rehearse(ctx, st: dict, tag: str, commit: str) -> None:
     stage.mkdir(mode=0o700)
     copy = stage / "data"
     try:
-        copy_data(data, copy, ctx.conf.backup_exclude)
+        try:
+            copy_data(data, copy, ctx.conf.backup_exclude)
+        except (OSError, shutil.Error, sqlite3.Error) as e:
+            raise Transient(f"could not copy the data dir: {str(e)[:300]}") from None
         has_cfg = (copy / "config.yaml").is_file()
         if has_cfg:
             shutil.copy2(copy / "config.yaml", stage / "config.orig.yaml")

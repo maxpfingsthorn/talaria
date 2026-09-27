@@ -174,10 +174,12 @@ or error.
    `--adopt UNIT`.
 5. **Image.** Fresh: pull the newest release (§6). Adopt: record the running
    image. Refuse anything older than v2026.6.5.
-6. **Dashboard password.** Generate it into `hermes.env`; name the file, never
+6. **Data dir.** It must be a plain directory on the same filesystem as its parent,
+   not a mount point, because restores rename it. Otherwise `STOP`.
+7. **Dashboard password.** Generate it into `hermes.env`; name the file, never
    print the password. If Tailscale is running, report that `dashboard.bind =
    tailscale` is available.
-7. **Telegram pairing.**
+8. **Telegram pairing.**
    - `ACTION REQUIRED`: create a bot with @BotFather and put its token into
      `~/.config/talaria/.env` as `TALARIA_TELEGRAM_TOKEN`.
    - Setup prints an 8-character code in the terminal. `ACTION REQUIRED`: send
@@ -185,15 +187,19 @@ or error.
    - The first private-chat sender with the right code, within 15 minutes,
      becomes `TALARIA_TELEGRAM_USER_ID`. Setup prints that account's name so the
      person can confirm it. Only the person at the terminal knows the code.
-8. **Adopt** (§5.2), only when adopting and only with an explicit `--adopt
+9. **Adopt** (§5.2), only when adopting and only with an explicit `--adopt
    UNIT`.
-9. **Units.** Render the templates, `daemon-reload`, enable the timer and the
+10. **Units.** Render the templates, `daemon-reload`, enable the timer and the
    bot, start Hermes, and run the post-start check (§7.4). Then `DONE`.
 
 Changing `talaria.conf` (for example `dashboard.bind`) takes effect when setup
 is run again. That re-renders the Quadlet and restarts Hermes if it changed.
 
 ### 5.2 Adoption
+
+Only a `hermes.container` that starts with Talaria's own header counts as managed.
+A user's own `hermes.container`, or a Hermes Quadlet whose container is stopped, makes
+setup `STOP` instead of overwriting it.
 
 Checks come first and change nothing. Setup refuses when:
 - the install has anything other than a single directory mounted at
@@ -393,6 +399,12 @@ bot starts, and on `/status`, it reports an unfinished `op`:
 
 Talaria never completes an interrupted deploy. The person rolls back and
 approves again.
+
+Every operation that stops Hermes records `op` first, with `changed: false` until
+the marker is written. If `op` is set but there is no marker, and the operation had
+changed nothing yet or was a rollback or restore whose swap had finished, then
+`/rollback CONFIRM` just starts Hermes and runs the post-start check. So
+`/rollback CONFIRM` always makes progress after a crash.
 
 A crash before the marker is written (during the backup) leaves the data
 untouched, and Hermes starts normally. The unfinished archive has no sidecar,

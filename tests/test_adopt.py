@@ -380,3 +380,11 @@ def test_stopped_quadlets_found(tmp_path):
     assert adopt.stopped_quadlets(ctx, []) == [ctx.paths.quadlet_dir / "old.container"]
     f = adopt.Found("old.service", "c", "n", "i", [], {}, ctx.paths.quadlet_dir / "old.container")
     assert adopt.stopped_quadlets(ctx, [f]) == []
+
+
+def test_plan_refuses_mount_point_data_dir(tmp_path, monkeypatch):
+    ctx = actx(tmp_path, [container()])
+    monkeypatch.setattr(adopt, "renamable", lambda p: False)
+    assert adopt.plan(ctx, adopt.detect(ctx)[0]).problems == [
+        "the data dir /home/h/data is a mount point or on another filesystem than its parent; "
+        "Talaria restores by renaming it, so it must be a plain directory"]
