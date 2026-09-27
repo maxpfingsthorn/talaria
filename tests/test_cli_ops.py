@@ -255,3 +255,22 @@ def test_check_crash_still_saves_state(run, monkeypatch):
     monkeypatch.setattr(cli.check, "check", crash)
     assert main("check", "--timer") == 1
     assert state.load(ctx.paths)["talaria_notified"] == "v9.9.9"
+
+
+def test_main_defaults_xdg_runtime_dir(run, monkeypatch):
+    # `sudo -u hermes talaria status` has no XDG_RUNTIME_DIR; systemctl --user needs it
+    import os
+    ctx, main = run
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    monkeypatch.setattr(cli.status, "status_text", lambda c: "S")
+    main("status")
+    assert os.environ["XDG_RUNTIME_DIR"] == f"/run/user/{os.getuid()}"
+
+
+def test_main_keeps_existing_xdg_runtime_dir(run, monkeypatch):
+    import os
+    ctx, main = run
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "/custom")
+    monkeypatch.setattr(cli.status, "status_text", lambda c: "S")
+    main("status")
+    assert os.environ["XDG_RUNTIME_DIR"] == "/custom"

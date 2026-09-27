@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import traceback
 
@@ -107,6 +108,8 @@ def _locked(ctx, args) -> None:
 
 def main(argv: list[str] | None = None, make=make_ctx) -> int:
     args = build_parser().parse_args(argv)
+    # `sudo -u hermes talaria …` has no XDG_RUNTIME_DIR, which systemctl --user needs
+    os.environ.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
     if args.cmd == "version":
         print(__version__)
         return 0
