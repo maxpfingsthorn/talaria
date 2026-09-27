@@ -4,7 +4,8 @@ import os
 import re
 import sys
 
-SECRET = re.compile(r"(key|token|secret|password|passwd|credential)", re.I)
+SECRET = re.compile(r"(key|token|secret|password|passwd|credential|auth|bearer)", re.I)
+URL_CREDS = re.compile(r"(://)[^/@\s]+@")
 
 
 def flatten(d, prefix=""):
@@ -18,8 +19,19 @@ def flatten(d, prefix=""):
     return out
 
 
+def sanitize(value):
+    """Mask secret-looking keys at any depth and credentials inside URLs."""
+    if isinstance(value, dict):
+        return {k: "***" if SECRET.search(str(k)) else sanitize(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [sanitize(v) for v in value]
+    if isinstance(value, str):
+        return URL_CREDS.sub(r"\1***@", value)
+    return value
+
+
 def mask(key, value):
-    return "***" if SECRET.search(key.rsplit(".", 1)[-1]) else value
+    return "***" if any(SECRET.search(seg) for seg in key.split(".")) else sanitize(value)
 
 
 def diff(old: dict, new: dict) -> dict:

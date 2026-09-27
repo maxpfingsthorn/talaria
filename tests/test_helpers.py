@@ -278,6 +278,26 @@ def test_confdiff_flatten_empty_dict_is_a_value():
 @pytest.mark.parametrize("key,masked", [("api_key", True), ("TOKEN", True), ("db.password", True),
                                         ("x.passwd", True), ("secret_x", True),
                                         ("credentials", True), ("keyboard", True),
-                                        ("model", False), ("key_path.name", False)])
+                                        ("model", False), ("key_path.name", True), ("model.name", False)])
 def test_confdiff_mask(key, masked):
     assert (confdiff.mask(key, "v") == "***") is masked
+
+
+# ---- review I1: masking must cover nested keys, lists and URLs ----
+
+def test_mask_any_segment_and_auth_headers():
+    d = confdiff.diff({}, {"api_keys": {"openai": "sk-1"},
+                           "headers": {"Authorization": "Bearer x"},
+                           "bearer": "b"})
+    assert d["added"] == [["api_keys.openai", "***"], ["bearer", "***"],
+                          ["headers.Authorization", "***"]]
+
+
+def test_mask_inside_lists_and_urls():
+    new = {"mcp_servers": [{"name": "gh", "env": {"GITHUB_TOKEN": "t", "LEVEL": "1"}}],
+           "base_url": "https://user:pw@example.com/v1", "plain": "https://example.com"}
+    d = confdiff.diff({}, new)
+    assert d["added"] == [
+        ["base_url", "https://***@example.com/v1"],
+        ["mcp_servers", [{"name": "gh", "env": {"GITHUB_TOKEN": "***", "LEVEL": "1"}}]],
+        ["plain", "https://example.com"]]
