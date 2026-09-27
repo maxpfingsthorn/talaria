@@ -82,3 +82,164 @@ def test_unexpected_error_is_reported_not_raised(run, monkeypatch):
     monkeypatch.setattr(cli.deploy, "deploy", boom)
     assert main("deploy", "v2026.9.24") == 1
     assert "kaputt" in ctx.notify.sent[-1].text
+
+
+# ---- parser and dispatch, exact (mutation testing) ----
+
+import argparse
+
+
+def parse(*argv):
+    return vars(cli.build_parser().parse_args(list(argv)))
+
+
+def test_parser_setup_flags():
+    assert parse("setup") == {"cmd": "setup", "plan": False, "user": None, "adopt": None,
+                              "dev": False, "as_service": False}
+    assert parse("setup", "--plan", "--user", "h", "--adopt", "u.service", "--dev",
+                 "--as-service") == {"cmd": "setup", "plan": True, "user": "h",
+                                     "adopt": "u.service", "dev": True, "as_service": True}
+
+
+@pytest.mark.parametrize("argv,expected", [
+    (["check"], {"cmd": "check", "timer": False}),
+    (["check", "--timer"], {"cmd": "check", "timer": True}),
+    (["rehearse", "v2026.1.2"], {"cmd": "rehearse", "tag": "v2026.1.2"}),
+    (["deploy", "v2026.1.2"], {"cmd": "deploy", "tag": "v2026.1.2"}),
+    (["reject", "v2026.1.2"], {"cmd": "reject", "tag": "v2026.1.2"}),
+    (["rollback"], {"cmd": "rollback", "confirm": False}),
+    (["rollback", "--confirm"], {"cmd": "rollback", "confirm": True}),
+    (["restore", "20260927T043000Z-manual"], {"cmd": "restore", "id": "20260927T043000Z-manual",
+                                              "confirm": False}),
+    (["self-update", "v0.2.0"], {"cmd": "self-update", "tag": "v0.2.0"}),
+    (["set-token"], {"cmd": "set-token"}), (["backup"], {"cmd": "backup"}),
+    (["backups"], {"cmd": "backups"}), (["status"], {"cmd": "status"}),
+    (["history"], {"cmd": "history"}), (["bot"], {"cmd": "bot"}), (["version"], {"cmd": "version"}),
+])
+def test_parser_commands(argv, expected):
+    assert parse(*argv) == expected
+
+
+@pytest.mark.parametrize("argv", [["rehearse", "x"], ["reject", "latest"], ["self-update", "v1.2"],
+                                  ["self-update", "main"], ["restore", "nope"], []])
+def test_parser_rejects(argv):
+    with pytest.raises(SystemExit):
+        parse(*argv)
+
+
+def test_validator_messages():
+    for fn, bad, msg in [(cli._release, "x", "not a release tag: 'x'"),
+                         (cli._backup_id, "x", "not a backup id: 'x'"),
+                         (cli._semver, "x", "not a Talaria release: 'x'")]:
+        with pytest.raises(argparse.ArgumentTypeError) as e:
+            fn(bad)
+        assert str(e.value) == msg
+    assert cli._semver("v1.2.3") == "v1.2.3"
+
+
+def test_status_and_backups_print(run, capsys, monkeypatch):
+    ctx, main = run
+    monkeypatch.setattr(cli.status, "status_text", lambda c: "STATUS")
+    monkeypatch.setattr(cli.status, "backups_text", lambda c: "BACKUPS")
+    assert main("status") == 0 and main("backups") == 0
+    assert capsys.readouterr().out == "STATUS\nBACKUPS\n"
+
+
+def test_reject_prints(run, capsys):
+    ctx, main = run
+    assert main("reject", "v2026.1.2") == 0
+    assert capsys.readouterr().out == "Rejected v2026.1.2. It will not be offered again.\n"
+
+
+def test_reject_busy(run):
+    ctx, main = run
+    with lock.op_lock(ctx.paths):
+        assert cli.reject(ctx, "v2026.1.2") == "Busy: another operation is running. Try again in a minute."
+    assert state.load(ctx.paths)["rejected"] == []
+
+
+def test_reject_twice_and_other_pending(run):
+    ctx, main = run
+    st = state.load(ctx.paths)
+    st["pending"] = {"tag": "v2026.9.24"}
+    state.save(ctx.paths, st)
+    cli.reject(ctx, "v2026.1.2")
+    cli.reject(ctx, "v2026.1.2")
+    st = state.load(ctx.paths)
+    assert st["rejected"] == ["v2026.1.2"] and st["pending"] == {"tag": "v2026.9.24"}
+
+
+def test_restore_describe_prints(run, capsys, monkeypatch):
+    ctx, main = run
+    monkeypatch.setattr(cli.rollback, "describe_restore", lambda c, i: f"would restore {i}")
+    assert main("restore", "20260927T043000Z-manual") == 0
+    assert capsys.readouterr().out == "would restore 20260927T043000Z-manual\n"
+
+
+def test_delegations(run, monkeypatch):
+    ctx, main = run
+    from talaria import selfupdate, setup, telegram
+    seen = []
+    monkeypatch.setattr(setup, "setup", lambda a: (seen.append(("setup", a.cmd)), 3)[1])
+    monkeypatch.setattr(setup, "set_token", lambda c: (seen.append(("set-token", c is ctx)), 4)[1])
+    monkeypatch.setattr(telegram, "run", lambda c: (seen.append(("bot", c is ctx)), 5)[1])
+    monkeypatch.setattr(selfupdate, "self_update", lambda c, t: (seen.append(("su", t)), 6)[1])
+    assert [main("setup"), main("set-token"), main("bot"), main("self-update", "v0.2.0")] == [3, 4, 5, 6]
+    assert seen == [("setup", "setup"), ("set-token", True), ("bot", True), ("su", "v0.2.0")]
+
+
+def test_self_update_runs_without_the_lock(run, monkeypatch):
+    ctx, main = run
+    from talaria import selfupdate
+    monkeypatch.setattr(selfupdate, "self_update", lambda c, t: 0)
+    with lock.op_lock(ctx.paths):
+        assert main("self-update", "v0.2.0") == 0
+
+
+def test_rehearse_and_history_save_state(run, monkeypatch):
+    ctx, main = run
+    monkeypatch.setattr(cli.check, "rehearse_tag",
+                        lambda c, st, t: st.__setitem__("failed", [t]))
+    main("rehearse", "v2026.1.2")
+    assert state.load(ctx.paths)["failed"] == ["v2026.1.2"]
+    msgs = []
+    monkeypatch.setattr(cli.history, "commit", lambda c, st, m: (msgs.append(m),
+                                                                 st.__setitem__("history_error", "e")))
+    main("history")
+    assert msgs == ["manual"] and state.load(ctx.paths)["history_error"] == "e"
+
+
+def test_manual_backup_exact(run, capsys, monkeypatch):
+    ctx, main = run
+    ctx.sh.on("systemctl")
+    st = state.load(ctx.paths)
+    st["current"] = {"tag": "v2026.1.1", "id": "i"}
+    state.save(ctx.paths, st)
+    assert main("backup") == 0
+    assert capsys.readouterr().out == "20260927T043000Z-manual\n"
+    assert ctx.sh.calls == [["systemctl", "--user", "stop", "hermes.service"],
+                            ["systemctl", "--user", "reset-failed", "hermes.service"],
+                            ["systemctl", "--user", "start", "hermes.service"]]
+    from talaria import backup
+    assert backup.get(ctx, "20260927T043000Z-manual").meta["image"] == {"tag": "v2026.1.1", "id": "i"}
+
+
+def test_manual_backup_restarts_hermes_on_failure(run, monkeypatch):
+    ctx, main = run
+    ctx.sh.on("systemctl")
+    from talaria import backup
+    monkeypatch.setattr(backup, "create", lambda *a: (_ for _ in ()).throw(OSError("disk")))
+    assert main("backup") == 1
+    assert ctx.sh.calls[-1] == ["systemctl", "--user", "start", "hermes.service"]
+    assert ctx.notify.sent[-1].text == "talaria backup failed unexpectedly: disk"
+
+
+def test_busy_message_exact_and_check_without_timer(run):
+    ctx, main = run
+    with lock.op_lock(ctx.paths):
+        assert main("check") == cli.EXIT_BUSY
+    assert ctx.notify.sent[-1].text == "Busy: another operation is running. Try again in a minute."
+
+
+def test_version_prints(capsys):
+    assert cli.main(["version"]) == 0

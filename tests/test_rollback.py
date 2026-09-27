@@ -92,3 +92,42 @@ def test_restore_failed_check_reverts_to_pre_restore(tmp_path, monkeypatch):
     assert load(ctx)["current"] == NEW
     assert (ctx.conf.data_dir / "memories/m.md").read_text() == "written after deploy"
     assert "reverted" in ctx.notify.sent[-1].text
+
+
+def test_describe_restore_exact(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    b = backup.get(ctx, load(ctx)["last_deploy"]["backup"])
+    ctx.clock.sleep(2 * 86400 + 5)
+    assert rollback.describe_restore(ctx, b.id) == (
+        f"Restore replaces all Hermes data with backup {b.id} (2d old, Hermes v2026.8.3). "
+        "Talaria first takes a pre-restore backup, so this can be undone.\n"
+        f"Send /restore {b.id} CONFIRM to proceed.")
+
+
+def test_describe_restore_unknown():
+    assert rollback.describe_restore(None, "nope") == "No backup nope. /backups lists them."
+
+
+def test_describe_exact(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    b = load(ctx)["last_deploy"]["backup"]
+    ctx.clock.sleep(90)
+    assert rollback.describe(ctx) == (
+        f"Rollback restores backup {b} (1m old) and Hermes v2026.8.3. Everything Hermes wrote "
+        "since then is lost.\nSend /rollback CONFIRM to proceed.")
+
+
+def test_describe_nothing(tmp_path, monkeypatch):
+    ctx = ops_ctx(tmp_path, monkeypatch)
+    assert rollback.describe(ctx) == ("Nothing to roll back: no interrupted change and no "
+                                      "previous deploy.")
+
+
+def test_age_units(tmp_path):
+    from tests.fakes import make_test_ctx
+    ctx = make_test_ctx(tmp_path)
+    t = ctx.now().isoformat()
+    for secs, want in [(0, "0m"), (59, "0m"), (60, "1m"), (3599, "59m"), (3600, "1h"),
+                       (86399, "23h"), (86400, "1d"), (3 * 86400 + 7200, "3d")]:
+        ctx.clock.slept = secs
+        assert rollback.age(ctx, t) == want

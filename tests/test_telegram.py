@@ -140,3 +140,202 @@ def test_pair_code_shown_only_after_backlog_is_dropped(tmp_path):
     announce = lambda: api.batches.append([upd(2, "/pair ABCD2345", user=77)])
     who = telegram.pair(ctx, api, "ABCD2345", announce=announce)
     assert who["id"] == 77
+
+
+# ---- exact behaviour (mutation testing) ----
+
+class Stop(Exception):
+    pass
+
+
+def test_run_requires_token_and_user(tmp_path, capsys):
+    ctx = make_test_ctx(tmp_path, telegram_token="t")
+    assert telegram.run(ctx) == 1
+    assert capsys.readouterr().err == "talaria bot: token or user id missing; run talaria setup\n"
+    ctx = make_test_ctx(tmp_path, telegram_user_id=5)
+    assert telegram.run(ctx) == 1
+
+
+def test_run_backs_off_and_resets(tmp_path, monkeypatch, capsys):
+    ctx = make_test_ctx(tmp_path, telegram_user_id=OWNER, telegram_token="t")
+    ctx.sh.on("systemctl", "--user", "is-active", out="active\n")
+    events = [ApiError(0, None)] * 8 + [None, ApiError(502, None), Stop()]
+    made = []
+
+    class LoopAPI:
+        def __init__(self, base, token):
+            made.append((base, token))
+
+        def call(self, method, **p):
+            if p.get("offset") == -1 or p.get("timeout") == 0:
+                return []
+            e = events.pop(0)
+            if e:
+                raise e
+            return []
+
+    slept = []
+    monkeypatch.setattr(telegram, "TelegramAPI", LoopAPI)
+    monkeypatch.setattr(telegram.time, "sleep", slept.append)
+    with pytest.raises(Stop):
+        telegram.run(ctx)
+    assert made == [(ctx.conf.telegram_api, "t")]
+    assert slept == [1, 2, 4, 8, 16, 32, 60, 60, 1]
+    assert "[talaria] telegram: telegram api status 0" in capsys.readouterr().err
+
+
+def test_run_startup_once(tmp_path, monkeypatch):
+    ctx = make_test_ctx(tmp_path, telegram_user_id=OWNER, telegram_token="t")
+    starts = []
+    monkeypatch.setattr(telegram.Bot, "startup", lambda self: starts.append(1))
+    polls = [None, None, Stop()]
+
+    def poll(self):
+        p = polls.pop(0)
+        if p:
+            raise p
+
+    monkeypatch.setattr(telegram.Bot, "poll_once", poll)
+    monkeypatch.setattr(telegram, "TelegramAPI", lambda b, t: None)
+    with pytest.raises(Stop):
+        telegram.run(ctx)
+    assert starts == [1]
+
+
+def test_reply_exact(bot):
+    ctx, api, b = bot
+    b.reply("x" * 5000)
+    method, params = api.calls[-1]
+    assert method == "sendMessage" and params == {"chat_id": OWNER, "text": "x" * 4096}
+
+
+def test_spawn_exact(bot, monkeypatch):
+    ctx, api, b = bot
+    monkeypatch.setattr(telegram.time, "time", lambda: 1234.9)
+    b.spawn("deploy", "v2026.9.24")
+    assert ctx.sh.calls[-1] == ["systemd-run", "--user", "--collect", "--quiet",
+                                "--unit=talaria-op-deploy-1234", str(ctx.paths.bin_link),
+                                "deploy", "v2026.9.24"]
+    assert ctx.sh.timeouts[-1] is None
+
+
+@pytest.mark.parametrize("text,reply", [
+    ("/check", "Checking for releases."),
+    ("/approve v2026.9.24", "Deploying v2026.9.24. I will report the result."),
+    ("/rollback CONFIRM", "Rolling back. I will report the result."),
+    ("/restore 20260927T043000Z-manual CONFIRM",
+     "Restoring 20260927T043000Z-manual. I will report the result."),
+    ("/help", "Not understood. Commands: " + telegram.HELP),
+    ("/status extra", "Not understood. Commands: " + telegram.HELP),
+    ("/backups x", "Not understood. Commands: " + telegram.HELP),
+    ("/check now", "Not understood. Commands: " + telegram.HELP),
+    ("/reject", "Not understood. Commands: " + telegram.HELP),
+    ("/reject v1", "Not understood. Commands: " + telegram.HELP),
+    ("/rollback CONFIRM now", "Not understood. Commands: " + telegram.HELP),
+    ("/restore 20260927T043000Z-manual confirm", "Not understood. Commands: " + telegram.HELP),
+    ("/restore", "Not understood. Commands: " + telegram.HELP),
+])
+def test_dispatch_replies_exact(bot, text, reply):
+    ctx, api, b = bot
+    b.handle(upd(1, text))
+    assert api.sent() == [reply]
+
+
+def test_help_text_exact():
+    assert telegram.HELP == ("/status · /check · /approve <tag> · /reject <tag> · "
+                             "/rollback [CONFIRM] · /backups · /restore <id> [CONFIRM]")
+
+
+def test_backups_command(bot):
+    ctx, api, b = bot
+    b.handle(upd(1, "/backups"))
+    assert api.sent() == ["No backups yet."]
+
+
+def test_restore_describe(bot):
+    ctx, api, b = bot
+    b.handle(upd(1, "/restore 20260927T043000Z-manual"))
+    assert api.sent() == ["No backup 20260927T043000Z-manual. /backups lists them."]
+
+
+def test_dispatch_error_is_replied(bot, monkeypatch):
+    ctx, api, b = bot
+    monkeypatch.setattr(telegram.status, "status_text", lambda c: 1 / 0)
+    b.handle(upd(1, "/status"))
+    assert api.sent() == ["Error: division by zero"]
+
+
+def test_empty_or_missing_text_is_ignored(bot, capsys):
+    ctx, api, b = bot
+    b.handle(upd(1, "   "))
+    b.handle({"update_id": 2, "message": {"chat": {"type": "private"}, "from": {"id": OWNER}}})
+    b.handle({"update_id": 3})
+    assert api.sent() == []
+    assert capsys.readouterr().err == ("[talaria] ignored update 1\n[talaria] ignored update 2\n"
+                                       "[talaria] ignored update 3\n")
+
+
+def test_poll_once_params_exact(bot):
+    ctx, api, b = bot
+    b.offset = 7
+    b.poll_once()
+    assert api.calls[-1] == ("getUpdates", {"offset": 7, "timeout": 30,
+                                            "allowed_updates": ["message"]})
+
+
+def test_startup_without_backlog(bot):
+    ctx, api, b = bot
+    api.batches = [[]]
+    b.startup()
+    assert b.offset is None and api.calls == [("getUpdates", {"offset": -1, "timeout": 0})]
+    assert ctx.notify.sent == []
+
+
+def test_startup_ack_exact(bot):
+    ctx, api, b = bot
+    api.batches = [[upd(4, "x")], []]
+    b.startup()
+    assert api.calls == [("getUpdates", {"offset": -1, "timeout": 0}),
+                         ("getUpdates", {"offset": 5, "timeout": 0})]
+
+
+def test_pair_exact_calls(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    api = FakeAPI(ctx, [[upd(1, "old")], [], [upd(2, "/pair ABCD2345", user=77)], []])
+    announced = []
+    who = telegram.pair(ctx, api, "ABCD2345", announce=lambda: announced.append(len(api.calls)))
+    assert who == {"id": 77, "first_name": "Ann", "username": "ann"}
+    assert announced == [2]
+    assert api.calls == [("getUpdates", {"offset": -1, "timeout": 0}),
+                         ("getUpdates", {"offset": 2, "timeout": 0}),
+                         ("getUpdates", {"offset": 2, "timeout": 30}),
+                         ("getUpdates", {"offset": 3, "timeout": 0}),
+                         ("sendMessage", {"chat_id": 77,
+                                          "text": "Paired. This chat now controls Talaria."})]
+
+
+def test_pair_without_backlog_polls_from_start(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    api = FakeAPI(ctx, [[], [upd(1, "/pair ABCD2345")], []])
+    assert telegram.pair(ctx, api, "ABCD2345")["id"] == OWNER
+    assert api.calls[1] == ("getUpdates", {"offset": None, "timeout": 30})
+
+
+def test_pair_code_must_match_exactly(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    api = FakeAPI(ctx, [[], [upd(1, "/pair ABCD2345 x"), upd(2, "/pair abcd2345"),
+                             upd(3, "pair ABCD2345")]])
+    assert telegram.pair(ctx, api, "ABCD2345", timeout_s=60) is None
+
+
+def test_pair_default_timeout_is_15_minutes(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    api = FakeAPI(ctx, [])
+    telegram.pair(ctx, api, "ABCD2345")
+    assert ctx.clock.slept == 900
+
+
+def test_new_code_alphabet():
+    assert telegram.ALPHABET == "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+    codes = {telegram.new_code() for _ in range(200)}
+    assert len(codes) > 190 and all(set(c) <= set(telegram.ALPHABET) for c in codes)

@@ -1,3 +1,4 @@
+import pytest
 import json
 
 from talaria.conf import Conf
@@ -88,3 +89,160 @@ def test_api_passes_timeout_to_telegram_and_waits_longer(monkeypatch):
     assert seen["body"] == {"offset": -1, "timeout": 0} and seen["timeout"] >= 10
     api.call("getUpdates", offset=5, timeout=30)
     assert seen["body"]["timeout"] == 30 and seen["timeout"] > 30
+
+
+# ---- exact behaviour (mutation testing) ----
+
+import io
+import urllib.error
+import urllib.request
+
+from talaria.notify import TelegramAPI
+
+
+class _Resp(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _capture(monkeypatch, response=b'{"ok": true, "result": {"x": 1}}', exc=None):
+    seen = {}
+
+    def fake(req, timeout):
+        seen.update(url=req.full_url, data=json.loads(req.data), timeout=timeout,
+                    ctype=req.get_header("Content-type"), method=req.get_method())
+        if exc:
+            raise exc
+        return _Resp(response)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    return seen
+
+
+def test_api_request_exact(monkeypatch):
+    seen = _capture(monkeypatch)
+    assert TelegramAPI("http://h/", "T0K").call("sendMessage", chat_id=1, text="x") == {"x": 1}
+    assert seen == {"url": "http://h/botT0K/sendMessage", "data": {"chat_id": 1, "text": "x"},
+                    "timeout": 15.0, "ctype": "application/json", "method": "POST"}
+
+
+def test_api_http_error_with_retry_after(monkeypatch):
+    body = io.BytesIO(b'{"ok": false, "parameters": {"retry_after": 9}}')
+    _capture(monkeypatch, exc=urllib.error.HTTPError("u", 429, "slow", {}, body))
+    with pytest.raises(ApiError) as e:
+        TelegramAPI("http://h", "t").call("getMe")
+    assert (e.value.status, e.value.retry_after) == (429, 9)
+    assert str(e.value) == "telegram api status 429"
+
+
+def test_api_http_error_without_body(monkeypatch):
+    _capture(monkeypatch, exc=urllib.error.HTTPError("u", 502, "bad", {}, io.BytesIO(b"<html>")))
+    with pytest.raises(ApiError) as e:
+        TelegramAPI("http://h", "t").call("getMe")
+    assert (e.value.status, e.value.retry_after) == (502, None)
+
+
+def test_api_http_error_body_without_parameters(monkeypatch):
+    _capture(monkeypatch, exc=urllib.error.HTTPError("u", 400, "bad", {}, io.BytesIO(b'{"ok": false}')))
+    with pytest.raises(ApiError) as e:
+        TelegramAPI("http://h", "t").call("getMe")
+    assert (e.value.status, e.value.retry_after) == (400, None)
+
+
+@pytest.mark.parametrize("exc", [urllib.error.URLError("down"), OSError("reset")])
+def test_api_network_errors_are_status_0(monkeypatch, exc):
+    _capture(monkeypatch, exc=exc)
+    with pytest.raises(ApiError) as e:
+        TelegramAPI("http://h", "t").call("getMe")
+    assert (e.value.status, e.value.retry_after) == (0, None)
+
+
+def test_api_bad_json_is_status_0(monkeypatch):
+    _capture(monkeypatch, response=b"not json")
+    with pytest.raises(ApiError) as e:
+        TelegramAPI("http://h", "t").call("getMe")
+    assert e.value.status == 0
+
+
+def test_api_not_ok_is_400(monkeypatch):
+    _capture(monkeypatch, response=b'{"ok": false, "description": "nope"}')
+    with pytest.raises(ApiError) as e:
+        TelegramAPI("http://h", "t").call("getMe")
+    assert e.value.status == 400
+
+
+def test_send_exact_params_and_log(capsys):
+    api = FakeAPI([])
+    m = Message("hi <b>", untrusted=["u1", "u2"], commands=["/a"])
+    TelegramNotifier(conf(), api=api, sleep=lambda s: None).send(m)
+    assert api.calls == [("sendMessage", {"chat_id": 42, "text": render(m), "parse_mode": "HTML",
+                                          "disable_web_page_preview": True})]
+    assert capsys.readouterr().err == "[talaria] message: hi <b>\nu1\nu2\n"
+
+
+def test_send_retry_sleeps_exact():
+    slept = []
+    api = FakeAPI([ApiError(500, None), ApiError(0, None), ApiError(502, None)])
+    TelegramNotifier(conf(), api=api, sleep=slept.append).send(Message("x"))
+    assert slept == [1, 2, 4] and len(api.calls) == 3
+
+
+def test_send_429_without_retry_after_backs_off():
+    slept = []
+    api = FakeAPI([ApiError(429, None)])
+    TelegramNotifier(conf(), api=api, sleep=slept.append).send(Message("x"))
+    assert slept == [1] and len(api.calls) == 2
+
+
+def test_send_permanent_4xx_gives_up_at_once(capsys):
+    slept = []
+    api = FakeAPI([ApiError(400, None), ApiError(400, None)])
+    TelegramNotifier(conf(), api=api, sleep=slept.append).send(Message("x"))
+    assert len(api.calls) == 1 and slept == []
+    assert capsys.readouterr().err.endswith(
+        "[talaria] telegram delivery failed; message above is in the journal only\n")
+
+
+def test_send_success_logs_no_failure(capsys):
+    TelegramNotifier(conf(), api=FakeAPI([]), sleep=lambda s: None).send(Message("x"))
+    assert "delivery failed" not in capsys.readouterr().err
+
+
+def test_send_without_user_id_only_logs():
+    api = FakeAPI([])
+    TelegramNotifier(Conf(data_dir=None, telegram_token="t"), api=api,
+                     sleep=lambda s: None).send(Message("x"))
+    assert api.calls == []
+
+
+def test_notifier_builds_api_from_conf(monkeypatch):
+    seen = _capture(monkeypatch, response=b'{"ok": true, "result": {}}')
+    c = Conf(data_dir=None, telegram_token="TT", telegram_user_id=5, telegram_api="http://api")
+    TelegramNotifier(c, sleep=lambda s: None).send(Message("x"))
+    assert seen["url"] == "http://api/botTT/sendMessage"
+
+
+def test_render_exact_layout():
+    m = Message("T", untrusted=["a"], commands=["/x", "/y"])
+    assert render(m) == "T\n\n<pre>a</pre>\n\n<code>/x</code> · <code>/y</code>"
+    assert render(Message("T")) == "T"
+
+
+def test_render_long_text_without_untrusted_is_cut():
+    assert len(render(Message("x" * 5000))) == 4096
+
+
+def test_render_short_untrusted_kept_whole():
+    m = Message("head", untrusted=["short", "y" * 9000])
+    out = render(m)
+    assert "<pre>short</pre>" in out and len(out) <= 4096
+
+
+def test_render_escaping_growth_still_fits():
+    m = Message("h", untrusted=['"' * 5000])
+    out = render(m)
+    assert len(out) <= 4096 and out.endswith("</pre>")
+    assert "truncated, full text in the journal" in out
