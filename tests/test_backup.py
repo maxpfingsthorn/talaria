@@ -1,0 +1,134 @@
+import json
+import os
+import socket
+import tarfile
+
+import pytest
+
+from talaria import backup, disk
+from tests.fakes import make_test_ctx
+
+
+def seed(data):
+    (data / "config.yaml").write_text("_config_version: 27\n")
+    (data / "memories").mkdir()
+    (data / "memories/a.md").write_text("m")
+    (data / ".cache").mkdir()
+    (data / ".cache/big").write_text("x" * 1000)
+    (data / "backups/config").mkdir(parents=True)
+    (data / "backups/config/config.yaml.good.1").write_text("g")
+    (data / "backups/other").write_text("o")
+    os.symlink("/etc/passwd", data / "link")
+
+
+def names(b):
+    with tarfile.open(b.path) as t:
+        return {m.name for m in t.getmembers()}
+
+
+@pytest.mark.parametrize("rel,ex", [
+    (".cache", True), (".cache/x", True), ("home/.npm/y", True), ("backups", False),
+    ("backups/other", True), ("backups/config", False), ("backups/config/f", False),
+    ("memories/a.md", False), (".cachet", False),
+])
+def test_excluded(rel, ex):
+    assert backup.excluded(rel, (".cache", ".npm", "home/.cache", "home/.npm", "backups")) is ex
+
+
+def test_create_writes_archive_and_sidecar(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    seed(ctx.conf.data_dir)
+    b = backup.create(ctx, "pre-v2026.8.3", {"id": "sha256:i"})
+    assert b.id == "20260927T043000Z-pre-v2026.8.3"
+    n = names(b)
+    assert "./config.yaml" in n and "./memories/a.md" in n
+    assert "./backups/config/config.yaml.good.1" in n
+    assert "./.cache/big" not in n and "./backups/other" not in n
+    assert b.meta["cfg_version"] == 27 and b.meta["image"] == {"id": "sha256:i"}
+    assert b.meta["label"] == "pre-v2026.8.3" and b.meta["data_size"] > 0
+    backup.verify(b)
+    assert backup.get(ctx, b.id).meta == b.meta
+
+
+def test_backup_keeps_symlink_as_link(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    seed(ctx.conf.data_dir)
+    b = backup.create(ctx, "manual", None)
+    with tarfile.open(b.path) as t:
+        m = t.getmember("./link")
+    assert m.issym() and m.linkname == "/etc/passwd"
+
+
+def test_backup_skips_socket(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    short = tmp_path / "s"   # AF_UNIX paths must be short
+    short.mkdir()
+    ctx.conf.data_dir = short
+    s = socket.socket(socket.AF_UNIX)
+    s.bind(str(short / "sock"))
+    try:
+        b = backup.create(ctx, "manual", None)
+    finally:
+        s.close()
+    assert "./sock" not in names(b)
+
+
+def test_unreadable_file_fails_without_leftovers(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root reads everything")
+    ctx = make_test_ctx(tmp_path)
+    f = ctx.conf.data_dir / "secret"
+    f.write_text("x")
+    f.chmod(0)
+    with pytest.raises(PermissionError):
+        backup.create(ctx, "manual", None)
+    assert list(ctx.paths.backups.iterdir()) == []
+
+
+def test_same_second_ids_do_not_collide(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    a = backup.create(ctx, "manual", None)
+    b = backup.create(ctx, "manual", None)
+    assert a.id != b.id
+
+
+def test_verify_detects_corruption(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    b = backup.create(ctx, "manual", None)
+    with open(b.path, "ab") as f:
+        f.write(b"junk")
+    with pytest.raises(backup.BackupError):
+        backup.verify(b)
+
+
+def test_archive_without_sidecar_is_not_a_backup(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    b = backup.create(ctx, "manual", None)
+    (ctx.paths.backups / f"{b.id}.json").unlink()
+    assert backup.list_backups(ctx) == []
+
+
+def test_get_rejects_bad_ids(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    for bad in ["../x", "20260927T043000Z-../../etc", "nope"]:
+        with pytest.raises(KeyError):
+            backup.get(ctx, bad)
+
+
+def test_prune_keeps_newest_and_protected(tmp_path):
+    ctx = make_test_ctx(tmp_path, backup_keep=2)
+    ids = []
+    for i in range(4):
+        ids.append(backup.create(ctx, f"b{i}", None).id)
+        ctx.clock.sleep(1)
+    removed = backup.prune(ctx, protect={ids[0]})
+    left = [b.id for b in backup.list_backups(ctx)]
+    assert left == [ids[3], ids[2], ids[0]] and removed == [ids[1]]
+
+
+def test_ensure_space(tmp_path, monkeypatch):
+    ctx = make_test_ctx(tmp_path, disk_floor_gb=1)
+    monkeypatch.setattr(disk, "free_bytes", lambda p: 3 * disk.GB)
+    disk.ensure_space(ctx, 2 * disk.GB, tmp_path)
+    with pytest.raises(disk.NoSpace, match="GB"):
+        disk.ensure_space(ctx, int(2.5 * disk.GB), tmp_path)
