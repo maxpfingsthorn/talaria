@@ -264,3 +264,12 @@ def test_failed_tag_recorded_once(tmp_path, monkeypatch):
     state.save(ctx.paths, st)
     deploy.deploy(ctx, "v2026.9.24")
     assert load(ctx)["failed"] == ["v2026.9.24"]
+
+
+def test_space_twice_is_enough(tmp_path, monkeypatch):
+    from talaria import disk
+    ctx = ops_ctx(tmp_path, monkeypatch)
+    size = disk.dir_size(ctx.conf.data_dir)
+    monkeypatch.setattr(disk, "free_bytes", lambda p: int(size * 2.5))
+    deploy.deploy(ctx, "v2026.9.24")
+    assert ctx.notify.sent[-1].text == "Deployed Hermes v2026.9.24."

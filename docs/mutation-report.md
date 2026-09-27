@@ -53,13 +53,15 @@ non-Quadlet adoption printed a broken `mv` line.
 
 ## Equivalent mutants (excluded with `# pragma: no mutate`)
 
-Nine lines carry the pragma, each with its reason next to the code:
+Thirteen lines carry the pragma, each with its reason next to the code:
 - `helpers/dbopen.py`, `talaria/rehearse.py`: `uri=True` (Python's sqlite opens
   `file:` URIs anyway); SQL/PRAGMA keyword case.
 - `helpers/dbopen.py`: two guards whose mutated branch yields the same `None`.
 - `talaria/backup.py`: chunk size of the checksum loop (`read(None)` gives the same hash).
 - `talaria/history.py`: `parents=` for a flat directory.
 - `talaria/hermes.py`: the initial value of `reason`, always overwritten before use.
+- `talaria/restore.py`: the extraction dir's mode (tar applies the archived mode of `.`), two
+  steps that ignore `ctx`, and the done-marker `unlink` whose file always exists there.
 
 ## Remaining survivors
 
@@ -70,5 +72,5 @@ They were **not** individually reviewed. The largest groups are:
 - config parsing of rarely used value forms;
 - CLI parser details.
 
-The deploy, rollback and restore modules have 36 survivors between them, and the
-marker module has none. List them with `uv run mutmut results` after a run.
+The deploy, rollback and restore modules have none left: their 36 survivors were each
+killed by a test or marked equivalent, and the marker module had none. List them with `uv run mutmut results` after a run.

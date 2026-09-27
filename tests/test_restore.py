@@ -1,3 +1,4 @@
+import os
 import shutil
 
 import pytest
@@ -93,12 +94,15 @@ def test_move_missing_cases(tmp_path):
     restore._move_missing(src / "file_vs_dir", dst / "file_vs_dir")
     restore._move_missing(src / "linkdir", dst / "linkdir")
     restore._move_missing(src / "missing", dst / "missing")
-    restore._move_missing(src / "a/b", dst / "deep/er/b")
+    (src / "fresh").mkdir()
+    (src / "fresh/f.txt").write_text("f")
+    restore._move_missing(src / "fresh", dst / "deep/er/fresh")
     assert (dst / "a/keep.txt").read_text() == "dst version"
     assert (dst / "a/b/new.txt").read_text() == "n"
     assert (dst / "file_vs_dir").is_dir() and (src / "file_vs_dir").exists()
     assert not (dst / "linkdir/b").exists()
     assert not (dst / "missing").exists()
+    assert (dst / "deep/er/fresh/f.txt").read_text() == "f"
 
 
 def test_move_missing_dangling_symlink_is_moved(tmp_path):
@@ -154,3 +158,25 @@ def test_undeletable_leftover_refuses_before_changing_anything(tmp_path, monkeyp
         restore.restore_data(ctx, b)
     assert str(e.value) == f"cannot remove the leftover directory {old}"
     assert (d / "config.yaml").read_text() == "new\n"
+
+
+def test_undeletable_leftover_after_success_blocks_the_next_restore(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root deletes everything")
+    ctx, b = setup_ctx(tmp_path)
+    d = ctx.conf.data_dir
+    (d / "ro").mkdir()
+    (d / "ro/f").write_text("x")
+    (d / "ro").chmod(0o500)                 # the old copy of this cannot be deleted
+    old = d.with_name(f"{d.name}.old-{b.id}")
+    try:
+        restore.restore_data(ctx, b)        # succeeds; the leftover stays
+        assert (d / "config.yaml").read_text() == "old\n" and old.exists()
+        (d / "config.yaml").write_text("changed again\n")
+        with pytest.raises(restore.RestoreError):
+            restore.restore_data(ctx, b)
+        assert (d / "config.yaml").read_text() == "changed again\n"
+    finally:
+        for p in (old / "ro", d / "ro"):
+            if p.exists():
+                p.chmod(0o700)

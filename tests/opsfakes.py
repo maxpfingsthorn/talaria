@@ -1,4 +1,6 @@
 import copy
+
+import pytest
 import json
 
 from talaria import state
@@ -44,7 +46,8 @@ def ops_ctx(tmp_path, monkeypatch, *, migrate=None, check_results=None):
     monkeypatch.setattr(deploy, "run_helper", fake_helper)
     for mod in (deploy, rollback):
         monkeypatch.setattr(mod.hermes, "post_start_check",
-                            lambda c: outcomes.pop(0) if len(outcomes) > 1 else outcomes[0])
+                            lambda c: (c is ctx or pytest.fail("post_start_check got a wrong ctx"))
+                            and (outcomes.pop(0) if len(outcomes) > 1 else outcomes[0]))
     return ctx
 
 

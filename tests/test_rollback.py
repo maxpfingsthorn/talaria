@@ -358,3 +358,89 @@ def test_interrupted_text_reports_real_service_state(tmp_path, monkeypatch):
         "verified. Send /rollback CONFIRM to recover.")
     ctx.sh.on("systemctl", "--user", "is-active", out="inactive\n")
     assert "Hermes is not running but" in status.interrupted_text(ctx, st)
+
+
+# ---- the 36 survivors in deploy/rollback/restore ----
+
+def test_changed_deploy_without_marker_is_really_rolled_back(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    st = load(ctx)
+    st["op"] = {"op": "deploy", "tag": "v2026.9.24", "backup": st["last_deploy"]["backup"],
+                "changed": True, "started": "x"}
+    state.save(ctx.paths, st)
+    assert rollback.needs_resume(ctx, load(ctx)) is False
+    rollback.rollback_cmd(ctx)
+    assert ctx.notify.sent[-1].text == "Rolled back to Hermes v2026.8.3."
+    assert (ctx.conf.data_dir / "memories/m.md").read_text() == "before"
+
+
+def test_describe_resume_text_exact(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    st = load(ctx)
+    st["op"] = {"op": "restore", "backup": "b", "changed": True, "started": "x"}
+    state.save(ctx.paths, st)
+    assert rollback.describe(ctx) == ("The interrupted restore left nothing to undo. Send "
+                                      "/rollback CONFIRM to start Hermes and check it.")
+
+
+def test_resume_exception_text_exact(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    st = load(ctx)
+    st["op"] = {"op": "rollback", "backup": "b", "changed": True, "started": "x"}
+    state.save(ctx.paths, st)
+    monkeypatch.setattr(rollback.hermes, "start", lambda c: (_ for _ in ()).throw(OSError("dbus gone")))
+    rollback.rollback_cmd(ctx)
+    assert ctx.notify.sent[-1].text == ("Recovery failed: dbus gone. Hermes is stopped. Manual "
+                                        "recovery: see README, section 'Manual recovery'.")
+
+
+def test_rollback_failure_marker_points_at_the_backup(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    bid = load(ctx)["last_deploy"]["backup"]
+    ctx.checks[:] = ["broken"]
+    rollback.rollback_cmd(ctx)
+    assert marker.read(ctx.paths)["backup"] == bid
+
+
+def _drop_data_size(ctx, bid):
+    import json
+    side = ctx.paths.backups / f"{bid}.json"
+    meta = json.loads(side.read_text())
+    del meta["data_size"]
+    side.write_text(json.dumps(meta))
+
+
+def test_restore_without_recorded_data_size(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    bid = load(ctx)["last_deploy"]["backup"]
+    _drop_data_size(ctx, bid)
+    monkeypatch.setattr(disk, "free_bytes", lambda p: 0)      # floor is 0 in tests
+    rollback.restore_cmd(ctx, bid)
+    assert ctx.notify.sent[-1].text.startswith(f"Restored backup {bid}")
+
+
+def test_rollback_without_recorded_data_size(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    _drop_data_size(ctx, load(ctx)["last_deploy"]["backup"])
+    monkeypatch.setattr(disk, "free_bytes", lambda p: 0)
+    rollback.rollback_cmd(ctx)
+    assert ctx.notify.sent[-1].text == "Rolled back to Hermes v2026.8.3."
+
+
+def test_restore_space_twice_is_enough(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    b = backup.get(ctx, load(ctx)["last_deploy"]["backup"])
+    monkeypatch.setattr(disk, "free_bytes", lambda p: int(b.meta["data_size"] * 2.5))
+    rollback.restore_cmd(ctx, b.id)
+    assert ctx.notify.sent[-1].text.startswith(f"Restored backup {b.id}")
+
+
+def test_restore_records_op_before_stopping(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    target = load(ctx)["last_deploy"]["backup"]
+    seen = []
+    real = rollback.hermes.stop
+    monkeypatch.setattr(rollback.hermes, "stop", lambda c: (seen.append(load(c)["op"]), real(c))[1])
+    rollback.restore_cmd(ctx, target)
+    assert seen[0] == {"op": "restore", "backup": target, "changed": False,
+                       "started": "2026-09-27T04:30:00+00:00"}

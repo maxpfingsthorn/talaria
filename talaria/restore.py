@@ -18,7 +18,7 @@ def _step_extract(ctx, b, new: Path) -> None:
     if new.exists():
         shutil.rmtree(new)
     verify(b)
-    new.mkdir(mode=0o700)
+    new.mkdir(mode=0o700)  # pragma: no mutate  (tar then applies the archived mode of ".")
     ctx.sh.run(["tar", "-xzf", str(b.path), "-C", str(new)], timeout=3600)
     (new / DONE).touch()
 
@@ -67,9 +67,9 @@ def restore_data(ctx, b) -> None:
     if not old.exists():
         if not (new / DONE).exists():
             _step_extract(ctx, b, new)
-        _step_rename_old(ctx, data, old)
+        _step_rename_old(ctx, data, old)  # pragma: no mutate  (step ignores ctx)
     if not data.exists():
-        _step_rename_new(ctx, new, data)
-    (data / DONE).unlink(missing_ok=True)
+        _step_rename_new(ctx, new, data)  # pragma: no mutate  (step ignores ctx)
+    (data / DONE).unlink(missing_ok=True)  # pragma: no mutate  (DONE always exists here)
     _step_move_excluded(ctx, old, data)
     shutil.rmtree(old, ignore_errors=True)   # a leftover is handled at the next restore
