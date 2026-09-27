@@ -26,9 +26,13 @@ def _private_text(u: dict):
     return msg.get("from") or {}, (msg.get("text") or "").strip()
 
 
-def pair(ctx, api, code: str, timeout_s: int = 900) -> dict | None:
+def pair(ctx, api, code: str, timeout_s: int = 900, announce=lambda: None) -> dict | None:
+    """Drop the backlog, then announce the code, then wait for it."""
     backlog = api.call("getUpdates", offset=-1, timeout=0)
     offset = backlog[-1]["update_id"] + 1 if backlog else None
+    if offset is not None:
+        api.call("getUpdates", offset=offset, timeout=0)
+    announce()
     deadline = ctx.now() + timedelta(seconds=timeout_s)
     while ctx.now() < deadline:
         for u in api.call("getUpdates", offset=offset, timeout=30) or []:

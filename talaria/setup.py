@@ -196,9 +196,9 @@ def service_phase(ctx, args, api=None) -> int:
     if not ctx.conf.telegram_user_id:
         api = api or telegram.TelegramAPI(ctx.conf.telegram_api, ctx.conf.telegram_token)
         code = telegram.new_code()
-        say("ACTION REQUIRED", f"in a private chat with your bot, send within 15 minutes:\n"
-                               f"  /pair {code}")
-        who = telegram.pair(ctx, api, code)
+        who = telegram.pair(ctx, api, code, announce=lambda: say(
+            "ACTION REQUIRED", f"in a private chat with your bot, send within 15 minutes:\n"
+                               f"  /pair {code}"))
         if not who:
             say("STOP", "no /pair message arrived; run setup again for a new code")
             return 10

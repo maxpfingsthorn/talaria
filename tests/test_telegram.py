@@ -121,7 +121,7 @@ def test_poll_advances_offset(bot):
 
 def test_pair_first_correct_sender_wins(tmp_path):
     ctx = make_test_ctx(tmp_path)
-    api = FakeAPI(ctx, [[upd(1, "old")], [upd(2, "/pair WRONG", user=9), upd(3, "/pair ABCD2345",
+    api = FakeAPI(ctx, [[upd(1, "old")], [], [upd(2, "/pair WRONG", user=9), upd(3, "/pair ABCD2345",
                                                                            user=77)]])
     who = telegram.pair(ctx, api, "ABCD2345")
     assert who["id"] == 77
@@ -131,3 +131,12 @@ def test_pair_ignores_groups_and_expires(tmp_path):
     ctx = make_test_ctx(tmp_path)
     api = FakeAPI(ctx, [[], [upd(2, "/pair ABCD2345", chat_type="group")]])
     assert telegram.pair(ctx, api, "ABCD2345", timeout_s=60) is None
+
+
+def test_pair_code_shown_only_after_backlog_is_dropped(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    api = FakeAPI(ctx, [[upd(1, "old")]])
+    # the person answers instantly: the message exists before the next poll
+    announce = lambda: api.batches.append([upd(2, "/pair ABCD2345", user=77)])
+    who = telegram.pair(ctx, api, "ABCD2345", announce=announce)
+    assert who["id"] == 77
