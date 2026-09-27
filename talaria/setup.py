@@ -80,8 +80,11 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         say("ACTION REQUIRED", f"run this block as root, then run setup again:\n"
             + root_block(user, operator, create=True))
         return 10
-    sudo = ["sudo", "-n", "-u", user, "-H"]
     home, install = pw.pw_dir, f"{pw.pw_dir}/.local/share/talaria"
+    # sudo may keep the caller's XDG_* dirs (e.g. on CI runners); podman and git must
+    # use the service user's own
+    sudo = ["sudo", "-n", "-u", user, "-H", "env", "-u", "XDG_CONFIG_HOME", "-u",
+            "XDG_DATA_HOME", "-u", "XDG_STATE_HOME", "-u", "XDG_CACHE_HOME", f"HOME={home}"]
     sudo_ok = sh.run(["sudo", "-n", "-u", user, "true"], check=False).returncode == 0
     installed = sudo_ok and sh.run(["sudo", "-n", "-u", user, "test", "-e", install],
                                    check=False).returncode == 0
@@ -118,7 +121,7 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
     sh.run(sudo + ["ln", "-sfn", f"{install}/bin/talaria", f"{home}/.local/bin/talaria"])
     say("OK", f"Talaria {ref} installed for {user}")
     rest = ["--adopt", args.adopt] if args.adopt else []
-    return call(sudo + ["env", f"XDG_RUNTIME_DIR=/run/user/{pw.pw_uid}",
+    return call(sudo + [f"XDG_RUNTIME_DIR=/run/user/{pw.pw_uid}",
                         f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{pw.pw_uid}/bus",
                         f"{home}/.local/bin/talaria", "setup", "--as-service", *rest])
 

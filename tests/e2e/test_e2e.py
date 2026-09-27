@@ -3,8 +3,8 @@ import subprocess
 
 import pytest
 
-from tests.e2e.conftest import (USER, as_user, root_block, seed_conf, sh, talaria, uid,
-                                wait_for)
+from tests.e2e.conftest import (USER, as_user, bus_ready, root_block, seed_conf, sh, talaria,
+                                uid, wait_for)
 
 pytestmark = pytest.mark.e2e
 
@@ -42,7 +42,7 @@ def test_01_fresh_setup(env):
     r = setup_cmd(env)
     assert r.returncode == 10, r.stdout
     sh("sudo", "bash", "-euc", root_block(r.stdout))
-    wait_for(lambda: sh("test", "-S", f"/run/user/{uid()}/bus", check=False).returncode == 0)
+    wait_for(lambda: bus_ready())
     seed_conf()
     r = setup_cmd(env, "--user", USER)
     assert r.returncode == 10 and "set-token" in r.stdout, r.stdout
@@ -125,7 +125,7 @@ def test_09_adopt_existing_install(env):
     user = "hermes2"
     sh("sudo", "useradd", "--create-home", "--shell", "/bin/bash", user)
     sh("sudo", "loginctl", "enable-linger", user)
-    wait_for(lambda: sh("test", "-S", f"/run/user/{uid(user)}/bus", check=False).returncode == 0)
+    wait_for(lambda: bus_ready(user))
     as_user("mkdir", "-p", f"/home/{user}/data", f"/home/{user}/.config/containers/systemd",
             user=user)
     as_user("podman", "pull", "-q", "--tls-verify=false",

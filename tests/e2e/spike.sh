@@ -5,8 +5,8 @@ sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 sudo useradd --create-home --shell /bin/bash spike
 sudo loginctl enable-linger spike
 uid=$(id -u spike)
-for _ in $(seq 30); do [ -S /run/user/$uid/bus ] && break; sleep 1; done
-as() { sudo -u spike -H env XDG_RUNTIME_DIR=/run/user/$uid \
+for _ in $(seq 30); do sudo test -S /run/user/$uid/bus && break; sleep 1; done
+as() { sudo -u spike -H env -i HOME=/home/spike PATH=/usr/local/bin:/usr/bin:/bin XDG_RUNTIME_DIR=/run/user/$uid \
        DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus "$@"; }
 as systemctl --user is-system-running || true
 as podman run --rm --userns=keep-id:uid=10000,gid=10000 --user 10000:10000 \

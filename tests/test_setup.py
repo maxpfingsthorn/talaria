@@ -201,3 +201,12 @@ def test_dev_install_clones_local_checkout(monkeypatch, tmp_path):
     run(args(user="hermes", dev=True))
     clone = [c for c in sh.calls if "clone" in c][0]
     assert str(setup.REPO) in clone
+
+
+def test_handoff_drops_callers_xdg_dirs(monkeypatch, tmp_path):
+    sh, run, calls = op_env(monkeypatch, tmp_path)
+    run(args(user="hermes"))
+    argv = calls[0]
+    for var in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"):
+        assert argv[argv.index(var) - 1] == "-u"
+    assert "HOME=/home/hermes" in argv

@@ -29,9 +29,16 @@ def uid(user=USER):
 
 def as_user(*argv, user=USER, env=(), check=True, **kw):
     u = uid(user)
-    return sh("sudo", "-u", user, "-H", "env", f"XDG_RUNTIME_DIR=/run/user/{u}",
+    # env -i: the runner's XDG_* and other variables survive sudo on GitHub runners
+    return sh("sudo", "-u", user, "-H", "env", "-i", f"HOME=/home/{user}", f"USER={user}",
+              f"LOGNAME={user}", "PATH=/usr/local/bin:/usr/bin:/bin",
+              f"XDG_RUNTIME_DIR=/run/user/{u}",
               f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{u}/bus", *env, *argv,
               check=check, **kw)
+
+
+def bus_ready(user=USER) -> bool:
+    return sh("sudo", "test", "-S", f"/run/user/{uid(user)}/bus", check=False).returncode == 0
 
 
 def talaria(*argv, user=USER, **kw):
