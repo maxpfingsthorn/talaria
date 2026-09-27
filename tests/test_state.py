@@ -53,6 +53,7 @@ def test_lock_not_inherited_by_children(tmp_path):
             pass
     finally:
         child.kill()
+        child.wait()
 
 
 def test_marker_roundtrip(tmp_path):

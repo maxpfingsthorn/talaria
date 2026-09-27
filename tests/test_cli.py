@@ -1,10 +1,16 @@
+import os
 import subprocess
 from pathlib import Path
+
+import pytest
 
 import talaria
 from talaria import cli
 
 ROOT = Path(__file__).resolve().parent.parent
+# the bash wrapper is not mutated; under mutmut its subprocess cannot reach mutmut's state
+not_under_mutmut = pytest.mark.skipif(bool(os.environ.get("MUTANT_UNDER_TEST")),
+                                      reason="subprocess of the unmutated bash wrapper")
 
 
 def test_version_command(capsys):
@@ -12,6 +18,7 @@ def test_version_command(capsys):
     assert capsys.readouterr().out.strip() == talaria.__version__
 
 
+@not_under_mutmut
 def test_bin_wrapper_runs_module():
     out = subprocess.run([str(ROOT / "bin/talaria"), "version"],
                          capture_output=True, text=True, check=True)
@@ -27,6 +34,7 @@ def test_unknown_command_exits_2():
         raise AssertionError("expected SystemExit")
 
 
+@not_under_mutmut
 def test_bin_wrapper_ignores_callers_cwd(tmp_path):
     fake = tmp_path / "talaria"
     fake.mkdir()

@@ -142,9 +142,7 @@ def test_09_adopt_existing_install(env):
     as_user("systemctl", "--user", "daemon-reload", user=user)
     as_user("systemctl", "--user", "start", "old-hermes.service", user=user)
     wait_for(lambda: hermes_active_unit(user, "old-hermes.service"))
-    r = setup_cmd(env, "--user", user)
-    assert r.returncode == 10 and "NOPASSWD" in r.stdout
-    sh("sudo", "bash", "-euc", root_block(r.stdout))
+    # the runner's account already has sudo to every user, so no root block is needed here
     seed_conf(user)
     r = setup_cmd(env, "--user", user)
     assert r.returncode == 10 and "--adopt old-hermes.service" in r.stdout, r.stdout
