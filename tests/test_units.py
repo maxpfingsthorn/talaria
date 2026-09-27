@@ -39,3 +39,10 @@ def test_quadlet_runs_the_gateway(tmp_path):
     # the official image runs the interactive CLI when given no command (main-wrapper.sh)
     ctx = make_test_ctx(tmp_path)
     assert "\nExec=gateway run\n" in units.render_quadlet(ctx)
+
+
+def test_quadlet_refuses_empty_bind_address(tmp_path):
+    import pytest
+    ctx = make_test_ctx(tmp_path, dashboard_bind="tailscale", tailscale_ip="")
+    with pytest.raises(ValueError, match="no address"):
+        units.render_quadlet(ctx)

@@ -11,6 +11,8 @@ def _tpl(ctx, name: str) -> Template:
 
 def render_quadlet(ctx) -> str:
     c = ctx.conf
+    if not c.bind_ip:   # an empty address would publish the dashboard on every interface
+        raise ValueError(f"dashboard.bind = {c.dashboard_bind} but no address is known")
     wait = ""
     if c.dashboard_bind == "tailscale":
         wait = ("ExecStartPre=/usr/bin/timeout 120 /bin/sh -c "

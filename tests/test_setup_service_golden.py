@@ -341,3 +341,12 @@ def test_fresh_refuses_mount_point_data_dir(s, monkeypatch, capsys):
     assert rc == 1 and out.endswith(
         f"STOP: the data dir {H}/hermes-data is a mount point or on another filesystem than its "
         "parent; Talaria restores by renaming it, so it must be a plain directory\n")
+
+
+def test_tailscale_address_resolved_before_adoption_plan(s, monkeypatch, capsys):
+    s.conf.dashboard_bind = "tailscale"
+    s.sh.on("tailscale", "ip", "-4", out="100.64.1.2\n")
+    seen = []
+    monkeypatch.setattr(setup.adopt, "detect", lambda c: (seen.append(c.conf.tailscale_ip), [])[1])
+    run(s, capsys, plan=True)
+    assert seen == ["100.64.1.2"]
