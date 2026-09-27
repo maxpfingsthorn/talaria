@@ -444,3 +444,27 @@ def test_restore_records_op_before_stopping(tmp_path, monkeypatch):
     rollback.restore_cmd(ctx, target)
     assert seen[0] == {"op": "restore", "backup": target, "changed": False,
                        "started": "2026-09-27T04:30:00+00:00"}
+
+
+# ---- v0.2: confirm buttons ----
+
+def test_rollback_buttons(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    bid = load(ctx)["last_deploy"]["backup"]
+    assert rollback.describe_buttons(ctx) == [[("Roll back to Hermes v2026.8.3", f"rb:{bid}")]]
+    st = load(ctx)
+    st["op"] = {"op": "rollback", "backup": "b", "changed": True, "started": "x"}
+    state.save(ctx.paths, st)
+    assert rollback.describe_buttons(ctx) == [[("Start Hermes and check it", "rb:resume")]]
+
+
+def test_rollback_buttons_none(tmp_path, monkeypatch):
+    ctx = _ops(tmp_path, monkeypatch)
+    assert rollback.describe_buttons(ctx) == []
+
+
+def test_restore_buttons(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    bid = load(ctx)["last_deploy"]["backup"]
+    assert rollback.describe_restore_buttons(ctx, bid) == [[(f"Restore {bid}", f"rs:{bid}")]]
+    assert rollback.describe_restore_buttons(ctx, "20200101T000000Z-x") == []

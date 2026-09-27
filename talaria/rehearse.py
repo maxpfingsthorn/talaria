@@ -101,7 +101,8 @@ def candidate_message(ctx, st, report: dict, replaced: str | None) -> Message:
     blocks = [b for b in ("\n".join(report["messages"]), _fmt_diff(report["diff"]),
                           "\n".join(report["doctor"])) if b]
     return Message("\n".join(lines), untrusted=blocks,
-                   commands=[f"/approve {tag}", f"/reject {tag}"])
+                   commands=[f"/approve {tag}", f"/reject {tag}"],
+                   buttons=[[(f"Approve {tag}", f"ap:{tag}"), ("Reject", f"rj:{tag}")]])
 
 
 def rehearse(ctx, st: dict, tag: str, commit: str) -> None:

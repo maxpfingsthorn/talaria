@@ -314,3 +314,9 @@ def test_unreadable_file_is_transient_and_cleaned_up(happy):
     assert str(e.value).startswith("could not copy the data dir: ")
     assert len(str(e.value)) <= 330
     assert not any(happy.paths.staging.iterdir())
+
+
+def test_candidate_message_has_buttons(happy):
+    rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
+    assert happy.notify.sent[-1].buttons == [[("Approve v2026.9.24", "ap:v2026.9.24"),
+                                              ("Reject", "rj:v2026.9.24")]]

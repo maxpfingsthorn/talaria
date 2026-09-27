@@ -10,12 +10,22 @@ class State:
         self.lock = threading.Condition()
         self.updates, self.sent, self.next_id = [], [], 1
         self.cursor = 0  # wait_sent only looks at messages after the last match
+        self.buttons = []  # reply_markup per sent message, parallel to sent
 
     def inject(self, text, user=4242, chat_type="private"):
         with self.lock:
             self.updates.append({"update_id": self.next_id, "message": {
                 "text": text, "chat": {"id": user, "type": chat_type},
                 "from": {"id": user, "first_name": "Test", "username": "tester"}}})
+            self.next_id += 1
+            self.lock.notify_all()
+
+    def tap(self, data, user=4242):
+        """Simulate tapping an inline button."""
+        with self.lock:
+            self.updates.append({"update_id": self.next_id, "callback_query": {
+                "id": f"q{self.next_id}", "data": data, "from": {"id": user},
+                "message": {"message_id": 1, "chat": {"id": user, "type": "private"}}}})
             self.next_id += 1
             self.lock.notify_all()
 
@@ -47,6 +57,7 @@ def make_server(port=8081):
             elif method == "sendMessage":
                 with st.lock:
                     st.sent.append(params["text"])
+                    st.buttons.append(params.get("reply_markup"))
                 result = {"message_id": len(st.sent)}
             elif method == "getUpdates":
                 result = self.get_updates(params)

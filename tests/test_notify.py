@@ -246,3 +246,27 @@ def test_render_escaping_growth_still_fits():
     out = render(m)
     assert len(out) <= 4096 and out.endswith("</pre>")
     assert "truncated, full text in the journal" in out
+
+
+# ---- v0.2: inline buttons ----
+
+def test_send_attaches_inline_keyboard():
+    api = FakeAPI([])
+    m = Message("x", buttons=[[("Approve v2", "ap:v2"), ("Reject", "rj:v2")]])
+    TelegramNotifier(conf(), api=api, sleep=lambda s: None).send(m)
+    assert api.calls[0][1]["reply_markup"] == {"inline_keyboard": [
+        [{"text": "Approve v2", "callback_data": "ap:v2"},
+         {"text": "Reject", "callback_data": "rj:v2"}]]}
+
+
+def test_send_without_buttons_has_no_markup():
+    api = FakeAPI([])
+    TelegramNotifier(conf(), api=api, sleep=lambda s: None).send(Message("x"))
+    assert "reply_markup" not in api.calls[0][1]
+
+
+def test_keyboard_drops_buttons_over_64_bytes():
+    from talaria.notify import keyboard
+    assert keyboard([[("ok", "a" * 64), ("too long", "b" * 65)], [("x", "c" * 70)]]) == {
+        "inline_keyboard": [[{"text": "ok", "callback_data": "a" * 64}]]}
+    assert keyboard([]) is None

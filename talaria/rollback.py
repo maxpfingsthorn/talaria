@@ -61,6 +61,24 @@ def describe(ctx) -> str:
             "Send /rollback CONFIRM to proceed.")
 
 
+def describe_buttons(ctx) -> list:
+    st = state.load(ctx.paths)
+    if needs_resume(ctx, st):
+        return [[("Start Hermes and check it", "rb:resume")]]
+    t = target(ctx, st)
+    if not t:
+        return []
+    return [[(f"Roll back to Hermes {t[1].get('tag')}", f"rb:{t[0]}")]]
+
+
+def describe_restore_buttons(ctx, bid: str) -> list:
+    try:
+        b = backup.get(ctx, bid)
+    except KeyError:
+        return []
+    return [[(f"Restore {b.id}", f"rs:{b.id}")]]
+
+
 def _swap(ctx, b, image: dict, op: str, revert: tuple[str, dict]) -> str | None:
     """Stop, restore b, switch to image, start, check. The marker points at `revert`."""
     hermes.stop(ctx)

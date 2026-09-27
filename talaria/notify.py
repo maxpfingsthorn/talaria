@@ -17,6 +17,16 @@ class Message:
     text: str
     untrusted: list = field(default_factory=list)
     commands: list = field(default_factory=list)
+    buttons: list = field(default_factory=list)    # rows of (label, callback_data)
+
+
+def keyboard(rows) -> dict | None:
+    """Telegram inline keyboard; callback_data is limited to 64 bytes, so longer ones
+    are dropped (the typed command in the text still works)."""
+    out = [[{"text": label, "callback_data": data} for label, data in row
+            if len(data.encode()) <= 64] for row in rows]
+    out = [r for r in out if r]
+    return {"inline_keyboard": out} if out else None
 
 
 def _assemble(text: str, blocks: list[str], commands: list[str]) -> str:
@@ -88,8 +98,12 @@ class TelegramNotifier:
         text = render(m)
         for attempt in range(3):
             try:
-                self.api.call("sendMessage", chat_id=self.conf.telegram_user_id, text=text,
-                              parse_mode="HTML", disable_web_page_preview=True)
+                params = {"chat_id": self.conf.telegram_user_id, "text": text,
+                          "parse_mode": "HTML", "disable_web_page_preview": True}
+                markup = keyboard(m.buttons)
+                if markup:
+                    params["reply_markup"] = markup
+                self.api.call("sendMessage", **params)
                 return
             except ApiError as e:
                 if e.status == 429 and e.retry_after:

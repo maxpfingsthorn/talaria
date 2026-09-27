@@ -79,10 +79,15 @@ def test_04_restore(env):
     assert hermes_active()
 
 
-def test_05_redeploy(env):
+def test_05_redeploy_by_tapping_the_button(env):
     talaria("check")
-    env["tg"].inject("/approve v2026.1.2")
-    env["tg"].wait_sent("Deployed Hermes v2026.1.2")
+    tg = env["tg"]
+    msg = tg.wait_sent("/approve v2026.1.2")
+    markup = tg.buttons[tg.sent.index(msg)]
+    assert markup["inline_keyboard"][0][0]["callback_data"] == "ap:v2026.1.2"
+    tg.tap("ap:v2026.1.2")
+    tg.wait_sent("Deploying v2026.1.2")
+    tg.wait_sent("Deployed Hermes v2026.1.2")
 
 
 def test_06_crashing_release_rolls_back_automatically(env):

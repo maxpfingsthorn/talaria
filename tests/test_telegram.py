@@ -167,7 +167,7 @@ def test_run_backs_off_and_resets(tmp_path, monkeypatch, capsys):
             made.append((base, token))
 
         def call(self, method, **p):
-            if p.get("offset") == -1 or p.get("timeout") == 0:
+            if method == "setMyCommands" or p.get("offset") == -1 or p.get("timeout") == 0:
                 return []
             e = events.pop(0)
             if e:
@@ -280,14 +280,15 @@ def test_poll_once_params_exact(bot):
     b.offset = 7
     b.poll_once()
     assert api.calls[-1] == ("getUpdates", {"offset": 7, "timeout": 30,
-                                            "allowed_updates": ["message"]})
+                                            "allowed_updates": ["message", "callback_query"]})
 
 
 def test_startup_without_backlog(bot):
     ctx, api, b = bot
     api.batches = [[]]
     b.startup()
-    assert b.offset is None and api.calls == [("getUpdates", {"offset": -1, "timeout": 0})]
+    assert b.offset is None and [c for c in api.calls if c[0] == "getUpdates"] == [
+        ("getUpdates", {"offset": -1, "timeout": 0})]
     assert ctx.notify.sent == []
 
 
@@ -295,8 +296,8 @@ def test_startup_ack_exact(bot):
     ctx, api, b = bot
     api.batches = [[upd(4, "x")], []]
     b.startup()
-    assert api.calls == [("getUpdates", {"offset": -1, "timeout": 0}),
-                         ("getUpdates", {"offset": 5, "timeout": 0})]
+    assert [c for c in api.calls if c[0] == "getUpdates"] == [
+        ("getUpdates", {"offset": -1, "timeout": 0}), ("getUpdates", {"offset": 5, "timeout": 0})]
 
 
 def test_pair_exact_calls(tmp_path):
@@ -339,3 +340,149 @@ def test_new_code_alphabet():
     assert telegram.ALPHABET == "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
     codes = {telegram.new_code() for _ in range(200)}
     assert len(codes) > 190 and all(set(c) <= set(telegram.ALPHABET) for c in codes)
+
+
+# ---- v0.2: command menu and buttons ----
+
+def cb(data, user=OWNER, chat_type="private", mid=55):
+    return {"update_id": 9, "callback_query": {
+        "id": "q1", "data": data, "from": {"id": user},
+        "message": {"message_id": mid, "chat": {"id": user, "type": chat_type}}}}
+
+
+def calls(api, method):
+    return [p for m, p in api.calls if m == method]
+
+
+def pending(ctx, tag="v2026.9.24"):
+    st = state.load(ctx.paths)
+    st["pending"] = {"tag": tag}
+    state.save(ctx.paths, st)
+
+
+def test_startup_registers_command_menu_for_owner_only(bot):
+    ctx, api, b = bot
+    b.startup()
+    (params,) = calls(api, "setMyCommands")
+    assert params["scope"] == {"type": "chat", "chat_id": OWNER}
+    assert [c["command"] for c in params["commands"]] == [
+        "status", "check", "approve", "reject", "rollback", "backups", "restore"]
+    assert all(0 < len(c["description"]) <= 256 for c in params["commands"])
+
+
+def test_menu_failure_does_not_stop_startup(bot, monkeypatch):
+    ctx, api, b = bot
+    real = api.call
+
+    def call(method, **p):
+        if method == "setMyCommands":
+            raise ApiError(400, None)
+        return real(method, **p)
+
+    api.call = call
+    b.startup()          # no exception
+
+
+def test_poll_asks_for_callback_queries(bot):
+    ctx, api, b = bot
+    b.poll_once()
+    assert calls(api, "getUpdates")[-1]["allowed_updates"] == ["message", "callback_query"]
+
+
+def test_approve_button_deploys_and_removes_buttons(bot):
+    ctx, api, b = bot
+    pending(ctx)
+    b.handle(cb("ap:v2026.9.24"))
+    assert ctx.sh.called("systemd-run")[0][-2:] == ["deploy", "v2026.9.24"]
+    assert calls(api, "answerCallbackQuery") == [{"callback_query_id": "q1", "text": "Deploying"}]
+    assert calls(api, "editMessageReplyMarkup") == [
+        {"chat_id": OWNER, "message_id": 55, "reply_markup": {"inline_keyboard": []}}]
+    assert api.sent()[-1] == "Deploying v2026.9.24. I will report the result."
+
+
+def test_stale_approve_button_is_refused(bot):
+    ctx, api, b = bot
+    pending(ctx, "v2026.10.1")
+    b.handle(cb("ap:v2026.9.24"))
+    assert ctx.sh.called("systemd-run") == []
+    assert calls(api, "answerCallbackQuery")[0]["text"] == "Out of date"
+    assert api.sent()[-1] == "That button is out of date. /status shows the current state."
+    assert calls(api, "editMessageReplyMarkup")
+
+
+def test_reject_button(bot):
+    ctx, api, b = bot
+    pending(ctx)
+    b.handle(cb("rj:v2026.9.24"))
+    assert state.load(ctx.paths)["rejected"] == ["v2026.9.24"]
+    assert api.sent()[-1] == "Rejected v2026.9.24. It will not be offered again."
+
+
+def test_rollback_button_must_match_current_target(bot, monkeypatch):
+    ctx, api, b = bot
+    monkeypatch.setattr(telegram.rollback, "needs_resume", lambda c, st: False)
+    monkeypatch.setattr(telegram.rollback, "target", lambda c, st: ("B1", {"tag": "v1"}))
+    b.handle(cb("rb:20260927T043000Z-other"))
+    assert ctx.sh.called("systemd-run") == []
+    monkeypatch.setattr(telegram.rollback, "target",
+                        lambda c, st: ("20260927T043000Z-pre-v2", {"tag": "v1"}))
+    b.handle(cb("rb:20260927T043000Z-pre-v2"))
+    assert ctx.sh.called("systemd-run")[0][-2:] == ["rollback", "--confirm"]
+    assert api.sent()[-1] == "Rolling back. I will report the result."
+
+
+def test_resume_button(bot, monkeypatch):
+    ctx, api, b = bot
+    monkeypatch.setattr(telegram.rollback, "needs_resume", lambda c, st: True)
+    b.handle(cb("rb:resume"))
+    assert ctx.sh.called("systemd-run")[0][-2:] == ["rollback", "--confirm"]
+    monkeypatch.setattr(telegram.rollback, "needs_resume", lambda c, st: False)
+    monkeypatch.setattr(telegram.rollback, "target", lambda c, st: None)
+    b.handle(cb("rb:resume"))
+    assert len(ctx.sh.called("systemd-run")) == 1
+
+
+def test_restore_button(bot, monkeypatch):
+    ctx, api, b = bot
+    b.handle(cb("rs:20260927T043000Z-manual"))            # no such backup
+    assert ctx.sh.called("systemd-run") == []
+    from talaria import backup
+    bk = backup.create(ctx, "manual", None)
+    b.handle(cb(f"rs:{bk.id}"))
+    assert ctx.sh.called("systemd-run")[0][-3:] == ["restore", bk.id, "--confirm"]
+    assert api.sent()[-1] == f"Restoring {bk.id}. I will report the result."
+
+
+@pytest.mark.parametrize("update", [cb("ap:v2026.9.24", user=7), cb("ap:v2026.9.24", chat_type="group")])
+def test_buttons_from_others_are_ignored(bot, update):
+    ctx, api, b = bot
+    pending(ctx)
+    b.handle(update)
+    assert ctx.sh.called("systemd-run") == [] and api.calls == []
+
+
+@pytest.mark.parametrize("data", ["xx:1", "ap:latest;rm", "rs:../x", "rb:", "", None])
+def test_malformed_buttons(bot, data):
+    ctx, api, b = bot
+    b.handle(cb(data))
+    assert ctx.sh.called("systemd-run") == []
+    assert calls(api, "answerCallbackQuery")[0]["text"] == "Unknown button"
+
+
+def test_rollback_describe_carries_button(bot, monkeypatch):
+    ctx, api, b = bot
+    monkeypatch.setattr(telegram.rollback, "describe", lambda c: "would restore")
+    monkeypatch.setattr(telegram.rollback, "describe_buttons", lambda c: [[("Roll back", "rb:B")]])
+    b.handle(upd(1, "/rollback"))
+    (params,) = calls(api, "sendMessage")
+    assert params["text"] == "would restore"
+    assert params["reply_markup"] == {"inline_keyboard": [[{"text": "Roll back", "callback_data": "rb:B"}]]}
+
+
+def test_restore_describe_carries_button(bot, monkeypatch):
+    ctx, api, b = bot
+    monkeypatch.setattr(telegram.rollback, "describe_restore_buttons",
+                        lambda c, i: [[("Restore", f"rs:{i}")]])
+    b.handle(upd(1, "/restore 20260927T043000Z-manual"))
+    (params,) = calls(api, "sendMessage")
+    assert params["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "rs:20260927T043000Z-manual"

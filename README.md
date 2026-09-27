@@ -83,6 +83,13 @@ The bot token is never typed into a chat or an agent. You store it yourself with
 | `/backups` | list backups |
 | `/restore <id>` / `/restore <id> CONFIRM` | describe / restore a backup |
 
+The bot registers these commands with Telegram, so they appear under the **Menu**
+button in your chat (and nowhere else). Update offers come with **Approve** and
+**Reject** buttons; `/rollback` and `/restore <id>` answer with a confirm button, so
+you never have to type `CONFIRM`. Each button names what it acts on and is checked
+against the current state: an old button is refused instead of acting on something
+else. Tapped buttons are removed.
+
 You get a message when an update is ready, after a deploy, rollback or restore, when
 something fails, after an interrupted change, and once per new Talaria release.
 Nothing else.
