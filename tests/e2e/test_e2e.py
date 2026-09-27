@@ -136,7 +136,7 @@ def test_09_adopt_existing_install(env):
         "Image=localhost:5000/hermes-agent:v2026.1.1\n"
         f"Volume=/home/{user}/data:/opt/data\nUserNS=keep-id:uid=10000,gid=10000\n"
         "Environment=HERMES_DASHBOARD_INSECURE=true TZ=UTC\n"
-        "PublishPort=127.0.0.1:9119:9119\n[Install]\nWantedBy=default.target\n")
+        "PublishPort=127.0.0.1:9119:9119\nExec=gateway run\n[Install]\nWantedBy=default.target\n")
     as_user("sh", "-c", f"cat > /home/{user}/.config/containers/systemd/old-hermes.container",
             user=user, input=quadlet)
     as_user("systemctl", "--user", "daemon-reload", user=user)

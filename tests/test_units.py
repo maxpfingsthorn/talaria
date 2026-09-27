@@ -33,3 +33,9 @@ def test_install_reports_quadlet_change(tmp_path):
     assert ctx.paths.quadlet.exists()
     assert (ctx.paths.units_dir / "talaria-telegram.service").exists()
     assert ctx.sh.called("systemctl", "--user", "daemon-reload")
+
+
+def test_quadlet_runs_the_gateway(tmp_path):
+    # the official image runs the interactive CLI when given no command (main-wrapper.sh)
+    ctx = make_test_ctx(tmp_path)
+    assert "\nExec=gateway run\n" in units.render_quadlet(ctx)
