@@ -93,7 +93,7 @@ contract test (§13.3) re-checks the ones marked ✓.
 ```
 hermes.service        Quadlet hermes.container, WantedBy=default.target
   ExecCondition = test ! -e ~/.local/state/talaria/changing
-  ExecStartPre  = talaria wait-tailscale        (only for dashboard.bind = tailscale)
+  ExecStartPre  = wait for the Tailscale IP, ≤ 120 s (only for dashboard.bind = tailscale)
   mounts only <data_dir> → /opt/data
 
 talaria-check.timer → talaria-check.service → talaria check (daily)
@@ -116,8 +116,9 @@ bin/talaria        thin wrapper → python3 -m talaria
 talaria/           cli, conf, state, tags, images, backup, rehearse, deploy,
                    rollback, setup, adopt, history, notify, telegram
 helpers/           run INSIDE a Hermes image (read-only mount): migrate.py,
-                   confdiff.py, dbopen.py, doctor.py; _upstream.py is the only
-                   module that imports Hermes code
+                   confdiff.py, dbopen.py; _upstream.py is the only module
+                   that imports Hermes code. `hermes doctor` runs as a plain
+                   command in the image
 templates/         hermes.container, talaria-check.{service,timer},
                    talaria-telegram.service
 tests/             pytest, e2e/ (systemd + podman, §13.2), contract/ (§13.3)
@@ -273,8 +274,7 @@ bot arguments.
 4. **Talaria reminder**: `git ls-remote --tags <talaria_repo>`. The first time a
    newer Talaria release appears, send one message. `/status` keeps showing it.
 
-The first `check` after setup only records what exists, without messages. An
-unreachable network or registry fails silently; if it fails 3 days in a row,
+An unreachable network or registry fails silently; if it fails 3 days in a row,
 send one message.
 
 ### 7.2 Rehearsal (`talaria rehearse <tag>`)
@@ -339,15 +339,19 @@ This works on the pending candidate only.
    of the data dir. If not, refuse before stopping anything.
 2. Stop Hermes, then back up as `pre-<tag>` (§9.1) and commit the history
    (§9.3).
-3. Write the **`changing` marker**: operation, backup ID, and the previous image
-   digest. From now on, Hermes will not start on its own (§7.7).
+3. Record the operation in `state.json` (`op`: deploy, tag, backup) and write
+   the **`changing` marker**: backup ID and the previous image. From now on,
+   Hermes will not start on its own (§7.7).
 4. **Real migration**: the one-shot migration (§7.3) on the data dir. A failure,
    or a config version other than the rehearsal predicted, triggers an
    automatic rollback (§7.6).
-5. Retag: `previous` ← `current`, `current` ← the candidate.
+5. Retag: `previous` ← `current`, `current` ← the candidate. Data and image
+   now match again, so **remove the marker**; otherwise systemd would refuse
+   the start.
 6. Start Hermes and run the post-start check (§7.4).
-7. **Pass**: remove the marker, apply retention, and send "deployed vX".
-   **Fail**: roll back automatically, mark the tag `failed`, and send one
+7. **Pass**: clear `op`, apply retention, and send "deployed vX".
+   **Fail**: write the marker again (pointing at the `pre-<tag>` backup and
+   the previous image), roll back, mark the tag `failed`, and send one
    message.
 
 ### 7.6 Rollback (`/rollback CONFIRM`)
@@ -362,11 +366,11 @@ Rollback puts back the data and the image from before the last change.
   2. Stop Hermes.
   3. Write or keep the marker.
   4. Restore (§9.2).
-  5. Retag `current`.
+  5. Retag `current`, then remove the marker (data and image match).
   6. Start and run the post-start check.
-  7. Pass: remove the marker and send "rolled back".
-  8. Fail: leave the marker, so Hermes stays down, and send one message with the
-     manual steps.
+  7. Pass: clear `op` and send "rolled back".
+  8. Fail: stop Hermes, write the marker again, so Hermes stays down, and
+     send one message with the manual steps.
 - **Idempotent**: every step can be run again, so after a crash the answer is
   always to send `/rollback CONFIRM` again.
 - **Warning**: plain `/rollback` explains what would be restored and **how old
@@ -374,13 +378,20 @@ Rollback puts back the data and the image from before the last change.
 
 ### 7.7 Interrupted changes
 
-The `changing` marker exists only while production is being changed. While it
-exists, `ExecCondition` stops systemd from starting Hermes, at boot or
-otherwise, so a half-migrated data dir never runs.
+The `changing` marker exists only while data and image may not match. While
+it exists, `ExecCondition` stops systemd from starting Hermes, at boot or
+otherwise, so a half-migrated data dir never runs. Talaria removes it just
+before its own start, once data and image match again.
 
-When the bot starts, and on `/status`, it reports any marker it finds:
-"interrupted <op> (<age>); send `/rollback CONFIRM` to restore the state before
-it". Talaria never completes an interrupted deploy. The person rolls back and
+`state.json`'s `op` records an operation from its start to its end. When the
+bot starts, and on `/status`, it reports an unfinished `op`:
+- With the marker present: "interrupted <op> (<age>); Hermes is stopped;
+  send `/rollback CONFIRM` to restore the state before it".
+- Without the marker (a crash during the post-start check): "interrupted
+  <op>; the new version is running but was not verified; `/rollback CONFIRM`
+  goes back".
+
+Talaria never completes an interrupted deploy. The person rolls back and
 approves again.
 
 A crash before the marker is written (during the backup) leaves the data
@@ -486,9 +497,11 @@ Each step checks what already exists first, so a re-run finishes the job.
 `/restore <id> CONFIRM`:
 1. Re-pull the backup's image by digest if it is missing. A missing local image
    refuses the restore.
-2. Take a `pre-restore` backup and write the marker.
-3. Restore, and set `current` to the backup's image.
-4. Start and run the post-start check.
+2. Take a `pre-restore` backup and write the marker, pointing at
+   `pre-restore` and the current image.
+3. Restore, set `current` to the backup's image, and remove the marker.
+4. Start and run the post-start check. If it fails, write the marker again
+   and roll back to `pre-restore`.
 
 A restore can be undone by restoring its `pre-restore` backup.
 
@@ -517,6 +530,11 @@ expands; nothing else does.
 | `disk.floor_gb` | `6` |
 | `check.time` | `04:30` |
 
+Test-only keys, undocumented in the README, let the e2e suite (§13.2) run
+against a local registry and fake Telegram. `registry_tls_verify` (default
+`true`), `min_release` (`v2026.6.5`), `settle_seconds` (`60`), `telegram_api`
+(`https://api.telegram.org`).
+
 `.env` holds `TALARIA_TELEGRAM_TOKEN` and `TALARIA_TELEGRAM_USER_ID`. Setup
 never generates or prints tokens.
 
@@ -529,7 +547,7 @@ sees only these values, never Talaria's `.env`.
 - `loopback` (default): `PublishPort=127.0.0.1:<port>:9119`, reached through an
   SSH tunnel.
 - `tailscale`: `PublishPort=<tailscale-ip>:<port>:9119`. The address comes from
-  `tailscale ip -4` when setup runs. `wait-tailscale` (`ExecStartPre`) waits up
+  `tailscale ip -4` when setup runs. An inline `ExecStartPre` waits up
   to 120 s for that address at boot. If it times out, `Restart=on-failure`
   retries.
 
@@ -587,10 +605,10 @@ tests cover:
 - the bot: pinned ID, group chats, argument validation, describe-only without
   `CONFIRM`, the offline backlog dropped, pairing (wrong code, expiry, first
   correct sender wins), escaping;
-- helpers (`migrate.py`, `confdiff.py`, `dbopen.py`, `doctor.py`), with
+- helpers (`migrate.py`, `confdiff.py`, `dbopen.py`), with
   `_upstream.py` replaced by a fake.
 
-**shellcheck** on `bin/talaria` and `wait-tailscale`. Python 3.10 and 3.13.
+**shellcheck** on `bin/talaria`. Python 3.10 and 3.13.
 
 ### 13.2 End-to-end tests (`tests/e2e/`)
 
@@ -616,7 +634,7 @@ started inside CI (for example with `vagrant` or `lima`), not by hand.
 ### 13.3 Contract test (weekly)
 
 This runs the real helpers (`migrate.py`, `dbopen.py`, `confdiff.py`,
-`doctor.py`) through the real `_upstream.py` against the **newest** official
+`hermes doctor`) through the real `_upstream.py` against the **newest** official
 image. It also checks F1, F2, F4, F6, F10 and F11. A failure means upstream
 changed something Talaria relies on, and GitHub opens an issue.
 
