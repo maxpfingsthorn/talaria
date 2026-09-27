@@ -1,9 +1,7 @@
 import json
 import sqlite3
 
-import confdiff
-import dbopen
-import migrate
+from helpers import confdiff, dbopen, migrate
 
 
 class FakeUp:
@@ -138,3 +136,112 @@ def test_dbopen_create_opens_missing(tmp_path):
             make_db(path, 30)
     r = dbopen.dbopen(CreatingUp(), tmp_path / "state.db", create=True)
     assert r["ok"] and r["before"] is None and r["after"] == 30
+
+
+# ---- stricter contracts (mutation testing) ----
+
+EMPTY_MIGRATE = {"ok": False, "before": None, "after": None, "latest": None,
+                 "messages": [], "error": None}
+
+
+class BrokenUp(FakeUp):
+    def config_versions(self):
+        raise RuntimeError("no config module")
+
+
+def test_migrate_result_shape_when_versions_unreadable():
+    assert migrate.migrate(BrokenUp()) == {**EMPTY_MIGRATE, "error": "RuntimeError: no config module"}
+
+
+def test_migrate_nonzero_exit_result():
+    r = migrate.migrate(FakeUp(rc=3))
+    assert r == {"ok": False, "before": 27, "after": 30, "latest": 30,
+                 "messages": ["✓ step"], "error": "migration exited 3"}
+
+
+def test_migrate_captures_stderr_too():
+    import sys
+
+    class Loud(FakeUp):
+        def run_config_migration(self):
+            print("warn", file=sys.stderr)
+            return super().run_config_migration()
+
+    assert migrate.migrate(Loud())["messages"] == ["warn", "✓ step"]
+
+
+def test_migrate_keeps_at_most_200_messages():
+    class Chatty(FakeUp):
+        def run_config_migration(self):
+            for i in range(250):
+                print(f"line {i}")
+            return super().run_config_migration()
+
+    msgs = migrate.migrate(Chatty())["messages"]
+    assert len(msgs) == 200 and msgs[-1] == "line 199"
+
+
+def _fake_upstream(monkeypatch, up):
+    import sys
+    import types
+    mod = types.ModuleType("_upstream")
+    for name in ("config_versions", "run_config_migration", "open_state_db", "schema_version"):
+        if hasattr(up, name):
+            setattr(mod, name, getattr(up, name))
+    monkeypatch.setitem(sys.modules, "_upstream", mod)
+
+
+def test_migrate_main_writes_result(tmp_path, monkeypatch):
+    out = tmp_path / "r.json"
+    monkeypatch.setenv("TALARIA_RESULT", str(out))
+    _fake_upstream(monkeypatch, FakeUp())
+    migrate.main()
+    assert json.loads(out.read_text()) == {"ok": True, "before": 27, "after": 30, "latest": 30,
+                                           "messages": ["✓ step"], "error": None}
+
+
+def test_dbopen_exception_names_type(tmp_path):
+    db = tmp_path / "state.db"
+    make_db(db, 25)
+    assert dbopen.dbopen(DbUp(fail=True), db)["error"] == "RuntimeError: corrupt"
+
+
+def test_dbopen_main_uses_hermes_home_and_create_flag(tmp_path, monkeypatch):
+    class CreatingUp(DbUp):
+        def open_state_db(self, path):
+            make_db(path, 30)
+    out = tmp_path / "r.json"
+    monkeypatch.setenv("TALARIA_RESULT", str(out))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _fake_upstream(monkeypatch, CreatingUp())
+    dbopen.main([])
+    assert json.loads(out.read_text()) == {"ok": True, "before": None, "after": None,
+                                           "schema_version": 30, "error": None}
+    assert not (tmp_path / "state.db").exists()
+    dbopen.main(["--create"])
+    assert json.loads(out.read_text())["after"] == 30 and (tmp_path / "state.db").exists()
+
+
+def test_dbopen_main_reads_sys_argv(tmp_path, monkeypatch):
+    class CreatingUp(DbUp):
+        def open_state_db(self, path):
+            make_db(path, 30)
+    out = tmp_path / "r.json"
+    monkeypatch.setenv("TALARIA_RESULT", str(out))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr("sys.argv", ["dbopen.py", "--create"])
+    _fake_upstream(monkeypatch, CreatingUp())
+    dbopen.main()
+    assert json.loads(out.read_text())["after"] == 30
+
+
+def test_confdiff_main_reads_sys_argv_and_ignores_extra(tmp_path, monkeypatch):
+    (tmp_path / "a.yaml").write_text("x: 1\n")
+    (tmp_path / "b.yaml").write_text("x: 2\n")
+    out = tmp_path / "r.json"
+    monkeypatch.setenv("TALARIA_RESULT", str(out))
+    monkeypatch.setattr("sys.argv", ["confdiff.py", str(tmp_path / "a.yaml"), str(tmp_path / "b.yaml")])
+    confdiff.main()
+    assert json.loads(out.read_text())["changed"] == [["x", 1, 2]]
+    confdiff.main([str(tmp_path / "a.yaml"), str(tmp_path / "b.yaml"), "extra"])
+    assert json.loads(out.read_text())["changed"] == [["x", 1, 2]]

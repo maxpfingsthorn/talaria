@@ -11,6 +11,7 @@ class FakeShell:
     def __init__(self):
         self.rules = []
         self.calls: list[list[str]] = []
+        self.timeouts: list = []          # parallel to calls
 
     def on(self, *prefix, out="", rc=0, err="", fn=None):
         """Most recently added matching rule wins. fn(argv, input) -> Result."""
@@ -21,6 +22,7 @@ class FakeShell:
     def run(self, argv, *, input=None, check=True, timeout=None):
         argv = [str(a) for a in argv]
         self.calls.append(argv)
+        self.timeouts.append(timeout)
         for prefix, handler in self.rules:
             if tuple(argv[:len(prefix)]) == prefix:
                 r = handler(argv, input)

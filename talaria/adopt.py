@@ -117,18 +117,22 @@ def print_plan(p: Plan) -> None:
 def manual_steps(ctx, p: Plan) -> str:
     bid = state.load(ctx.paths).get("adopt_backup") or "<adopt backup>"
     arc = ctx.paths.backups / f"{bid}.tar.gz"
-    d = p.data_dir
-    orig = (p.found.quadlet.name + ".talaria-orig") if p.found.quadlet else "(no Quadlet)"
-    return "\n".join([
-        "Manual way back to the previous install:",
-        "  systemctl --user stop hermes.service",
-        f"  mv {d} {d}.talaria-failed && mkdir {d}",
-        f"  podman unshare tar --numeric-owner -xzf {arc} -C {d}",
-        f"  rm {ctx.paths.quadlet}",
-        f"  mv {ctx.paths.quadlet_dir}/{orig} {p.found.quadlet or ''}".rstrip(),
-        "  systemctl --user daemon-reload",
-        f"  systemctl --user start {p.found.unit}",
-    ])
+    d, f = p.data_dir, p.found
+    lines = ["Manual way back to the previous install:",
+             "  systemctl --user stop hermes.service",
+             f"  mv {d} {d}.talaria-failed && mkdir {d}",
+             f"  podman unshare tar --numeric-owner -xzf {arc} -C {d}",
+             f"  rm {ctx.paths.quadlet}"]
+    if f.quadlet:
+        lines += [f"  mv {f.quadlet}.talaria-orig {f.quadlet}",
+                  "  systemctl --user daemon-reload",
+                  f"  systemctl --user start {f.unit}"]
+    else:
+        u = ctx.paths.units_dir / f.unit
+        lines += [f"  mv {u}.talaria-orig {u}   # if it exists",
+                  "  systemctl --user daemon-reload",
+                  f"  systemctl --user enable --now {f.unit}"]
+    return "\n".join(lines)
 
 
 def apply(ctx, f: Found, p: Plan) -> int:

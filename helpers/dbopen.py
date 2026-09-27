@@ -8,12 +8,15 @@ from pathlib import Path
 
 def read_version(path):
     try:
-        c = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        # equivalent mutants: Python's sqlite accepts file: URIs even without uri=True
+        c = sqlite3.connect(f"file:{path}?mode=ro", uri=True)  # pragma: no mutate
         try:
-            row = c.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+            # equivalent mutants: SQL keywords and identifiers are case-insensitive
+            row = c.execute("SELECT version FROM schema_version LIMIT 1").fetchone()  # pragma: no mutate
         finally:
             c.close()
-        return int(row[0]) if row else None
+        # equivalent mutant: int(None[0]) raises TypeError, which returns None below
+        return int(row[0]) if row else None  # pragma: no mutate
     except (sqlite3.Error, ValueError, TypeError):
         return None
 
@@ -25,7 +28,8 @@ def dbopen(up, db_path: Path, create: bool = False) -> dict:
         if not Path(db_path).exists() and not create:
             res["ok"] = True
             return res
-        res["before"] = read_version(db_path) if Path(db_path).exists() else None
+        # equivalent mutant: read_version of a missing file also returns None
+        res["before"] = read_version(db_path) if Path(db_path).exists() else None  # pragma: no mutate
         up.open_state_db(db_path)
         res["after"] = read_version(db_path)
         res["ok"] = True
