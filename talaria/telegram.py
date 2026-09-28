@@ -195,7 +195,7 @@ class Bot:
             self.ctx.notify.send(Message(it))
 
     def poll_once(self) -> None:
-        for u in self.api.call("getUpdates", offset=self.offset, timeout=30,
+        for u in self.api.call("getUpdates", offset=self.offset, timeout=25,
                                allowed_updates=["message", "callback_query"]) or []:
             self.offset = u["update_id"] + 1
             self.handle(u)
@@ -206,15 +206,16 @@ def run(ctx) -> int:
         print("talaria bot: token or user id missing; run talaria setup", file=sys.stderr)
         return 1
     bot = Bot(ctx, TelegramAPI(ctx.conf.telegram_api, ctx.conf.telegram_token))
-    delay = 1
+    delay = 0      # the first failure retries at once: usually one dropped connection
     while True:
         try:
             if bot.offset is None:
                 bot.startup()
                 bot.offset = bot.offset or 0
             bot.poll_once()
-            delay = 1
+            delay = 0
         except ApiError as e:
             print(f"[talaria] telegram: {e}", file=sys.stderr)
-            time.sleep(delay)
-            delay = min(delay * 2, 60)
+            if delay:
+                time.sleep(delay)
+            delay = min(max(delay * 2, 1), 60)

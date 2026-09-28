@@ -180,7 +180,7 @@ def test_run_backs_off_and_resets(tmp_path, monkeypatch, capsys):
     with pytest.raises(Stop):
         telegram.run(ctx)
     assert made == [(ctx.conf.telegram_api, "t")]
-    assert slept == [1, 2, 4, 8, 16, 32, 60, 60, 1]
+    assert slept == [1, 2, 4, 8, 16, 32, 60]      # first failure retries at once
     assert "[talaria] telegram: telegram api status 0" in capsys.readouterr().err
 
 
@@ -279,7 +279,7 @@ def test_poll_once_params_exact(bot):
     ctx, api, b = bot
     b.offset = 7
     b.poll_once()
-    assert api.calls[-1] == ("getUpdates", {"offset": 7, "timeout": 30,
+    assert api.calls[-1] == ("getUpdates", {"offset": 7, "timeout": 25,
                                             "allowed_updates": ["message", "callback_query"]})
 
 

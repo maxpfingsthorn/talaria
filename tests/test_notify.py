@@ -283,3 +283,21 @@ def test_render_titled_blocks_truncate_within_limit():
     m = Message("T", untrusted=[("Big", "x" * 9000), ("Also big", "y" * 9000)])
     out = render(m)
     assert len(out) <= 4096 and out.count("<pre>") == 2 and "<b>Also big</b>" in out
+
+
+
+# ---- v0.2.3: flaky networks ----
+
+def test_network_error_names_its_cause(monkeypatch):
+    _capture(monkeypatch, exc=urllib.error.URLError("timed out"))
+    with pytest.raises(ApiError) as e:
+        TelegramAPI("http://h", "t").call("getUpdates", offset=1, timeout=25)
+    assert str(e.value) == "telegram api status 0: <urlopen error timed out>"
+
+
+def test_http_timeout_is_poll_plus_5_at_least_15(monkeypatch):
+    seen = _capture(monkeypatch, response=b'{"ok": true, "result": []}')
+    TelegramAPI("http://h", "t").call("getUpdates", offset=1, timeout=25)
+    assert seen["timeout"] == 30
+    TelegramAPI("http://h", "t").call("getMe")
+    assert seen["timeout"] == 15

@@ -63,8 +63,8 @@ def render(m: Message, limit: int = LIMIT) -> str:
 
 
 class ApiError(Exception):
-    def __init__(self, status: int, retry_after: int | None):
-        super().__init__(f"telegram api status {status}")
+    def __init__(self, status: int, retry_after: int | None, reason: str | None = None):
+        super().__init__(f"telegram api status {status}" + (f": {reason}" if reason else ""))
         self.status, self.retry_after = status, retry_after
 
 
@@ -73,8 +73,9 @@ class TelegramAPI:
         self.base, self.token = base.rstrip("/"), token
 
     def call(self, method: str, **params):
-        # `timeout` in params is Telegram's long-poll timeout; the HTTP timeout must exceed it
-        http_timeout = float(params.get("timeout") or 0) + 15
+        # `timeout` in params is Telegram's long-poll timeout; the HTTP timeout exceeds it a
+        # little, so a connection that died on the way is noticed quickly
+        http_timeout = max(float(params.get("timeout") or 0) + 5, 15)
         req = urllib.request.Request(
             f"{self.base}/bot{self.token}/{method}",
             data=json.dumps(params).encode(), headers={"Content-Type": "application/json"})
@@ -88,8 +89,8 @@ class TelegramAPI:
             except Exception:
                 pass
             raise ApiError(e.code, retry) from None
-        except (urllib.error.URLError, OSError, ValueError):
-            raise ApiError(0, None) from None
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            raise ApiError(0, None, str(e)) from None
         if not body.get("ok"):
             raise ApiError(400, None)
         return body["result"]
