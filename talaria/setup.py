@@ -21,6 +21,8 @@ from talaria.upstream import git_release_tags, registry_tags
 
 REPO = Path(__file__).resolve().parent.parent
 TOKEN_RE = re.compile(r"^\d{3,}:[A-Za-z0-9_-]{30,}$")
+NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")   # goes into a root shell block
+GITHUB_SSH = re.compile(r"^(?:ssh://)?git@github\.com[:/](.+?)(?:\.git)?/?$")
 TOOLS = {  # tool: (Debian/Ubuntu, Fedora/RHEL, Arch)
     "podman": ("podman", "podman", "podman"), "git": ("git", "git", "git"),
     "tar": ("tar", "tar", "tar"), "gzip": ("gzip", "gzip", "gzip"),
@@ -67,10 +69,23 @@ def root_block(user: str, operator: str, create: bool) -> str:
     return "\n".join(lines)
 
 
+def install_url(url: str) -> str | None:
+    """The service user has no SSH key: turn a GitHub SSH remote into https. None if the
+    remote needs SSH otherwise."""
+    m = GITHUB_SSH.match(url)
+    if m:
+        return f"https://github.com/{m[1]}"
+    return None if re.match(r"^(ssh://|[\w.-]+@)", url) else url
+
+
 def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subprocess.call,
                    linger_dir=Path("/var/lib/systemd/linger")) -> int:
     operator = operator or getpass.getuser()
     user = args.user or "hermes"
+    for name in (user, operator):
+        if not NAME_RE.match(name):
+            say("STOP", f"not a valid account name: {name!r}")
+            return 1
     if prerequisites(sh):
         return 10
     if selinux_enforcing(sh):
@@ -79,8 +94,12 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
     try:
         pw = getpwnam(user)
     except KeyError:
-        say("ACTION REQUIRED", f"run this block as root, then run setup again:\n"
-            + root_block(user, operator, create=True))
+        if args.plan:
+            say("PLAN", f"create the account {user}: setup prints a block to run as root")
+            say("PLAN", f"then run setup again with --user {user} to install Talaria for it")
+            return 0
+        say("ACTION REQUIRED", f"run this block as root, then run setup again with "
+            f"--user {user}:\n" + root_block(user, operator, create=True))
         return 10
     home, install = pw.pw_dir, f"{pw.pw_dir}/.local/share/talaria"
     # sudo may keep the caller's XDG_* dirs (e.g. on CI runners); podman and git must
@@ -108,8 +127,13 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         say("STOP", "this checkout is not at a release tag; check out the latest tag "
                     "(or pass --dev)")
         return 1
-    url = str(REPO) if args.dev else (sh.run(["git", "-C", str(REPO), "remote", "get-url",
-                                              "origin"], check=False).stdout.strip() or str(REPO))
+    url = str(REPO) if args.dev else install_url(
+        sh.run(["git", "-C", str(REPO), "remote", "get-url", "origin"],
+               check=False).stdout.strip() or str(REPO))
+    if url is None:
+        say("STOP", "this checkout's origin needs SSH, but the service user has no key; "
+                    "clone Talaria over https")
+        return 1
     if args.plan:
         say("PLAN", f"install Talaria {ref} for {user} from {url}")
         say("PLAN", "then: detect Hermes (fresh or adopt), dashboard password, Telegram bot "

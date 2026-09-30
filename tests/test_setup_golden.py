@@ -47,7 +47,7 @@ CASES = {
                   "OK: Talaria v0.1.0 installed for hermes\n",
                   PRE + CHECKS + TAG + ORIGIN + UPDATE, [HANDOFF]),
     "newuser": (dict(user_exists=False), dict(), 10,
-                "ACTION REQUIRED: run this block as root, then run setup again:\n"
+                "ACTION REQUIRED: run this block as root, then run setup again with --user hermes:\n"
                 "useradd --create-home --shell /bin/bash hermes\n"
                 "grep -q '^hermes:' /etc/subuid || echo 'WARNING: hermes has no subuid range;"
                 " see README'\n" + ROOT_TAIL, PRE, []),

@@ -219,3 +219,59 @@ def test_setup_leaves_callers_cwd(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     assert setup.setup(args()) == 0
     assert seen == ["/"]      # the service user may not be able to enter the caller's cwd
+
+
+# ---- v0.2.4 ----
+
+@pytest.mark.parametrize("user", ["hermes; rm -rf /", "a b", "x'y", "-x", "a" * 33])
+def test_bad_user_name_stops_before_any_root_block(monkeypatch, tmp_path, capsys, user):
+    sh, run, _ = op_env(monkeypatch, tmp_path, user_exists=False)
+    assert run(args(user=user)) == 1
+    out = capsys.readouterr().out
+    assert "STOP: not a valid account name" in out and "useradd" not in out
+
+
+def test_bad_operator_name_stops(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, user_exists=False)
+    assert setup.operator_phase(sh, args(), getpwnam=lambda n: PW, operator="a'b") == 1
+    assert "not a valid account name: \"a'b\"" in capsys.readouterr().out
+
+
+def test_new_user_block_says_to_rerun_with_user(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, user_exists=False)
+    assert run(args()) == 10
+    assert "then run setup again with --user hermes:" in capsys.readouterr().out
+
+
+def test_plan_on_fresh_host_is_a_plan(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, user_exists=False)
+    assert run(args(plan=True)) == 0
+    out = capsys.readouterr().out
+    assert "PLAN: create the account hermes" in out and "useradd" not in out
+
+
+@pytest.mark.parametrize("url, want", [
+    ("git@github.com:o/talaria.git", "https://github.com/o/talaria"),
+    ("ssh://git@github.com/o/talaria", "https://github.com/o/talaria"),
+    ("https://github.com/o/talaria", "https://github.com/o/talaria"),
+    ("/srv/talaria", "/srv/talaria"),
+    ("git@gitlab.com:o/talaria.git", None),
+    ("ssh://host/talaria", None),
+])
+def test_install_url(url, want):
+    assert setup.install_url(url) == want
+
+
+def test_ssh_origin_is_cloned_over_https(monkeypatch, tmp_path):
+    sh, run, _ = op_env(monkeypatch, tmp_path)
+    sh.on("git", "-C", str(setup.REPO), "remote", out="git@github.com:o/talaria.git\n")
+    assert run(args(user="hermes")) == 0
+    clone = [c for c in sh.calls if "clone" in c][0]
+    assert "https://github.com/o/talaria" in clone
+
+
+def test_non_github_ssh_origin_stops(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path)
+    sh.on("git", "-C", str(setup.REPO), "remote", out="git@gitlab.com:o/talaria.git\n")
+    assert run(args(user="hermes")) == 1
+    assert "clone Talaria over https" in capsys.readouterr().out
