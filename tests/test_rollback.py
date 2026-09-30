@@ -115,7 +115,8 @@ def test_describe_exact(tmp_path, monkeypatch):
     ctx.clock.sleep(90)
     assert rollback.describe(ctx) == (
         f"Rollback restores backup {b} (1m old) and Hermes v2026.8.3. Everything Hermes wrote "
-        "since then is lost.\nSend /rollback CONFIRM to proceed.")
+        "since then is replaced. Talaria first takes a pre-rollback backup, so this can be "
+        "undone.\nSend /rollback CONFIRM to proceed.")
 
 
 def test_describe_nothing(tmp_path, monkeypatch):
@@ -166,6 +167,8 @@ def test_user_rollback_marker_and_op(tmp_path, monkeypatch):
     st = load(ctx)
     assert (st["current"], st["previous"], st["last_deploy"], st["op"]) == (CUR, None, None, None)
     assert ctx.notify.sent[-1].text == "Rolled back to Hermes v2026.8.3."
+    pre = [b for b in backup.list_backups(ctx) if b.meta["label"] == "pre-rollback"][0]
+    assert ctx.notify.sent[-1].commands == [f"/restore {pre.id} CONFIRM"]
 
 
 def test_interrupted_deploy_keeps_its_op_and_marker_name(tmp_path, monkeypatch):
@@ -451,7 +454,8 @@ def test_restore_records_op_before_stopping(tmp_path, monkeypatch):
 def test_rollback_buttons(tmp_path, monkeypatch):
     ctx = deployed(tmp_path, monkeypatch)
     bid = load(ctx)["last_deploy"]["backup"]
-    assert rollback.describe_buttons(ctx) == [[("Roll back to Hermes v2026.8.3", f"rb:{bid}")]]
+    m = rollback.stamp(ctx)
+    assert rollback.describe_buttons(ctx) == [[("Roll back to Hermes v2026.8.3", f"rb:{bid}:{m}")]]
     st = load(ctx)
     st["op"] = {"op": "rollback", "backup": "b", "changed": True, "started": "x"}
     state.save(ctx.paths, st)
@@ -466,5 +470,70 @@ def test_rollback_buttons_none(tmp_path, monkeypatch):
 def test_restore_buttons(tmp_path, monkeypatch):
     ctx = deployed(tmp_path, monkeypatch)
     bid = load(ctx)["last_deploy"]["backup"]
-    assert rollback.describe_restore_buttons(ctx, bid) == [[(f"Restore {bid}", f"rs:{bid}")]]
+    m = rollback.stamp(ctx)
+    assert rollback.describe_restore_buttons(ctx, bid) == [[(f"Restore {bid}", f"rs:{bid}:{m}")]]
     assert rollback.describe_restore_buttons(ctx, "20200101T000000Z-x") == []
+
+
+# ---- v0.2.4: a user rollback is undoable ----
+
+def test_user_rollback_backs_up_current_data_first(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    rollback.rollback_cmd(ctx)
+    pre = [b for b in backup.list_backups(ctx) if b.meta["label"] == "pre-rollback"]
+    assert len(pre) == 1 and pre[0].meta["image"] == NEW
+    rollback.restore_cmd(ctx, pre[0].id)                 # the undo
+    assert (ctx.conf.data_dir / "memories/m.md").read_text() == "written after deploy"
+    assert load(ctx)["current"] == NEW
+
+
+def test_user_rollback_op_is_unchanged_until_backup_exists(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    seen = []
+    real = rollback.backup.create
+    monkeypatch.setattr(rollback.backup, "create",
+                        lambda c, label, img: (seen.append(load(c)["op"]["changed"]),
+                                               real(c, label, img))[1])
+    rollback.rollback_cmd(ctx)
+    assert seen == [False]
+
+
+def test_rollback_after_interrupted_change_takes_no_backup(tmp_path, monkeypatch):
+    ctx = ops_ctx(tmp_path, monkeypatch)
+    b = backup.create(ctx, "pre-v2026.9.24", CUR)
+    marker.write(ctx.paths, "deploy", b.id, CUR, ctx.now())
+    rollback.rollback_cmd(ctx)
+    assert [x.meta["label"] for x in backup.list_backups(ctx)] == ["pre-v2026.9.24"]
+    assert ctx.notify.sent[-1].commands == []
+
+
+def test_rollback_backup_failure_changes_nothing(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    monkeypatch.setattr(rollback.backup, "create",
+                        lambda *a: (_ for _ in ()).throw(OSError("disk full")))
+    started = []
+    monkeypatch.setattr(rollback.hermes, "start", lambda c: started.append(1))
+    rollback.rollback_cmd(ctx)
+    assert ctx.notify.sent[-1].text == ("Rollback refused: the pre-rollback backup failed: disk "
+                                        "full. Nothing was changed; Hermes is running.")
+    st = load(ctx)
+    assert started == [1] and st["op"] is None and st["current"] == NEW
+    assert (ctx.conf.data_dir / "memories/m.md").read_text() == "written after deploy"
+
+
+def test_user_rollback_needs_space_for_two_copies(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    b = backup.get(ctx, load(ctx)["last_deploy"]["backup"])
+    monkeypatch.setattr(disk, "free_bytes", lambda p: 2 * b.meta["data_size"] - 1)
+    rollback.rollback_cmd(ctx)
+    assert ctx.notify.sent[-1].text.startswith("Rollback failed: need ")
+    monkeypatch.setattr(disk, "free_bytes", lambda p: 2 * b.meta["data_size"])
+    rollback.rollback_cmd(ctx)
+    assert load(ctx)["current"] == CUR
+
+
+def test_describe_after_interrupted_change_promises_no_undo(tmp_path, monkeypatch):
+    ctx = ops_ctx(tmp_path, monkeypatch)
+    b = backup.create(ctx, "pre-v2026.9.24", CUR)
+    marker.write(ctx.paths, "deploy", b.id, CUR, ctx.now())
+    assert "pre-rollback" not in rollback.describe(ctx)

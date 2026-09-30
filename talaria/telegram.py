@@ -104,7 +104,8 @@ class Bot:
     def on_button(self, data) -> tuple[str, str | None]:
         """(toast, status). The status label replaces the buttons in place; None keeps them.
         Each button names what it acts on and is checked against the current state, so an
-        old button never acts on a different target."""
+        old button never acts on a different target. Rollback and restore buttons carry
+        the minute they were sent and expire after an hour."""
         from talaria import state
         kind, _, arg = (data or "").partition(":")
         if kind == "done":
@@ -120,16 +121,20 @@ class Bot:
                 return STALE, "⌛ Out of date"
             self.spawn("deploy", arg)
             return "Deploying", f"✅ Approved — deploying {arg}"
-        if kind == "rb" and (arg == "resume" or ID_RE.match(arg)):
+        bid, _, minute = arg.partition(":")
+        if kind == "rb" and (arg == "resume" or ID_RE.match(bid)):
             resume = rollback.needs_resume(self.ctx, st)
             t = None if resume else rollback.target(self.ctx, st)
-            if (arg == "resume" and resume) or (t and t[0] == arg):
+            if (arg == "resume" and resume) or (t and t[0] == bid
+                                                and rollback.fresh(self.ctx, minute)):
                 self.spawn("rollback", "--confirm")
                 return "Rolling back", "↩️ Rolling back…"
             return STALE, "⌛ Out of date"
-        if kind == "rs" and ID_RE.match(arg):
-            if not rollback.describe_restore_buttons(self.ctx, arg):
+        if kind == "rs" and ID_RE.match(bid):
+            if not rollback.describe_restore_buttons(self.ctx, bid) \
+                    or not rollback.fresh(self.ctx, minute):
                 return STALE, "⌛ Out of date"
+            arg = bid
             self.spawn("restore", arg, "--confirm")
             return "Restoring", f"↩️ Restoring {arg}…"
         return "Unknown button", None

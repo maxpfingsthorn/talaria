@@ -13,6 +13,10 @@ class Unavailable(Exception):
     pass
 
 
+class Refused(Exception):
+    """Nothing was changed; Hermes keeps running."""
+
+
 def age(ctx, iso: str) -> str:
     s = int((ctx.now() - datetime.fromisoformat(iso)).total_seconds())
     return f"{s // 86400}d" if s >= 86400 else f"{s // 3600}h" if s >= 3600 else f"{s // 60}m"
@@ -56,8 +60,10 @@ def describe(ctx) -> str:
     if not t:
         return "Nothing to roll back: no interrupted change and no previous deploy."
     b = backup.get(ctx, t[0])
+    undo = ("" if marker.read(ctx.paths) else
+            " Talaria first takes a pre-rollback backup, so this can be undone.")
     return (f"Rollback restores backup {b.id} ({age(ctx, b.meta['created'])} old) and "
-            f"Hermes {t[1].get('tag')}. Everything Hermes wrote since then is lost.\n"
+            f"Hermes {t[1].get('tag')}. Everything Hermes wrote since then is replaced.{undo}\n"
             "Send /rollback CONFIRM to proceed.")
 
 
@@ -68,7 +74,7 @@ def describe_buttons(ctx) -> list:
     t = target(ctx, st)
     if not t:
         return []
-    return [[(f"Roll back to Hermes {t[1].get('tag')}", f"rb:{t[0]}")]]
+    return [[(f"Roll back to Hermes {t[1].get('tag')}", f"rb:{t[0]}:{stamp(ctx)}")]]
 
 
 def describe_restore_buttons(ctx, bid: str) -> list:
@@ -76,7 +82,19 @@ def describe_restore_buttons(ctx, bid: str) -> list:
         b = backup.get(ctx, bid)
     except KeyError:
         return []
-    return [[(f"Restore {b.id}", f"rs:{b.id}")]]
+    return [[(f"Restore {b.id}", f"rs:{b.id}:{stamp(ctx)}")]]
+
+
+BUTTON_MINUTES = 60
+
+
+def stamp(ctx) -> int:
+    """Minutes since the epoch, carried in rollback and restore buttons so they expire."""
+    return int(ctx.now().timestamp()) // 60
+
+
+def fresh(ctx, minute: str) -> bool:
+    return minute.isdigit() and 0 <= stamp(ctx) - int(minute) <= BUTTON_MINUTES
 
 
 def _swap(ctx, b, image: dict, op: str, revert: tuple[str, dict]) -> str | None:
@@ -93,7 +111,9 @@ def _swap(ctx, b, image: dict, op: str, revert: tuple[str, dict]) -> str | None:
     return hermes.post_start_check(ctx)
 
 
-def rollback(ctx) -> str | None:
+def rollback(ctx) -> tuple[str | None, str | None]:
+    """(failure reason, pre-rollback backup id). A rollback the user asks for (no
+    interrupted change) first backs up the current data, so it can be undone."""
     st = state.load(ctx.paths)
     t = target(ctx, st)
     if not t:
@@ -102,21 +122,36 @@ def rollback(ctx) -> str | None:
     b = backup.get(ctx, bid)
     backup.verify(b)
     images.ensure(ctx, image)
-    disk.ensure_space(ctx, int(b.meta.get("data_size", 0)), ctx.conf.data_dir.parent)
-    op = (marker.read(ctx.paths) or {}).get("op", "rollback")
+    m = marker.read(ctx.paths)
+    copies = 1 if m or st.get("op") else 2        # a user rollback backs up first
+    disk.ensure_space(ctx, copies * int(b.meta.get("data_size", 0)), ctx.conf.data_dir.parent)
+    op = (m or {}).get("op", "rollback")
+    pre = None
     if not st.get("op"):
-        st["op"] = {"op": "rollback", "backup": bid, "changed": True,
+        st["op"] = {"op": "rollback", "backup": bid, "changed": m is not None,
                     "started": ctx.now().isoformat()}
         state.save(ctx.paths, st)
+        if m is None:
+            try:
+                hermes.stop(ctx)
+                pre = backup.create(ctx, "pre-rollback", st["current"]).id
+            except Exception as e:
+                hermes.start(ctx)
+                st["op"] = None
+                state.save(ctx.paths, st)
+                raise Refused(f"the pre-rollback backup failed: {e}") from e
+            st["op"]["changed"] = True
+            state.save(ctx.paths, st)
     reason = _swap(ctx, b, image, op, (bid, image))
     if reason:
         hermes.stop(ctx)
         marker.write(ctx.paths, op, bid, image, ctx.now())
-        return reason
+        return reason, pre
     st = state.load(ctx.paths)
     st["op"] = None
+    retention.apply(ctx, st)
     state.save(ctx.paths, st)
-    return None
+    return None, pre
 
 
 def rollback_cmd(ctx) -> None:
@@ -134,10 +169,14 @@ def rollback_cmd(ctx) -> None:
                                     f"again. The interrupted {op} had nothing left to undo."))
         return
     try:
-        reason = rollback(ctx)
+        reason, pre = rollback(ctx)
     except Unavailable:
         ctx.notify.send(Message("Nothing to roll back: no interrupted change and no "
                                 "previous deploy."))
+        return
+    except Refused as e:
+        ctx.notify.send(Message(f"Rollback refused: {e}. Nothing was changed; Hermes is "
+                                "running."))
         return
     except Exception as e:
         ctx.notify.send(Message(f"Rollback failed: {e}. Hermes may be stopped. {MANUAL}"))
@@ -146,7 +185,8 @@ def rollback_cmd(ctx) -> None:
         ctx.notify.send(Message(f"Rollback failed: {reason}. Hermes is stopped. {MANUAL}"))
         return
     tag = state.load(ctx.paths)["current"].get("tag")
-    ctx.notify.send(Message(f"Rolled back to Hermes {tag}."))
+    ctx.notify.send(Message(f"Rolled back to Hermes {tag}.",
+                            commands=[f"/restore {pre} CONFIRM"] if pre else []))
 
 
 def describe_restore(ctx, bid: str) -> str:
@@ -196,7 +236,7 @@ def restore_cmd(ctx, bid: str) -> None:
     reason = _swap(ctx, b, image, "restore", (pre.id, old))
     if reason:
         marker.write(ctx.paths, "restore", pre.id, old, ctx.now())
-        again = rollback(ctx)
+        again, _ = rollback(ctx)
         tail = "Hermes reverted to the state before the restore." if again is None else \
             f"Reverting failed too: {again}. Hermes is stopped. {MANUAL}"
         ctx.notify.send(Message(f"Restore of {bid} failed: {reason}. {tail}"))

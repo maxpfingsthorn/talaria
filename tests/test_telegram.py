@@ -425,11 +425,12 @@ def test_rollback_button_must_match_current_target(bot, monkeypatch):
     ctx, api, b = bot
     monkeypatch.setattr(telegram.rollback, "needs_resume", lambda c, st: False)
     monkeypatch.setattr(telegram.rollback, "target", lambda c, st: ("B1", {"tag": "v1"}))
-    b.handle(cb("rb:20260927T043000Z-other"))
+    now = telegram.rollback.stamp(ctx)
+    b.handle(cb(f"rb:20260927T043000Z-other:{now}"))
     assert ctx.sh.called("systemd-run") == []
     monkeypatch.setattr(telegram.rollback, "target",
                         lambda c, st: ("20260927T043000Z-pre-v2", {"tag": "v1"}))
-    b.handle(cb("rb:20260927T043000Z-pre-v2"))
+    b.handle(cb(f"rb:20260927T043000Z-pre-v2:{now}"))
     assert ctx.sh.called("systemd-run")[0][-2:] == ["rollback", "--confirm"]
     assert calls(api, "editMessageReplyMarkup")[-1] == status_markup("↩️ Rolling back…")
 
@@ -451,9 +452,35 @@ def test_restore_button(bot, monkeypatch):
     assert ctx.sh.called("systemd-run") == []
     from talaria import backup
     bk = backup.create(ctx, "manual", None)
-    b.handle(cb(f"rs:{bk.id}"))
+    b.handle(cb(f"rs:{bk.id}:{telegram.rollback.stamp(ctx)}"))
     assert ctx.sh.called("systemd-run")[0][-3:] == ["restore", bk.id, "--confirm"]
     assert calls(api, "editMessageReplyMarkup")[-1] == status_markup(f"↩️ Restoring {bk.id}…")
+
+
+@pytest.mark.parametrize("age, fresh", [(0, True), (60, True), (61, False), (-1, False)])
+def test_rollback_and_restore_buttons_expire(bot, monkeypatch, age, fresh):
+    ctx, api, b = bot
+    from talaria import backup
+    bk = backup.create(ctx, "manual", None)
+    monkeypatch.setattr(telegram.rollback, "needs_resume", lambda c, st: False)
+    monkeypatch.setattr(telegram.rollback, "target", lambda c, st: (bk.id, {"tag": "v1"}))
+    sent = telegram.rollback.stamp(ctx) - age
+    b.handle(cb(f"rb:{bk.id}:{sent}"))
+    b.handle(cb(f"rs:{bk.id}:{sent}"))
+    assert len(ctx.sh.called("systemd-run")) == (2 if fresh else 0)
+    if not fresh:
+        assert calls(api, "editMessageReplyMarkup") == [status_markup("⌛ Out of date")] * 2
+
+
+@pytest.mark.parametrize("data", ["rb:{id}", "rs:{id}", "rb:{id}:x", "rs:{id}:1:2"])
+def test_buttons_without_a_valid_minute_are_stale(bot, monkeypatch, data):
+    ctx, api, b = bot
+    from talaria import backup
+    bk = backup.create(ctx, "manual", None)
+    monkeypatch.setattr(telegram.rollback, "needs_resume", lambda c, st: False)
+    monkeypatch.setattr(telegram.rollback, "target", lambda c, st: (bk.id, {"tag": "v1"}))
+    b.handle(cb(data.format(id=bk.id)))
+    assert ctx.sh.called("systemd-run") == []
 
 
 @pytest.mark.parametrize("update", [cb("ap:v2026.9.24", user=7), cb("ap:v2026.9.24", chat_type="group")])

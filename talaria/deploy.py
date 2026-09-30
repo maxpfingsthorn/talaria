@@ -19,7 +19,7 @@ def _crash_point(name: str) -> None:
 def _fail(ctx, tag: str, reason: str, bid: str, revert_image: dict, details=()) -> None:
     marker.write(ctx.paths, "deploy", bid, revert_image, ctx.now())
     try:
-        again = rollback(ctx)
+        again, _ = rollback(ctx)
     except Exception as e:
         again = str(e)
     st = state.load(ctx.paths)
