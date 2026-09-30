@@ -39,9 +39,13 @@ Research.
 ```bash
 git clone https://github.com/maxpfingsthorn/talaria && cd talaria
 git checkout "$(git tag -l 'v*' --sort=-v:refname | head -1)"
-bin/talaria setup --plan     # what would happen
-bin/talaria setup            # run again until it prints DONE
+bin/talaria setup --plan --user hermes   # what would happen
+bin/talaria setup --user hermes          # run again until it prints DONE
 ```
+
+`--user` names the service account; setup creates it (through a block you run as root)
+if it does not exist. Clone over https as shown: setup installs Talaria for the service
+user from your checkout's origin, and that user has no SSH key.
 
 Setup never guesses. Each run does what it can and stops at the next thing only you
 can do:
@@ -49,7 +53,7 @@ can do:
 ```
 MISSING: podman >= 4.9 (found 4.3.1)
   hint: Debian/Ubuntu: apt install podman · Fedora/RHEL: dnf install podman · Arch: pacman -S podman
-ACTION REQUIRED: run this block as root, then run setup again: …
+ACTION REQUIRED: run this block as root, then run setup again with --user hermes: …
 ACTION REQUIRED: in a private chat with your bot, send within 15 minutes:
   /pair K7M2QX9P
 FOUND: Hermes unit hermes-gateway.service (container hermes-gateway)
@@ -94,14 +98,15 @@ button in your chat (and nowhere else). Update offers come with **Approve** and
 **Reject** buttons; `/rollback` and `/restore <id>` answer with a confirm button, so
 you never have to type `CONFIRM`. Each button names what it acts on and is checked
 against the current state: an old button is refused instead of acting on something
-else. After a tap, the buttons are replaced by one status button (for example "✅ Approved — deploying vX"); the report above stays.
+else. Rollback and restore buttons expire after an hour. After a tap, the buttons are replaced by one status button (for example "✅ Approved — deploying vX"); the report above stays.
 
 You get a message when an update is ready, after a deploy, rollback or restore, when
 something fails, after an interrupted change, and once per new Talaria release.
 Nothing else.
 
-**A rollback loses everything Hermes wrote since its backup.** `/rollback` shows the
-backup's age before you confirm.
+**A rollback replaces the data with the backup taken before the last deploy.** `/rollback`
+shows that backup's age before you confirm. Talaria first backs up the current data, and
+the rollback message names the `/restore <id> CONFIRM` that undoes it.
 
 ## Dashboard
 
@@ -151,8 +156,12 @@ Run setup again after changing it.
 - One commander, paired with a code only the person at the terminal sees. Everyone else
   is ignored.
 - Text from the agent or upstream is shown inert in messages. Destructive commands need
-  `CONFIRM` and say what they destroy. Secret-looking config values are masked.
-- Restores extract into new directories; nothing follows symlinks from the data dir.
+  `CONFIRM` and say what they destroy. Config diffs mask values under secret-looking
+  keys, after secret-looking flags, in URL credentials and parameters, and values that
+  look like tokens. This is a heuristic; review what the bot shows you.
+- Talaria never follows symlinks in the data dir: backups and rehearsal copies keep them
+  as links, and restores extract into new directories.
+- The adoption plan hides the values of `Environment=` and `PodmanArgs=` lines.
 - No root after setup.
 
 Known limitations:
@@ -160,7 +169,8 @@ Known limitations:
 - Change Hermes images only through Talaria. Starting another image by hand on
   migrated data is unsupported.
 - `.env` backup copies that Hermes itself writes stay in the data dir and in backups.
-- A rollback loses everything written since its backup.
+- A rollback after a failed deploy, or after an interrupted change, takes no extra backup:
+  the data it replaces is the half-changed state.
 
 ## Manual recovery
 
@@ -186,19 +196,27 @@ working; only `talaria setup` from your login account needs it again.
 
 ## Updating Talaria
 
-`/status` and a one-time message tell you about new releases. As the service user:
-`talaria self-update vX.Y.Z`.
+`/status` and a one-time message tell you about new releases. Then:
+
+```bash
+sudo -u <service user> -H ~<service user>/.local/bin/talaria self-update vX.Y.Z
+```
 
 ## Uninstall
 
 As the service user:
 
 ```bash
-systemctl --user disable --now talaria-check.timer talaria-telegram.service hermes.service
+systemctl --user disable --now talaria-check.timer talaria-telegram.service
+systemctl --user stop hermes.service
 rm ~/.config/containers/systemd/hermes.container ~/.config/systemd/user/talaria-*
 rm -r ~/.local/share/talaria ~/.local/bin/talaria ~/.config/talaria
 systemctl --user daemon-reload
+podman images --format '{{.Repository}}:{{.Tag}}' localhost/hermes-agent | xargs -r podman image rm
 ```
+
+Then as root: `rm /etc/sudoers.d/talaria-<user>` and `loginctl disable-linger <user>`
+(or `userdel -r <user>` if the account served nothing else; that also deletes the data).
 
 Your data dir and `~/.local/state/talaria/backups` are left untouched.
 

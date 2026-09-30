@@ -1,7 +1,10 @@
 # Talaria — Design (v1)
 
+> **Historical.** This is the working document from building v1. It is kept for
+> context and is not updated; the README and the code describe current behaviour.
+
 Date: 2026-09-27 (fifth revision: cut to a v1)
-Status: draft, pending review
+Status: implemented in v0.1.0
 
 > **Talaria** — safe, approved updates for self-hosted
 > [Hermes Agent](https://github.com/NousResearch/hermes-agent) on rootless podman.
