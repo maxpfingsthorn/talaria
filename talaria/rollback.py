@@ -123,15 +123,16 @@ def rollback(ctx) -> tuple[str | None, str | None]:
     backup.verify(b)
     images.ensure(ctx, image)
     m = marker.read(ctx.paths)
-    copies = 1 if m or st.get("op") else 2        # a user rollback backs up first
+    asked = m is None and not st.get("op")     # by the user, not recovering a change
+    copies = 2 if asked else 1                 # the user's rollback backs up first
     disk.ensure_space(ctx, copies * int(b.meta.get("data_size", 0)), ctx.conf.data_dir.parent)
     op = (m or {}).get("op", "rollback")
     pre = None
     if not st.get("op"):
-        st["op"] = {"op": "rollback", "backup": bid, "changed": m is not None,
+        st["op"] = {"op": "rollback", "backup": bid, "changed": not asked,
                     "started": ctx.now().isoformat()}
         state.save(ctx.paths, st)
-        if m is None:
+        if asked:
             try:
                 hermes.stop(ctx)
                 pre = backup.create(ctx, "pre-rollback", st["current"]).id

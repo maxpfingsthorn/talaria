@@ -512,12 +512,12 @@ def test_rollback_backup_failure_changes_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(rollback.backup, "create",
                         lambda *a: (_ for _ in ()).throw(OSError("disk full")))
     started = []
-    monkeypatch.setattr(rollback.hermes, "start", lambda c: started.append(1))
+    monkeypatch.setattr(rollback.hermes, "start", lambda c: started.append(c))
     rollback.rollback_cmd(ctx)
     assert ctx.notify.sent[-1].text == ("Rollback refused: the pre-rollback backup failed: disk "
                                         "full. Nothing was changed; Hermes is running.")
     st = load(ctx)
-    assert started == [1] and st["op"] is None and st["current"] == NEW
+    assert started == [ctx] and st["op"] is None and st["current"] == NEW
     assert (ctx.conf.data_dir / "memories/m.md").read_text() == "written after deploy"
 
 
@@ -537,3 +537,37 @@ def test_describe_after_interrupted_change_promises_no_undo(tmp_path, monkeypatc
     b = backup.create(ctx, "pre-v2026.9.24", CUR)
     marker.write(ctx.paths, "deploy", b.id, CUR, ctx.now())
     assert "pre-rollback" not in rollback.describe(ctx)
+
+
+def test_stamp_is_minutes_since_epoch(tmp_path, monkeypatch):
+    ctx = ops_ctx(tmp_path, monkeypatch)
+    assert rollback.stamp(ctx) == int(ctx.now().timestamp()) // 60
+
+
+def test_describe_after_interrupted_change_exact(tmp_path, monkeypatch):
+    ctx = ops_ctx(tmp_path, monkeypatch)
+    b = backup.create(ctx, "pre-v2026.9.24", CUR)
+    marker.write(ctx.paths, "deploy", b.id, CUR, ctx.now())
+    assert rollback.describe(ctx) == (
+        f"Rollback restores backup {b.id} (0m old) and Hermes v2026.8.3. Everything Hermes "
+        "wrote since then is replaced.\nSend /rollback CONFIRM to proceed.")
+
+
+def test_recovery_rollback_needs_space_for_one_copy_and_returns_no_backup(tmp_path, monkeypatch):
+    ctx = ops_ctx(tmp_path, monkeypatch)
+    b = backup.create(ctx, "pre-v2026.9.24", CUR)
+    marker.write(ctx.paths, "deploy", b.id, CUR, ctx.now())
+    monkeypatch.setattr(disk, "free_bytes", lambda p: b.meta["data_size"])
+    assert rollback.rollback(ctx) == (None, None)
+
+
+def test_changed_op_without_marker_needs_space_for_one_copy(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    st = load(ctx)
+    st["op"] = {"op": "deploy", "tag": "v2026.9.24", "backup": st["last_deploy"]["backup"],
+                "changed": True, "started": "x"}
+    state.save(ctx.paths, st)
+    b = backup.get(ctx, st["last_deploy"]["backup"])
+    monkeypatch.setattr(disk, "free_bytes", lambda p: b.meta["data_size"])
+    assert rollback.rollback(ctx) == (None, None)
+    assert [x.meta["label"] for x in backup.list_backups(ctx)].count("pre-rollback") == 0

@@ -481,6 +481,7 @@ def test_buttons_without_a_valid_minute_are_stale(bot, monkeypatch, data):
     monkeypatch.setattr(telegram.rollback, "target", lambda c, st: (bk.id, {"tag": "v1"}))
     b.handle(cb(data.format(id=bk.id)))
     assert ctx.sh.called("systemd-run") == []
+    assert calls(api, "editMessageReplyMarkup") == [status_markup("⌛ Out of date")]
 
 
 @pytest.mark.parametrize("update", [cb("ap:v2026.9.24", user=7), cb("ap:v2026.9.24", chat_type="group")])

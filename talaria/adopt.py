@@ -28,10 +28,9 @@ def mask_env(quadlet: str) -> str:
     and the plan is printed to a terminal (and a coding agent's transcript)."""
     out = []
     for line in quadlet.splitlines(True):
-        key = line.split("=", 1)[0].strip()
-        if key in ("Environment", "PodmanArgs") and "=" in line:
-            head, rest = line.split("=", 1)
-            line = head + "=" + _ASSIGN.sub(r"\1***", rest)
+        head, eq, rest = line.partition("=")
+        if eq and head.strip() in ("Environment", "PodmanArgs"):
+            line = head + eq + _ASSIGN.sub(r"\1***", rest)
         out.append(line)
     return "".join(out)
 

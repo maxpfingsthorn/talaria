@@ -220,10 +220,22 @@ def test_backup_keeps_hardlinked_files(tmp_path):
 def test_hardlink_to_excluded_file_is_stored_as_a_file(tmp_path):
     ctx = make_test_ctx(tmp_path)
     seed(ctx.conf.data_dir)
-    os.link(ctx.conf.data_dir / ".cache/big", ctx.conf.data_dir / "memories/big")
+    ctx.conf.backup_exclude = [*ctx.conf.backup_exclude, "memories/a.md"]
+    os.link(ctx.conf.data_dir / "memories/a.md", ctx.conf.data_dir / "memories/b.md")
     b = backup.create(ctx, "manual", None)
     with tarfile.open(b.path) as t:
-        m = t.getmember("./memories/big")
-    assert m.isreg() and m.size == 1000 and "./.cache/big" not in names(b)
+        m = t.getmember("./memories/b.md")
+    assert m.isreg() and m.size == 1 and m.linkname == ""
+    assert "./memories/a.md" not in names(b)
     _extract(b, tmp_path / "out")
-    assert (tmp_path / "out/memories/big").read_text() == "x" * 1000
+    assert (tmp_path / "out/memories/b.md").read_text() == "m"
+
+
+def test_hardlink_to_kept_file_stays_a_link(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    seed(ctx.conf.data_dir)
+    os.link(ctx.conf.data_dir / "memories/a.md", ctx.conf.data_dir / "memories/b.md")
+    b = backup.create(ctx, "manual", None)
+    with tarfile.open(b.path) as t:
+        m = t.getmember("./memories/b.md")
+    assert m.islnk() and m.linkname == "./memories/a.md"

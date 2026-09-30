@@ -308,6 +308,7 @@ def test_mask_inside_lists_and_urls():
 @pytest.mark.parametrize("value, masked", [
     (["--api-key", "abc", "--port", "80"], ["--api-key", "***", "--port", "80"]),
     (["-t", "x", "--token=abc"], ["-t", "x", "--token=***"]),
+    (["abc", "--api-key"], ["abc", "--api-key"]),
     ("https://x.io/v1?key=abc&mode=fast", "https://x.io/v1?key=***&mode=fast"),
     ("https://x.io/v1?access_token=abc#f", "https://x.io/v1?access_token=***#f"),
     ("sk-or-v1-abcdef123456", "***"),
