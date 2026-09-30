@@ -19,6 +19,12 @@ Setting this up with a coding agent? Point it at [`AGENTS.md`](AGENTS.md).
 Opinionated: one Hermes per host, one dedicated service user, rootless podman with
 Quadlet, Telegram for approvals.
 
+Scope: Talaria manages Hermes installs that run from the official container image. It
+does not cover the git-based `hermes update` path.
+
+Talaria is an independent project and is not affiliated with or endorsed by Nous
+Research.
+
 ## Requirements
 
 - Linux with systemd user units and linger (tested on Ubuntu 24.04).
