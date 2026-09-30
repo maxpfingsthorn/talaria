@@ -145,6 +145,7 @@ def rehearse(ctx, st: dict, tag: str, commit: str) -> None:
         disk.ensure_space(ctx, disk.dir_size(data), ctx.paths.state_dir)
     except disk.NoSpace as e:
         raise Transient(str(e)) from None
+    shutil.rmtree(ctx.paths.staging, ignore_errors=True)  # leftovers of a crashed rehearsal
     ensure_dir(ctx.paths.staging)
     stage = ctx.paths.staging / f"{tag}-{ctx.now():%Y%m%dT%H%M%SZ}"
     stage.mkdir(mode=0o700)
@@ -154,9 +155,10 @@ def rehearse(ctx, st: dict, tag: str, commit: str) -> None:
             copy_data(data, copy, ctx.conf.backup_exclude)
         except (OSError, shutil.Error, sqlite3.Error) as e:
             raise Transient(f"could not copy the data dir: {str(e)[:300]}") from None
-        has_cfg = (copy / "config.yaml").is_file()
+        cfg = copy / "config.yaml"
+        has_cfg = cfg.is_file() and not cfg.is_symlink()   # never read through a symlink
         if has_cfg:
-            shutil.copy2(copy / "config.yaml", stage / "config.orig.yaml")
+            shutil.copy2(cfg, stage / "config.orig.yaml", follow_symlinks=False)
         doc_before = run_doctor(ctx, st["current"], copy) if st.get("current") else ""
         mig = run_helper(ctx, image, "migrate.py", copy, stage)
         if not mig["ok"]:

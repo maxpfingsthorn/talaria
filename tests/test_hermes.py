@@ -141,3 +141,9 @@ def test_stop_and_is_active_exact(tmp_path):
     assert hermes.is_active(ctx) is False
     assert ctx.sh.calls == [["systemctl", "--user", "stop", "hermes.service"],
                             ["systemctl", "--user", "is-active", "hermes.service"]]
+
+
+def test_config_version_ignores_symlinked_config(tmp_path):
+    (tmp_path / "real.yaml").write_text("_config_version: 27\n")
+    (tmp_path / "config.yaml").symlink_to(tmp_path / "real.yaml")
+    assert hermes.config_version(tmp_path) is None

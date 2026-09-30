@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import shutil
 
 import pytest
 
@@ -359,3 +360,30 @@ def test_candidate_message_titles_and_summary(happy):
     m = rehearse.candidate_message(happy, {"current": {"tag": "v1"}}, report, None)
     assert m.untrusted[-1] == ("Doctor: new or fixed problems (1)", "+ ✗ x")
     assert "Doctor: no new problems." not in m.text
+
+
+# ---- v0.2.4: symlinks and leftovers ----
+
+def test_symlinked_config_is_not_read(happy, tmp_path):
+    secret = tmp_path / "secret.env"
+    secret.write_text("TOKEN=x\n")
+    cfg = happy.conf.data_dir / "config.yaml"
+    cfg.unlink()
+    cfg.symlink_to(secret)
+    seen = []
+    real = shutil.copy2
+    rehearse.shutil.copy2 = lambda *a, **k: (seen.append(a), real(*a, **k))[1]
+    try:
+        rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
+    finally:
+        rehearse.shutil.copy2 = real
+    assert "confdiff.py" not in [c[1] for c in happy.helper_calls]
+    assert not any(str(a[0]).endswith("config.yaml") for a in seen)
+
+
+def test_leftover_staging_is_removed(happy):
+    old = happy.paths.staging / "v2026.9.1-20260901T000000Z/data"
+    old.mkdir(parents=True)
+    (old / ".env").write_text("KEY=x\n")
+    rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
+    assert list(happy.paths.staging.iterdir()) == []

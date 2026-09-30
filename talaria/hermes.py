@@ -62,8 +62,11 @@ def post_start_check(ctx) -> str | None:
 
 
 def config_version(data_dir: Path) -> int | None:
+    cfg = Path(data_dir) / "config.yaml"
+    if cfg.is_symlink():
+        return None
     try:
-        found = _CFG.findall((Path(data_dir) / "config.yaml").read_text())
+        found = _CFG.findall(cfg.read_text())
     except (FileNotFoundError, UnicodeDecodeError):
         return None
     return int(found[0]) if len(found) == 1 else None
