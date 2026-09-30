@@ -59,7 +59,10 @@ def create(ctx, label: str, image: dict | None) -> Backup:
         rel = "" if ti.name == "." else ti.name[2:]
         if rel and excluded(rel, excludes):
             return None
-        return ti if (ti.isreg() or ti.isdir() or ti.issym()) else None
+        if ti.islnk() and excluded(ti.linkname[2:], excludes):
+            # the first name of this hardlinked file was excluded: store the file itself
+            ti.type, ti.linkname, ti.size = tarfile.REGTYPE, "", (data / rel).stat().st_size
+        return ti if (ti.isreg() or ti.islnk() or ti.isdir() or ti.issym()) else None
 
     final = root / f"{bid}.tar.gz"
     tmp = root / f".{bid}.tar.gz.tmp"

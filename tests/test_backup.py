@@ -195,3 +195,35 @@ def test_renamable(tmp_path, monkeypatch):
     assert disk.renamable(tmp_path / "missing") is True
     monkeypatch.setattr(disk.os.path, "ismount", lambda p: str(p) == str(d))
     assert disk.renamable(d) is False
+
+
+# ---- v0.2.4: hardlinks ----
+
+def _extract(b, dest):
+    import subprocess
+    dest.mkdir()
+    subprocess.run(["tar", "-xzf", str(b.path), "-C", str(dest)], check=True)
+
+
+def test_backup_keeps_hardlinked_files(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    seed(ctx.conf.data_dir)
+    (ctx.conf.data_dir / "b").mkdir()
+    os.link(ctx.conf.data_dir / "memories/a.md", ctx.conf.data_dir / "b/g")
+    b = backup.create(ctx, "manual", None)
+    assert {"./memories/a.md", "./b/g"} <= names(b)
+    _extract(b, tmp_path / "out")
+    assert (tmp_path / "out/b/g").read_text() == "m"
+    assert (tmp_path / "out/memories/a.md").read_text() == "m"
+
+
+def test_hardlink_to_excluded_file_is_stored_as_a_file(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    seed(ctx.conf.data_dir)
+    os.link(ctx.conf.data_dir / ".cache/big", ctx.conf.data_dir / "memories/big")
+    b = backup.create(ctx, "manual", None)
+    with tarfile.open(b.path) as t:
+        m = t.getmember("./memories/big")
+    assert m.isreg() and m.size == 1000 and "./.cache/big" not in names(b)
+    _extract(b, tmp_path / "out")
+    assert (tmp_path / "out/memories/big").read_text() == "x" * 1000
