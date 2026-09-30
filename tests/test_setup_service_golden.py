@@ -227,7 +227,7 @@ def adopt_env(monkeypatch, s, problems=(), apply_rc=0):
     calls = []
     monkeypatch.setattr(setup.adopt, "detect", lambda c: [f])
     monkeypatch.setattr(setup.adopt, "plan", lambda c, ff: (calls.append("plan"), p)[1])
-    monkeypatch.setattr(setup.adopt, "print_plan", lambda pp: print("PLAN-SHOWN"))
+    monkeypatch.setattr(setup.adopt, "print_plan", lambda pp, env: print("PLAN-SHOWN"))
 
     def apply(c, ff, pp):
         calls.append("apply")
@@ -298,7 +298,7 @@ def test_adopt_flag_selects_one_of_several(s, monkeypatch, capsys):
     chosen = []
     monkeypatch.setattr(setup.adopt, "plan", lambda c, f: (chosen.append(f.unit),
                                                            Plan(f, None, None, {}, [], ["x"], ""))[1])
-    monkeypatch.setattr(setup.adopt, "print_plan", lambda p: None)
+    monkeypatch.setattr(setup.adopt, "print_plan", lambda p, env: None)
     run(s, capsys, adopt="b.service")
     assert chosen == ["b.service"]
 

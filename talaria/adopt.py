@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,6 +18,22 @@ from talaria.tags import is_release, key
 MANAGED = {"HERMES_DASHBOARD", "HERMES_DASHBOARD_INSECURE", "HERMES_DASHBOARD_BASIC_AUTH_USERNAME",
            "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", "HERMES_UID", "HERMES_GID", "HERMES_HOME",
            "HERMES_SKIP_CONFIG_MIGRATION"}
+
+
+_ASSIGN = re.compile(r"""\b([A-Za-z_][A-Za-z0-9_]*=)("[^"]*"|'[^']*'|[^\s"']+)""")
+
+
+def mask_env(quadlet: str) -> str:
+    """Hide the values in Environment= and PodmanArgs= lines: they often hold API keys,
+    and the plan is printed to a terminal (and a coding agent's transcript)."""
+    out = []
+    for line in quadlet.splitlines(True):
+        key = line.split("=", 1)[0].strip()
+        if key in ("Environment", "PodmanArgs") and "=" in line:
+            head, rest = line.split("=", 1)
+            line = head + "=" + _ASSIGN.sub(r"\1***", rest)
+        out.append(line)
+    return "".join(out)
 
 
 @dataclass
@@ -123,19 +140,22 @@ def plan(ctx, f: Found) -> Plan:
         ctx.conf.data_dir = data_dir
         new = units.render_quadlet(ctx)
         ctx.conf.data_dir = saved
-        old = f.quadlet.read_text() if f.quadlet else "(container without a Quadlet file)\n"
+        old = mask_env(f.quadlet.read_text()) if f.quadlet \
+            else "(container without a Quadlet file)\n"
         diff = "".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True),
                                             str(f.quadlet or f.unit), "hermes.container"))
     return Plan(f, image, data_dir, kept, dropped, problems, diff)
 
 
-def print_plan(p: Plan) -> None:
+def print_plan(p: Plan, hermes_env="~/.config/talaria/hermes.env") -> None:
     print(f"FOUND: Hermes {(p.image or {}).get('tag')} in unit {p.found.unit}, "
           f"data at {p.data_dir}")
     if p.kept:
         print("  environment kept: " + ", ".join(p.kept))
     if p.dropped:
-        print("  environment dropped: " + ", ".join(p.dropped))
+        print("  environment NOT carried over: " + ", ".join(p.dropped))
+        print(f"    Hermes reads its API keys from {p.data_dir}/.env, which is kept. If Hermes "
+              f"needs any of these variables, add them to {hermes_env} before continuing.")
     if p.diff:
         print(p.diff)
 

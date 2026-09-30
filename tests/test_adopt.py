@@ -307,7 +307,10 @@ def test_print_plan_exact(capsys):
                                 ["FOO", "BAR"], [], "DIFFTEXT"))
     assert capsys.readouterr().out == ("FOUND: Hermes v2026.8.3 in unit u.service, data at /d\n"
                                        "  environment kept: TZ, HERMES_A\n"
-                                       "  environment dropped: FOO, BAR\n"
+                                       "  environment NOT carried over: FOO, BAR\n"
+                                       "    Hermes reads its API keys from /d/.env, which is "
+                                       "kept. If Hermes needs any of these variables, add them "
+                                       "to ~/.config/talaria/hermes.env before continuing.\n"
                                        "DIFFTEXT\n")
 
 
@@ -388,3 +391,28 @@ def test_plan_refuses_mount_point_data_dir(tmp_path, monkeypatch):
     assert adopt.plan(ctx, adopt.detect(ctx)[0]).problems == [
         "the data dir /home/h/data is a mount point or on another filesystem than its parent; "
         "Talaria restores by renaming it, so it must be a plain directory"]
+
+
+# ---- v0.2.4: no secrets in the printed plan ----
+
+def test_mask_env():
+    q = ("[Container]\nImage=x\n"
+         "Environment=OPENROUTER_API_KEY=sk-or-123 TZ=UTC\n"
+         "Environment=\"A=b c\" B='d e'\n"
+         "PodmanArgs=--env TOKEN=abc -e X=1\n"
+         "Label=a=b\n")
+    assert adopt.mask_env(q) == ("[Container]\nImage=x\n"
+                                 "Environment=OPENROUTER_API_KEY=*** TZ=***\n"
+                                 "Environment=\"A=*** c\" B=***\n"
+                                 "PodmanArgs=--env TOKEN=*** -e X=***\n"
+                                 "Label=a=b\n")
+
+
+def test_plan_diff_hides_old_environment_values(tmp_path):
+    ctx = actx(tmp_path, [container()])
+    ctx.paths.quadlet_dir.mkdir(parents=True)
+    q = ctx.paths.quadlet_dir / "hermes-gateway.container"
+    q.write_text("[Container]\nImage=old\nEnvironment=OPENROUTER_API_KEY=sk-or-secret\n")
+    p = adopt.plan(ctx, adopt.detect(ctx)[0])
+    assert "sk-or-secret" not in p.diff
+    assert "-Environment=OPENROUTER_API_KEY=***\n" in p.diff

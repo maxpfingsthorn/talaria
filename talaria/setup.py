@@ -181,7 +181,7 @@ def service_phase(ctx, args, api=None) -> int:
         if cands:
             found = cands[0]
             plan = adopt.plan(ctx, found)
-            adopt.print_plan(plan)
+            adopt.print_plan(plan, ctx.paths.hermes_env)
             if plan.problems:
                 for x in plan.problems:
                     say("STOP", x)
