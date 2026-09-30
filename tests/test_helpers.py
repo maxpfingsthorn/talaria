@@ -301,3 +301,28 @@ def test_mask_inside_lists_and_urls():
         ["base_url", "https://***@example.com/v1"],
         ["mcp_servers", [{"name": "gh", "env": {"GITHUB_TOKEN": "***", "LEVEL": "1"}}]],
         ["plain", "https://example.com"]]
+
+
+# ---- v0.2.4: secrets in values under harmless keys ----
+
+@pytest.mark.parametrize("value, masked", [
+    (["--api-key", "abc", "--port", "80"], ["--api-key", "***", "--port", "80"]),
+    (["-t", "x", "--token=abc"], ["-t", "x", "--token=***"]),
+    ("https://x.io/v1?key=abc&mode=fast", "https://x.io/v1?key=***&mode=fast"),
+    ("https://x.io/v1?access_token=abc#f", "https://x.io/v1?access_token=***#f"),
+    ("sk-or-v1-abcdef123456", "***"),
+    ("use ghp_" + "a" * 36 + " here", "use *** here"),
+    ("123456789:" + "A" * 35, "***"),
+    ("a1" * 20, "***"),
+    ("anthropic/claude-sonnet-4-20250514", "anthropic/claude-sonnet-4-20250514"),
+    ("https://example.com/v1?mode=fast", "https://example.com/v1?mode=fast"),
+    ("x" * 40, "x" * 40),
+])
+def test_sanitize_values(value, masked):
+    assert confdiff.sanitize(value) == masked
+
+
+def test_changed_values_under_harmless_keys_are_masked():
+    d = confdiff.diff({"mcp_servers": {"x": {"args": ["--api-key", "old"]}}},
+                      {"mcp_servers": {"x": {"args": ["--api-key", "new"]}}})
+    assert d["changed"] == [["mcp_servers.x.args", ["--api-key", "***"], ["--api-key", "***"]]]

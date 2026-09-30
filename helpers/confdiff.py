@@ -19,14 +19,35 @@ def flatten(d, prefix=""):
     return out
 
 
+URL_PARAM = re.compile(r"([?&][^=&#\s]*" + SECRET.pattern + r"[^=&#\s]*=)[^&#\s]+", re.I)
+FLAG_VALUE = re.compile(r"^(--?[\w-]*" + SECRET.pattern + r"[\w-]*=).+", re.I)
+SECRET_FLAG = re.compile(r"^--?[\w-]*" + SECRET.pattern + r"[\w-]*$", re.I)
+TOKEN = re.compile(r"\b(sk-[\w-]{8,}|gh[pousr]_\w{20,}|github_pat_\w{20,}|xox[abprs]-[\w-]{10,}"
+                   r"|AIza[\w-]{20,}|\d{6,12}:[\w-]{30,}"
+                   r"|(?=[\w-]*\d)(?=[\w-]*[A-Za-z])[\w-]{32,})")
+
+
+def sanitize_str(s: str) -> str:
+    s = URL_CREDS.sub(r"\1***@", s)
+    s = URL_PARAM.sub(r"\1***", s)
+    s = FLAG_VALUE.sub(r"\1***", s)
+    return TOKEN.sub("***", s)
+
+
 def sanitize(value):
-    """Mask secret-looking keys at any depth and credentials inside URLs."""
+    """Mask secret-looking keys at any depth, the value after a secret-looking flag in a
+    list, credentials and secret parameters in URLs, and token-shaped strings."""
     if isinstance(value, dict):
         return {k: "***" if SECRET.search(str(k)) else sanitize(v) for k, v in value.items()}
     if isinstance(value, list):
-        return [sanitize(v) for v in value]
+        out = []
+        for i, v in enumerate(value):
+            prev = value[i - 1] if i else None
+            secret_arg = isinstance(prev, str) and SECRET_FLAG.match(prev)
+            out.append("***" if secret_arg else sanitize(v))
+        return out
     if isinstance(value, str):
-        return URL_CREDS.sub(r"\1***@", value)
+        return sanitize_str(value)
     return value
 
 
