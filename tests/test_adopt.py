@@ -399,13 +399,19 @@ def test_mask_env():
     q = ("[Container]\nImage=x\n"
          "Environment=OPENROUTER_API_KEY=sk-or-123 TZ=UTC\n"
          "Environment=\"A=b c\" B='d e'\n"
+         "Environment=\"KEY=a b c\"\n"
          "PodmanArgs=--env TOKEN=abc -e X=1\n"
-         "Label=a=b\n")
+         "Exec=gateway --token X\n"
+         "[Service]\nExecStartPre=/bin/sh -c 'echo $SECRET'\n"
+         "Label=a=b")
     assert adopt.mask_env(q) == ("[Container]\nImage=x\n"
                                  "Environment=OPENROUTER_API_KEY=*** TZ=***\n"
-                                 "Environment=\"A=*** c\" B=***\n"
-                                 "PodmanArgs=--env TOKEN=*** -e X=***\n"
-                                 "Label=a=b\n")
+                                 "Environment=A=*** B=***\n"
+                                 "Environment=KEY=***\n"
+                                 "PodmanArgs=***\n"
+                                 "Exec=***\n"
+                                 "[Service]\nExecStartPre=***\n"
+                                 "Label=a=b")
 
 
 def test_plan_diff_hides_old_environment_values(tmp_path):

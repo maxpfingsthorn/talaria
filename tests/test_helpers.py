@@ -327,3 +327,22 @@ def test_changed_values_under_harmless_keys_are_masked():
     d = confdiff.diff({"mcp_servers": {"x": {"args": ["--api-key", "old"]}}},
                       {"mcp_servers": {"x": {"args": ["--api-key", "new"]}}})
     assert d["changed"] == [["mcp_servers.x.args", ["--api-key", "***"], ["--api-key", "***"]]]
+
+
+@pytest.mark.parametrize("value, masked", [
+    ("Authorization: Bearer abc", "Authorization: Bearer ***"),
+    ("token xyz", "token ***"),
+    (["--api-key=abc", "x"], ["--api-key=***", "x"]),
+    ("https://x.io/?a=1&secret_key=s&b=2", "https://x.io/?a=1&secret_key=***&b=2"),
+])
+def test_sanitize_more(value, masked):
+    assert confdiff.sanitize(value) == masked
+
+
+@pytest.mark.parametrize("blob", ["a-" * 150_000, "?" + "key" * 100_000, "?key" * 75_000,
+                                  "--" + "key" * 100_000, "x" * 300_000, "a1" * 150_000])
+def test_sanitize_is_linear(blob):
+    import time
+    t = time.monotonic()
+    confdiff.sanitize([blob, blob])
+    assert time.monotonic() - t < 2

@@ -20,17 +20,23 @@ MANAGED = {"HERMES_DASHBOARD", "HERMES_DASHBOARD_INSECURE", "HERMES_DASHBOARD_BA
            "HERMES_SKIP_CONFIG_MIGRATION"}
 
 
-_ASSIGN = re.compile(r"""\b([A-Za-z_][A-Za-z0-9_]*=)("[^"]*"|'[^']*'|[^\s"']+)""")
+_NAME = re.compile(r"(?:^|[\s\"'])([A-Za-z_][A-Za-z0-9_]*)=")
+_HIDDEN = ("PodmanArgs", "Exec", "Secret", "ExecStartPre", "ExecStart", "ExecStartPost")
 
 
 def mask_env(quadlet: str) -> str:
-    """Hide the values in Environment= and PodmanArgs= lines: they often hold API keys,
-    and the plan is printed to a terminal (and a coding agent's transcript)."""
+    """Show only variable names on Environment= lines and nothing after the key on lines
+    that pass arguments: they often hold API keys, and the plan is printed to a terminal
+    (and a coding agent's transcript)."""
     out = []
     for line in quadlet.splitlines(True):
         head, eq, rest = line.partition("=")
-        if eq and head.strip() in ("Environment", "PodmanArgs"):
-            line = head + eq + _ASSIGN.sub(r"\1***", rest)
+        key = head.strip()
+        nl = "\n" if line.endswith("\n") else ""
+        if eq and key == "Environment":
+            line = head + eq + " ".join(f"{n}=***" for n in _NAME.findall(rest)) + nl
+        elif eq and key in _HIDDEN:
+            line = head + eq + "***" + nl
         out.append(line)
     return "".join(out)
 

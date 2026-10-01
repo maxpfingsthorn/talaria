@@ -161,7 +161,8 @@ Run setup again after changing it.
   look like tokens. This is a heuristic; review what the bot shows you.
 - Talaria never follows symlinks in the data dir: backups and rehearsal copies keep them
   as links, and restores extract into new directories.
-- The adoption plan hides the values of `Environment=` and `PodmanArgs=` lines.
+- The adoption plan shows only variable names on `Environment=` lines and hides
+  `PodmanArgs=`, `Exec=` and `Secret=` lines entirely.
 - No root after setup.
 
 Known limitations:
@@ -169,8 +170,10 @@ Known limitations:
 - Change Hermes images only through Talaria. Starting another image by hand on
   migrated data is unsupported.
 - `.env` backup copies that Hermes itself writes stay in the data dir and in backups.
-- A rollback after a failed deploy, or after an interrupted change, takes no extra backup:
-  the data it replaces is the half-changed state.
+- A rollback while Hermes is blocked by an interrupted change takes no extra backup: the
+  data it replaces is the half-changed state.
+- While a change is interrupted, Talaria refuses to deploy or rehearse anything new until
+  you recover with `/rollback CONFIRM`.
 
 ## Manual recovery
 

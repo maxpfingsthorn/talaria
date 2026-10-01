@@ -22,7 +22,7 @@ from talaria.upstream import git_release_tags, registry_tags
 REPO = Path(__file__).resolve().parent.parent
 TOKEN_RE = re.compile(r"^\d{3,}:[A-Za-z0-9_-]{30,}$")
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")   # goes into a root shell block
-GITHUB_SSH = re.compile(r"^(?:ssh://)?git@github\.com[:/](.+?)(?:\.git)?/?$")
+GITHUB_SSH = re.compile(r"^(?:git@github\.com:|ssh://git@github\.com(?::\d+)?/)(.+?)(?:\.git)?/?$")
 TOOLS = {  # tool: (Debian/Ubuntu, Fedora/RHEL, Arch)
     "podman": ("podman", "podman", "podman"), "git": ("git", "git", "git"),
     "tar": ("tar", "tar", "tar"), "gzip": ("gzip", "gzip", "gzip"),
@@ -75,7 +75,9 @@ def install_url(url: str) -> str | None:
     m = GITHUB_SSH.match(url)
     if m:
         return f"https://github.com/{m[1]}"
-    return None if re.match(r"^(ssh://|[\w.-]+@)", url) else url
+    if re.match(r"^(ssh://|[\w.-]+@)", url):
+        return None
+    return re.sub(r"^(https?://)[^/@]*@", r"\1", url)   # never copy credentials along
 
 
 def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subprocess.call,

@@ -257,6 +257,9 @@ def test_plan_on_fresh_host_is_a_plan(monkeypatch, tmp_path, capsys):
     ("/srv/talaria", "/srv/talaria"),
     ("git@gitlab.com:o/talaria.git", None),
     ("ssh://host/talaria", None),
+    ("ssh://git@github.com:22/o/talaria.git", "https://github.com/o/talaria"),
+    ("https://user:TOKEN@github.com/o/talaria", "https://github.com/o/talaria"),
+    ("https://x-access-token@github.com/o/talaria", "https://github.com/o/talaria"),
 ])
 def test_install_url(url, want):
     assert setup.install_url(url) == want

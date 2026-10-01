@@ -75,6 +75,8 @@ def load_conf(paths) -> Conf:
             else:
                 val = kind(v)
             setattr(conf, attr, val)
+        if conf.backup_keep < 1:   # retention would delete the undo backup it just made
+            raise ValueError(f"backup.keep must be at least 1 in {paths.conf_file}")
     if paths.env_file.exists():
         env = parse_kv(paths.env_file.read_text())
         conf.telegram_token = env.get("TALARIA_TELEGRAM_TOKEN", "")

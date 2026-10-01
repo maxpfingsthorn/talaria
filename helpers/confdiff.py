@@ -19,19 +19,37 @@ def flatten(d, prefix=""):
     return out
 
 
-URL_PARAM = re.compile(r"([?&][^=&#\s]*" + SECRET.pattern + r"[^=&#\s]*=)[^&#\s]+", re.I)
-FLAG_VALUE = re.compile(r"^(--?[\w-]*" + SECRET.pattern + r"[\w-]*=).+", re.I)
-SECRET_FLAG = re.compile(r"^--?[\w-]*" + SECRET.pattern + r"[\w-]*$", re.I)
-TOKEN = re.compile(r"\b(sk-[\w-]{8,}|gh[pousr]_\w{20,}|github_pat_\w{20,}|xox[abprs]-[\w-]{10,}"
-                   r"|AIza[\w-]{20,}|\d{6,12}:[\w-]{30,}"
-                   r"|(?=[\w-]*\d)(?=[\w-]*[A-Za-z])[\w-]{32,})")
+# All patterns run in linear time: config values can be large.
+URL_PARAM = re.compile(r"([?&])([^=&#?\s]*)=([^&#\s]*)")
+FLAG = re.compile(r"^(--?[\w-]+)(=.*)?$", re.S)
+AUTH = re.compile(r"\b(bearer|basic|token)\s+\S+", re.I)
+PREFIXED = re.compile(r"\b(sk-[\w-]{8,}|gh[pousr]_\w{20,}|github_pat_\w{20,}"
+                      r"|xox[abprs]-[\w-]{10,}|AIza[\w-]{20,}|\d{6,12}:[\w-]{30,})")
+LONG = re.compile(r"[\w-]{32,}")
+
+
+def _param(m):
+    return f"{m[1]}{m[2]}=***" if SECRET.search(m[2]) else m[0]
+
+
+def _long(m):
+    s = m[0]
+    return "***" if any(c.isdigit() for c in s) and any(c.isalpha() for c in s) else s
+
+
+def secret_flag(s) -> bool:
+    m = FLAG.match(s) if isinstance(s, str) else None
+    return bool(m and SECRET.search(m[1]))
 
 
 def sanitize_str(s: str) -> str:
+    if secret_flag(s) and "=" in s:
+        return s.split("=", 1)[0] + "=***"
     s = URL_CREDS.sub(r"\1***@", s)
-    s = URL_PARAM.sub(r"\1***", s)
-    s = FLAG_VALUE.sub(r"\1***", s)
-    return TOKEN.sub("***", s)
+    s = URL_PARAM.sub(_param, s)
+    s = AUTH.sub(lambda m: f"{m[1]} ***", s)
+    s = PREFIXED.sub("***", s)
+    return LONG.sub(_long, s)
 
 
 def sanitize(value):
@@ -42,8 +60,7 @@ def sanitize(value):
     if isinstance(value, list):
         out = []
         for i, v in enumerate(value):
-            prev = value[i - 1] if i else None
-            secret_arg = isinstance(prev, str) and SECRET_FLAG.match(prev)
+            secret_arg = i > 0 and secret_flag(value[i - 1]) and "=" not in value[i - 1]
             out.append("***" if secret_arg else sanitize(v))
         return out
     if isinstance(value, str):

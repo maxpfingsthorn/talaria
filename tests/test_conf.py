@@ -1,3 +1,4 @@
+import pytest
 from pathlib import Path
 
 from talaria.conf import load_conf, parse_kv, write_env_value
@@ -60,3 +61,12 @@ def test_write_env_value_replaces_and_keeps_mode(tmp_path):
     write_env_value(f, "A", "3")
     assert f.read_text() == "A=3\nB=2\n"
     assert (f.stat().st_mode & 0o777) == 0o600
+
+
+@pytest.mark.parametrize("keep", ["0", "-1"])
+def test_backup_keep_must_be_positive(tmp_path, keep):
+    p = Paths(tmp_path)
+    p.conf_file.parent.mkdir(parents=True)
+    p.conf_file.write_text(f"backup.keep = {keep}\n")
+    with pytest.raises(ValueError, match="backup.keep must be at least 1"):
+        load_conf(p)
