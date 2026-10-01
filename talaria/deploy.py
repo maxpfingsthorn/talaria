@@ -6,7 +6,7 @@ import signal
 from talaria import backup, disk, hermes, history, images, marker, retention, state
 from talaria.containers import run_helper
 from talaria.notify import Message
-from talaria.rollback import MANUAL, rollback
+from talaria.rollback import MANUAL, interrupted, rollback
 from talaria.state import ensure_dir
 
 
@@ -36,6 +36,10 @@ def _fail(ctx, tag: str, reason: str, bid: str, revert_image: dict, details=()) 
 
 def deploy(ctx, tag: str) -> None:
     st = state.load(ctx.paths)
+    why = interrupted(ctx, st)
+    if why:
+        ctx.notify.send(Message(f"Deploy of {tag} refused: {why}. Nothing was changed."))
+        return
     p = st.get("pending")
     if not p or p["tag"] != tag:
         ctx.notify.send(Message(f"Nothing deployed: {tag} is not the pending candidate."))

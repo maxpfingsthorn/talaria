@@ -273,3 +273,29 @@ def test_space_twice_is_enough(tmp_path, monkeypatch):
     monkeypatch.setattr(disk, "free_bytes", lambda p: int(size * 2.5))
     deploy.deploy(ctx, "v2026.9.24")
     assert ctx.notify.sent[-1].text == "Deployed Hermes v2026.9.24."
+
+
+# ---- v0.2.5: nothing new starts on an interrupted change ----
+
+def test_deploy_refused_while_marker_exists(tmp_path, monkeypatch):
+    ctx = ops_ctx(tmp_path, monkeypatch)
+    b = backup.create(ctx, "pre-v2026.9.24", CUR)
+    marker.write(ctx.paths, "deploy", b.id, CUR, ctx.now())
+    deploy.deploy(ctx, "v2026.9.24")
+    assert ctx.notify.sent[-1].text == (
+        "Deploy of v2026.9.24 refused: an interrupted deploy must be recovered first: send "
+        "/rollback CONFIRM. Nothing was changed.")
+    assert not ctx.sh.called("systemctl", "--user", "stop")
+    assert [x.id for x in backup.list_backups(ctx)] == [b.id]
+
+
+def test_deploy_refused_while_op_is_recorded(tmp_path, monkeypatch):
+    from talaria import state
+    ctx = ops_ctx(tmp_path, monkeypatch)
+    st = load(ctx)
+    st["op"] = {"op": "deploy", "tag": "v2026.9.24", "backup": "b", "changed": True,
+                "started": "x"}
+    state.save(ctx.paths, st)
+    deploy.deploy(ctx, "v2026.9.24")
+    assert "refused: an interrupted deploy" in ctx.notify.sent[-1].text
+    assert not ctx.sh.called("systemctl", "--user", "stop")

@@ -31,6 +31,15 @@ def target(ctx, st) -> tuple[str, dict] | None:
     return None
 
 
+def interrupted(ctx, st) -> str | None:
+    """Why nothing new may start: an interrupted change must be recovered first."""
+    op = st.get("op")
+    if marker.read(ctx.paths) or op:
+        what = (op or marker.read(ctx.paths) or {}).get("op", "change")
+        return f"an interrupted {what} must be recovered first: send /rollback CONFIRM"
+    return None
+
+
 def needs_resume(ctx, st) -> bool:
     """An interrupted op without a marker left data and image consistent: it changed
     nothing yet, or it was a rollback/restore whose swap had finished."""
@@ -123,26 +132,28 @@ def rollback(ctx) -> tuple[str | None, str | None]:
     backup.verify(b)
     images.ensure(ctx, image)
     m = marker.read(ctx.paths)
-    asked = m is None and not st.get("op")     # by the user, not recovering a change
-    copies = 2 if asked else 1                 # the user's rollback backs up first
-    disk.ensure_space(ctx, copies * int(b.meta.get("data_size", 0)), ctx.conf.data_dir.parent)
+    live = m is None            # no marker: Hermes may have written to this data; keep it
+    disk.ensure_space(ctx, (2 if live else 1) * int(b.meta.get("data_size", 0)),
+                      ctx.conf.data_dir.parent)
     op = (m or {}).get("op", "rollback")
     pre = None
-    if not st.get("op"):
-        st["op"] = {"op": "rollback", "backup": bid, "changed": not asked,
+    ours = not st.get("op")
+    if ours:
+        st["op"] = {"op": "rollback", "backup": bid, "changed": not live,
                     "started": ctx.now().isoformat()}
         state.save(ctx.paths, st)
-        if asked:
-            try:
-                hermes.stop(ctx)
-                pre = backup.create(ctx, "pre-rollback", st["current"]).id
-            except Exception as e:
-                hermes.start(ctx)
+    if live:
+        try:
+            hermes.stop(ctx)
+            pre = backup.create(ctx, "pre-rollback", st["current"]).id
+        except Exception as e:
+            hermes.start(ctx)
+            if ours:
                 st["op"] = None
                 state.save(ctx.paths, st)
-                raise Refused(f"the pre-rollback backup failed: {e}") from e
-            st["op"]["changed"] = True
-            state.save(ctx.paths, st)
+            raise Refused(f"the pre-rollback backup failed: {e}") from e
+        st["op"]["changed"] = True
+        state.save(ctx.paths, st)
     reason = _swap(ctx, b, image, op, (bid, image))
     if reason:
         hermes.stop(ctx)
@@ -183,7 +194,9 @@ def rollback_cmd(ctx) -> None:
         ctx.notify.send(Message(f"Rollback failed: {e}. Hermes may be stopped. {MANUAL}"))
         return
     if reason:
-        ctx.notify.send(Message(f"Rollback failed: {reason}. Hermes is stopped. {MANUAL}"))
+        keep = f" The data from before the rollback is in backup {pre}." if pre else ""
+        ctx.notify.send(Message(f"Rollback failed: {reason}. Hermes is stopped.{keep} {MANUAL}",
+                                commands=[f"/restore {pre} CONFIRM"] if pre else []))
         return
     tag = state.load(ctx.paths)["current"].get("tag")
     ctx.notify.send(Message(f"Rolled back to Hermes {tag}.",

@@ -215,3 +215,23 @@ def test_rehearse_tag_not_failed_before(cctx):
     ctx, st = cctx
     check.rehearse_tag(ctx, st, "v2026.9.24")
     assert ctx.rehearsed == [("v2026.9.24", "b")] and st["failed"] == []
+
+
+# ---- v0.2.5: nothing new is rehearsed on an interrupted change ----
+
+def test_check_skips_while_a_change_is_interrupted(cctx):
+    ctx, st = cctx
+    st["op"] = {"op": "deploy", "tag": "v2026.9.24", "backup": "b", "changed": True,
+                "started": "x"}
+    check.check(ctx, st)
+    assert ctx.rehearsed == [] and ctx.history == [(True, "daily")]
+
+
+def test_rehearse_tag_refused_while_marker_exists(cctx):
+    from talaria import marker
+    ctx, st = cctx
+    marker.write(ctx.paths, "deploy", "b", st["current"], ctx.now())
+    check.rehearse_tag(ctx, st, "v2026.9.24")
+    assert ctx.rehearsed == []
+    assert ctx.notify.sent[-1].text == ("Not rehearsing v2026.9.24: an interrupted deploy must "
+                                        "be recovered first: send /rollback CONFIRM.")

@@ -189,8 +189,11 @@ def test_rollback_failure_keeps_op_name_in_marker(tmp_path, monkeypatch):
     rollback.rollback_cmd(ctx)
     m = marker.read(ctx.paths)
     assert m["op"] == "rollback" and m["image"] == CUR
-    assert ctx.notify.sent[-1].text == ("Rollback failed: broken. Hermes is stopped. "
-                                        "Manual recovery: see README, section 'Manual recovery'.")
+    pre = [b for b in backup.list_backups(ctx) if b.meta["label"] == "pre-rollback"][0]
+    assert ctx.notify.sent[-1].text == (
+        f"Rollback failed: broken. Hermes is stopped. The data from before the rollback is in "
+        f"backup {pre.id}. Manual recovery: see README, section 'Manual recovery'.")
+    assert ctx.notify.sent[-1].commands == [f"/restore {pre.id} CONFIRM"]
 
 
 def test_rollback_exception_text_exact(tmp_path, monkeypatch):
@@ -561,13 +564,46 @@ def test_recovery_rollback_needs_space_for_one_copy_and_returns_no_backup(tmp_pa
     assert rollback.rollback(ctx) == (None, None)
 
 
-def test_changed_op_without_marker_needs_space_for_one_copy(tmp_path, monkeypatch):
+def test_changed_op_without_marker_backs_up_the_live_data(tmp_path, monkeypatch):
+    # a deploy that died while Hermes was starting: Hermes may have run on this data for days
     ctx = deployed(tmp_path, monkeypatch)
     st = load(ctx)
-    st["op"] = {"op": "deploy", "tag": "v2026.9.24", "backup": st["last_deploy"]["backup"],
-                "changed": True, "started": "x"}
+    op = {"op": "deploy", "tag": "v2026.9.24", "backup": st["last_deploy"]["backup"],
+          "changed": True, "started": "x"}
+    st["op"] = op
     state.save(ctx.paths, st)
+    assert "pre-rollback backup" in rollback.describe(ctx)
     b = backup.get(ctx, st["last_deploy"]["backup"])
-    monkeypatch.setattr(disk, "free_bytes", lambda p: b.meta["data_size"])
-    assert rollback.rollback(ctx) == (None, None)
-    assert [x.meta["label"] for x in backup.list_backups(ctx)].count("pre-rollback") == 0
+    monkeypatch.setattr(disk, "free_bytes", lambda p: 2 * b.meta["data_size"] - 1)
+    with pytest.raises(disk.NoSpace):
+        rollback.rollback(ctx)
+    monkeypatch.setattr(disk, "free_bytes", lambda p: 2 * b.meta["data_size"])
+    reason, pre = rollback.rollback(ctx)
+    assert reason is None and backup.get(ctx, pre).meta["label"] == "pre-rollback"
+    assert backup.get(ctx, pre).meta["image"] == NEW
+
+
+def test_failed_backup_keeps_an_existing_op(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    st = load(ctx)
+    op = {"op": "deploy", "tag": "v2026.9.24", "backup": st["last_deploy"]["backup"],
+          "changed": True, "started": "x"}
+    st["op"] = op
+    state.save(ctx.paths, st)
+    monkeypatch.setattr(rollback.backup, "create",
+                        lambda *a: (_ for _ in ()).throw(OSError("disk full")))
+    with pytest.raises(rollback.Refused):
+        rollback.rollback(ctx)
+    assert load(ctx)["op"] == op
+
+
+def test_interrupted(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    assert rollback.interrupted(ctx, load(ctx)) is None
+    st = load(ctx)
+    st["op"] = {"op": "restore", "backup": "b", "changed": True, "started": "x"}
+    assert rollback.interrupted(ctx, st) == ("an interrupted restore must be recovered first: "
+                                            "send /rollback CONFIRM")
+    marker.write(ctx.paths, "deploy", "b", CUR, ctx.now())
+    assert rollback.interrupted(ctx, load(ctx)) == ("an interrupted deploy must be recovered "
+                                                   "first: send /rollback CONFIRM")

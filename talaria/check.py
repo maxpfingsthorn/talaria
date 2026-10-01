@@ -3,6 +3,7 @@ from __future__ import annotations
 from talaria import __version__, history
 from talaria.notify import Message
 from talaria.rehearse import Permanent, Transient, rehearse
+from talaria.rollback import interrupted
 from talaria.shell import CommandError
 from talaria.tags import pick_candidate, semver_newer
 from talaria.upstream import git_release_tags, latest_semver, registry_tags
@@ -40,6 +41,8 @@ def _run_rehearsal(ctx, st, tag: str, commit: str) -> None:
 def check(ctx, st: dict) -> None:
     history.commit(ctx, st, "daily")
     _talaria_reminder(ctx, st)
+    if interrupted(ctx, st):     # /status and the bot's startup notice report it
+        return
     try:
         git = git_release_tags(ctx.sh, ctx.conf.hermes_repo)
         reg = registry_tags(ctx.sh, ctx.conf.image, ctx.conf.registry_tls_verify)
@@ -58,6 +61,10 @@ def check(ctx, st: dict) -> None:
 
 
 def rehearse_tag(ctx, st: dict, tag: str) -> None:
+    why = interrupted(ctx, st)
+    if why:
+        ctx.notify.send(Message(f"Not rehearsing {tag}: {why}."))
+        return
     git = git_release_tags(ctx.sh, ctx.conf.hermes_repo)
     if tag not in git:
         ctx.notify.send(Message(f"{tag} is not a release tag of {ctx.conf.hermes_repo}."))
