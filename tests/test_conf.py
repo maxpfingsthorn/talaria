@@ -70,3 +70,10 @@ def test_backup_keep_must_be_positive(tmp_path, keep):
     p.conf_file.write_text(f"backup.keep = {keep}\n")
     with pytest.raises(ValueError, match="backup.keep must be at least 1"):
         load_conf(p)
+
+
+def test_backup_keep_one_is_allowed(tmp_path):
+    p = Paths(tmp_path)
+    p.conf_file.parent.mkdir(parents=True)
+    p.conf_file.write_text("backup.keep = 1\n")
+    assert load_conf(p).backup_keep == 1

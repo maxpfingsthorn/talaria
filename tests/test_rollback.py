@@ -607,3 +607,13 @@ def test_interrupted(tmp_path, monkeypatch):
     marker.write(ctx.paths, "deploy", "b", CUR, ctx.now())
     assert rollback.interrupted(ctx, load(ctx)) == ("an interrupted deploy must be recovered "
                                                    "first: send /rollback CONFIRM")
+
+
+def test_failed_recovery_rollback_offers_no_restore(tmp_path, monkeypatch):
+    ctx = ops_ctx(tmp_path, monkeypatch, check_results=["broken"])
+    b = backup.create(ctx, "pre-v2026.9.24", CUR)
+    marker.write(ctx.paths, "deploy", b.id, CUR, ctx.now())
+    rollback.rollback_cmd(ctx)
+    assert ctx.notify.sent[-1].text == ("Rollback failed: broken. Hermes is stopped. "
+                                        "Manual recovery: see README, section 'Manual recovery'.")
+    assert ctx.notify.sent[-1].commands == []

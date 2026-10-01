@@ -33,10 +33,9 @@ def target(ctx, st) -> tuple[str, dict] | None:
 
 def interrupted(ctx, st) -> str | None:
     """Why nothing new may start: an interrupted change must be recovered first."""
-    op = st.get("op")
-    if marker.read(ctx.paths) or op:
-        what = (op or marker.read(ctx.paths) or {}).get("op", "change")
-        return f"an interrupted {what} must be recovered first: send /rollback CONFIRM"
+    rec = st.get("op") or marker.read(ctx.paths)
+    if rec:
+        return f"an interrupted {rec['op']} must be recovered first: send /rollback CONFIRM"
     return None
 
 

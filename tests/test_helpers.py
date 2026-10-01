@@ -333,6 +333,8 @@ def test_changed_values_under_harmless_keys_are_masked():
     ("Authorization: Bearer abc", "Authorization: Bearer ***"),
     ("token xyz", "token ***"),
     (["--api-key=abc", "x"], ["--api-key=***", "x"]),
+    ("--token=a=b", "--token=***"),
+    ([1, "x"], [1, "x"]),
     ("https://x.io/?a=1&secret_key=s&b=2", "https://x.io/?a=1&secret_key=***&b=2"),
 ])
 def test_sanitize_more(value, masked):

@@ -422,3 +422,8 @@ def test_plan_diff_hides_old_environment_values(tmp_path):
     p = adopt.plan(ctx, adopt.detect(ctx)[0])
     assert "sk-or-secret" not in p.diff
     assert "-Environment=OPENROUTER_API_KEY=***\n" in p.diff
+
+
+def test_mask_env_last_line_without_newline():
+    assert adopt.mask_env("Environment=A=1") == "Environment=A=***"
+    assert adopt.mask_env("Exec=x") == "Exec=***"
