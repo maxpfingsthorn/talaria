@@ -1,27 +1,27 @@
 # Mutation testing report
 
-Date: 2026-09-30 · Commit: v0.2.4 (public-readiness fixes) · Tool: mutmut 3.8.0 (Python 3.12)
+Date: 2026-10-01 · Commit: v0.2.5 (second review fixes) · Tool: mutmut 3.8.0 (Python 3.12)
 
-**Score: 95.3 %** (threshold 85 %). 6,282 mutants: 5,980 killed, 6 timeouts (counted as
-killed), 294 survived, 0 without tests, 0 suspicious. Scoring is honest:
+**Score: 95.3 %** (threshold 85 %). 6,379 mutants: 6,074 killed, 7 timeouts (counted as
+killed), 296 survived, 0 without tests, 0 suspicious. Scoring is honest:
 `tests/mutation_score.py` counts no-tests and suspicious mutants as survivors.
 
 | Module | Mutants | Killed | Timeout | Survived |
 |---|---|---|---|---|
-| `talaria.setup` | 910 | 853 | 0 | 57 |
+| `talaria.setup` | 917 | 860 | 0 | 57 |
 | `talaria.telegram` | 677 | 643 | 1 | 33 |
-| `talaria.rollback` | 576 | 576 | 0 | 0 |
-| `talaria.adopt` | 556 | 539 | 0 | 17 |
+| `talaria.rollback` | 588 | 588 | 0 | 0 |
+| `talaria.adopt` | 567 | 550 | 0 | 17 |
 | `talaria.rehearse` | 461 | 432 | 0 | 29 |
 | `talaria.cli` | 344 | 323 | 0 | 21 |
-| `talaria.deploy` | 313 | 311 | 0 | 2 |
+| `talaria.deploy` | 320 | 318 | 0 | 2 |
 | `talaria.images` | 236 | 233 | 0 | 3 |
-| `talaria.notify` | 234 | 219 | 0 | 15 |
+| `talaria.notify` | 234 | 218 | 1 | 15 |
 | `talaria.backup` | 206 | 181 | 0 | 25 |
-| `talaria.check` | 178 | 175 | 0 | 3 |
+| `helpers.confdiff` | 206 | 202 | 0 | 4 |
+| `talaria.check` | 189 | 186 | 0 | 3 |
 | `talaria.history` | 174 | 170 | 0 | 4 |
-| `helpers.confdiff` | 160 | 158 | 0 | 2 |
-| `talaria.conf` | 140 | 116 | 0 | 24 |
+| `talaria.conf` | 143 | 119 | 0 | 24 |
 | `talaria.hermes` | 135 | 132 | 2 | 1 |
 | `talaria.status` | 132 | 125 | 0 | 7 |
 | `talaria.containers` | 107 | 105 | 0 | 2 |
@@ -65,7 +65,7 @@ Thirteen lines carry the pragma, each with its reason next to the code:
 
 ## Remaining survivors
 
-The 294 survivors are spread thinly over many modules.
+The 296 survivors are spread thinly over many modules.
 They were **not** individually reviewed. The largest groups are:
 - arguments to stubbed collaborators in setup's fresh-install path;
 - directory modes of directories the fixtures pre-create;
@@ -73,7 +73,7 @@ They were **not** individually reviewed. The largest groups are:
 - CLI parser details.
 
 The deploy, rollback and restore modules have none left: their 36 survivors were each
-killed by a test or marked equivalent, and the marker module had none. v0.2.4 kept it that
-way for the new pre-rollback backup and button expiry. The two deploy mutants listed as
+killed by a test or marked equivalent, and the marker module had none. v0.2.4 and v0.2.5 kept it
+that way for the pre-rollback backup, button expiry and the interrupted-change guard. The two deploy mutants listed as
 "segfault" (in the table under Survived) trigger the e2e crash hook, which kills the test process:
 they are detected, just not labelled killed. List them with `uv run mutmut results` after a run.
