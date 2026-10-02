@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
+
 from talaria import tags
 from talaria.apps.base import App
 from talaria.images import ImageMissing, pull_verify
 from talaria.upstream import git_release_tags, registry_tags
+
+_CFG = re.compile(r"^_config_version:\s*(\d+)\s*$", re.M)
 
 
 class Hermes(App):
@@ -39,6 +45,29 @@ class Hermes(App):
             raise ImageMissing(f"local image {rec['id'][:19]} is gone and cannot be pulled again")
         tls = [] if ctx.conf.registry_tls_verify else ["--tls-verify=false"]
         ctx.sh.run(["podman", "pull", "-q", *tls, rec["ref"]], timeout=3600)
+
+    def health(self, ctx) -> str | None:
+        url = f"http://{ctx.conf.bind_ip}:{ctx.conf.dashboard_port}/api/status"
+        code, body = ctx.http_get(url, 5.0)
+        if code != 200:
+            return f"/api/status answered {code or 'nothing'}"
+        try:
+            if json.loads(body).get("auth_required") is True:
+                return None
+        except ValueError:
+            pass
+        return "/api/status does not report auth_required: true"
+
+    @staticmethod
+    def data_version(data_dir) -> int | None:
+        cfg = Path(data_dir) / "config.yaml"
+        if cfg.is_symlink():
+            return None
+        try:
+            found = _CFG.findall(cfg.read_text())
+        except (FileNotFoundError, UnicodeDecodeError):
+            return None
+        return int(found[0]) if len(found) == 1 else None
 
 
 APP = Hermes()

@@ -37,3 +37,10 @@ class App:
 
     def reacquire(self, ctx, rec: dict) -> None:
         raise NotImplementedError
+
+    def health(self, ctx) -> str | None:
+        raise NotImplementedError
+
+    @staticmethod
+    def data_version(data_dir) -> int | str | None:
+        raise NotImplementedError

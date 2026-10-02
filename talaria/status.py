@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from talaria import __version__, backup, disk, hermes, lock, marker, state
+from talaria import __version__, backup, disk, lock, marker, service, state
 from talaria.rollback import age
 from talaria.tags import semver_newer
 
@@ -19,7 +19,7 @@ def interrupted_text(ctx, st) -> str | None:
     if marker.read(ctx.paths):
         return (f"Interrupted {what} ({when} ago). Hermes is stopped. "
                 "Send /rollback CONFIRM to restore the state before it.")
-    running = "running" if hermes.is_active(ctx) else "not running"
+    running = "running" if service.is_active(ctx) else "not running"
     return (f"Interrupted {what} ({when} ago): Hermes is {running} but the change was not "
             "verified. Send /rollback CONFIRM to recover.")
 
@@ -27,7 +27,7 @@ def interrupted_text(ctx, st) -> str | None:
 def status_text(ctx) -> str:
     st = state.load(ctx.paths)
     cur = st.get("current") or {}
-    running = "running" if hermes.is_active(ctx) else "not running"
+    running = "running" if service.is_active(ctx) else "not running"
     lines = [f"Hermes {cur.get('tag', 'unknown')} ({(cur.get('id') or '')[7:19]}), {running}.",
              f"{disk.free_bytes(ctx.conf.data_dir) / disk.GB:.1f} GB free."]
     if st.get("pending"):

@@ -11,7 +11,6 @@ from talaria import images, state, units
 from talaria.backup import _sha256
 from talaria.conf import write_env_value
 from talaria.disk import NOT_RENAMABLE, dir_size, renamable
-from talaria.hermes import config_version
 from talaria.state import ensure_dir, write_json_atomic
 
 MANAGED = {"HERMES_DASHBOARD", "HERMES_DASHBOARD_INSECURE", "HERMES_DASHBOARD_BASIC_AUTH_USERNAME",
@@ -199,7 +198,7 @@ def apply(ctx, f: Found, p: Plan) -> int:
     os.replace(tmp, arc)
     write_json_atomic(ctx.paths.backups / f"{bid}.json", {
         "id": bid, "label": "adopt", "created": ctx.now().isoformat(), "image": p.image,
-        "cfg_version": config_version(data), "sha256": _sha256(arc),
+        "cfg_version": ctx.app.data_version(data), "sha256": _sha256(arc),
         "size": arc.stat().st_size, "data_size": dir_size(data)})
     if sh.run(["podman", "unshare", "find", str(data), "!", "-user", "0", "-print",
                "-quit"]).stdout.strip():

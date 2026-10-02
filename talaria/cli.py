@@ -5,8 +5,8 @@ import os
 import sys
 import traceback
 
-from talaria import (__version__, backup, check, deploy, hermes, history, lock, rollback,
-                     state, status)
+from talaria import (__version__, backup, check, deploy, history, lock, rollback,
+                     service, state, status)
 from talaria.backup import ID_RE
 from talaria.ctx import make_ctx
 from talaria.notify import Message
@@ -75,11 +75,11 @@ def reject(ctx, tag: str) -> str:
 
 def _manual_backup(ctx) -> None:
     st = state.load(ctx.paths)
-    hermes.stop(ctx)
+    service.stop(ctx)
     try:
         b = backup.create(ctx, "manual", st.get("current"))
     finally:
-        hermes.start(ctx)
+        service.start(ctx)
     print(b.id)
 
 

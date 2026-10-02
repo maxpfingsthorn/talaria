@@ -20,8 +20,8 @@ def test_deploy_happy_path(tmp_path, monkeypatch):
 def test_marker_removed_before_start(tmp_path, monkeypatch):
     ctx = ops_ctx(tmp_path, monkeypatch)
     seen = []
-    orig_start = deploy.hermes.start
-    monkeypatch.setattr(deploy.hermes, "start",
+    orig_start = deploy.service.start
+    monkeypatch.setattr(deploy.service, "start",
                         lambda c: (seen.append(marker.read(c.paths)), orig_start(c)))
     deploy.deploy(ctx, "v2026.9.24")
     assert seen == [None]
@@ -241,7 +241,7 @@ def test_start_exception_is_a_failure(tmp_path, monkeypatch):
         if len(calls) == 1:
             raise RuntimeError("unit missing")
 
-    monkeypatch.setattr(deploy.hermes, "start", start)
+    monkeypatch.setattr(deploy.service, "start", start)
     deploy.deploy(ctx, "v2026.9.24")
     assert ctx.notify.sent[-1].text.startswith(
         "Hermes v2026.9.24 failed during deploy: unit missing. Rolled back")

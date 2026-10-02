@@ -45,7 +45,7 @@ def ops_ctx(tmp_path, monkeypatch, *, migrate=None, check_results=None):
     from talaria import deploy, rollback
     monkeypatch.setattr(deploy, "run_helper", fake_helper)
     for mod in (deploy, rollback):
-        monkeypatch.setattr(mod.hermes, "post_start_check",
+        monkeypatch.setattr(mod.service, "post_start_check",
                             lambda c: (c is ctx or pytest.fail("post_start_check got a wrong ctx"))
                             and (outcomes.pop(0) if len(outcomes) > 1 else outcomes[0]))
     return ctx

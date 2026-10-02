@@ -133,7 +133,7 @@ def test_plan_exact(s, capsys):
 
 
 def test_check_fail_exact(s, monkeypatch, capsys):
-    monkeypatch.setattr(setup.hermes, "post_start_check", lambda c: "hermes.service restarted")
+    monkeypatch.setattr(setup.service, "post_start_check", lambda c: "hermes.service restarted")
     rc, out, cmds = run(s, capsys)
     assert rc == 1 and cmds == UNITS + RESTART
     assert out == NEW + PW + PAIR + PAIRED + PULLED + (
@@ -279,7 +279,7 @@ def test_adopt_apply_failure_stops(s, monkeypatch, capsys):
 
 def test_adopt_check_failure_prints_manual_steps(s, monkeypatch, capsys):
     adopt_env(monkeypatch, s)
-    monkeypatch.setattr(setup.hermes, "post_start_check", lambda c: "no status")
+    monkeypatch.setattr(setup.service, "post_start_check", lambda c: "no status")
     rc, out, cmds = run(s, capsys, adopt="old.service")
     assert rc == 1 and out.endswith("STOP: Hermes did not come up: no status\nMANUAL-STEPS\n")
 

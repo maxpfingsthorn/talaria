@@ -282,8 +282,8 @@ def test_restore_needs_space_for_two_copies(tmp_path, monkeypatch):
 def test_deploy_records_op_before_stopping(tmp_path, monkeypatch):
     ctx = _ops(tmp_path, monkeypatch)
     seen = []
-    real_stop = deploy.hermes.stop
-    monkeypatch.setattr(deploy.hermes, "stop", lambda c: (seen.append(load(c)["op"]), real_stop(c))[1])
+    real_stop = deploy.service.stop
+    monkeypatch.setattr(deploy.service, "stop", lambda c: (seen.append(load(c)["op"]), real_stop(c))[1])
     deploy.deploy(ctx, "v2026.9.24")
     assert seen[0] == {"op": "deploy", "tag": "v2026.9.24", "backup": None, "changed": False,
                        "started": "2026-09-27T04:30:00+00:00"}
@@ -316,12 +316,12 @@ def test_deploy_early_failure_clears_op(tmp_path, monkeypatch):
 
 def test_crash_after_rollback_swap_is_recovered(tmp_path, monkeypatch):
     ctx = deployed(tmp_path, monkeypatch)
-    monkeypatch.setattr(rollback.hermes, "post_start_check",
+    monkeypatch.setattr(rollback.service, "post_start_check",
                         lambda c: (_ for _ in ()).throw(KeyboardInterrupt()))
     with pytest.raises(KeyboardInterrupt):
         rollback.rollback_cmd(ctx)
     assert marker.read(ctx.paths) is None and load(ctx)["op"]["op"] == "rollback"
-    monkeypatch.setattr(rollback.hermes, "post_start_check", lambda c: None)
+    monkeypatch.setattr(rollback.service, "post_start_check", lambda c: None)
     assert "/rollback CONFIRM" in rollback.describe(ctx)
     rollback.rollback_cmd(ctx)
     assert ctx.notify.sent[-1].text == ("Hermes v2026.8.3 is running again. The interrupted "
@@ -394,7 +394,7 @@ def test_resume_exception_text_exact(tmp_path, monkeypatch):
     st = load(ctx)
     st["op"] = {"op": "rollback", "backup": "b", "changed": True, "started": "x"}
     state.save(ctx.paths, st)
-    monkeypatch.setattr(rollback.hermes, "start", lambda c: (_ for _ in ()).throw(OSError("dbus gone")))
+    monkeypatch.setattr(rollback.service, "start", lambda c: (_ for _ in ()).throw(OSError("dbus gone")))
     rollback.rollback_cmd(ctx)
     assert ctx.notify.sent[-1].text == ("Recovery failed: dbus gone. Hermes is stopped. Manual "
                                         "recovery: see README, section 'Manual recovery'.")
@@ -445,8 +445,8 @@ def test_restore_records_op_before_stopping(tmp_path, monkeypatch):
     ctx = deployed(tmp_path, monkeypatch)
     target = load(ctx)["last_deploy"]["backup"]
     seen = []
-    real = rollback.hermes.stop
-    monkeypatch.setattr(rollback.hermes, "stop", lambda c: (seen.append(load(c)["op"]), real(c))[1])
+    real = rollback.service.stop
+    monkeypatch.setattr(rollback.service, "stop", lambda c: (seen.append(load(c)["op"]), real(c))[1])
     rollback.restore_cmd(ctx, target)
     assert seen[0] == {"op": "restore", "backup": target, "changed": False,
                        "started": "2026-09-27T04:30:00+00:00"}
@@ -515,7 +515,7 @@ def test_rollback_backup_failure_changes_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(rollback.backup, "create",
                         lambda *a: (_ for _ in ()).throw(OSError("disk full")))
     started = []
-    monkeypatch.setattr(rollback.hermes, "start", lambda c: started.append(c))
+    monkeypatch.setattr(rollback.service, "start", lambda c: started.append(c))
     rollback.rollback_cmd(ctx)
     assert ctx.notify.sent[-1].text == ("Rollback refused: the pre-rollback backup failed: disk "
                                         "full. Nothing was changed; Hermes is running.")

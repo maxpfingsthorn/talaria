@@ -139,7 +139,7 @@ def svc(tmp_path, monkeypatch):
     monkeypatch.setattr(ctx.app, "published", lambda c, tags: {"v2026.9.24"})
     monkeypatch.setattr(ctx.app, "fetch",
                         lambda c, t, commit: {"tag": t, "id": "sha256:n", "ref": "r", "digest": "d"})
-    monkeypatch.setattr(setup.hermes, "post_start_check", lambda c: None)
+    monkeypatch.setattr(setup.service, "post_start_check", lambda c: None)
     monkeypatch.setattr(setup.telegram, "pair",
                         lambda c, api, code, timeout_s=900, announce=lambda: None: (
                             announce(), {"id": 42, "first_name": "Ann", "username": "ann"})[1])

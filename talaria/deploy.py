@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import signal
 
-from talaria import backup, disk, hermes, history, images, marker, retention, state
+from talaria import backup, disk, history, images, marker, retention, service, state
 from talaria.containers import run_helper
 from talaria.notify import Message
 from talaria.rollback import MANUAL, interrupted, rollback
@@ -57,11 +57,11 @@ def deploy(ctx, tag: str) -> None:
                 "started": ctx.now().isoformat()}
     state.save(ctx.paths, st)
     try:
-        hermes.stop(ctx)
+        service.stop(ctx)
         history.commit(ctx, st, f"before deploy {tag}")
         b = backup.create(ctx, f"pre-{tag}", old)
     except Exception as e:
-        hermes.start(ctx)
+        service.start(ctx)
         st["op"] = None
         state.save(ctx.paths, st)
         ctx.notify.send(Message(f"Deploy of {tag} failed before changing anything: {e}. "
@@ -88,8 +88,8 @@ def deploy(ctx, tag: str) -> None:
     images.retag(ctx, "current", p["image"])
     marker.clear(ctx.paths)
     try:
-        hermes.start(ctx)
-        reason = hermes.post_start_check(ctx)
+        service.start(ctx)
+        reason = service.post_start_check(ctx)
     except Exception as e:
         reason = str(e)
     if reason:

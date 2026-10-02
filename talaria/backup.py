@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from talaria.disk import dir_size
-from talaria.hermes import config_version
 from talaria.state import ensure_dir, write_json_atomic
 
 ID_RE = re.compile(r"^\d{8}T\d{6}Z-[a-z0-9][a-z0-9.-]{0,47}$")
@@ -78,7 +77,7 @@ def create(ctx, label: str, image: dict | None) -> Backup:
     finally:
         tmp.unlink(missing_ok=True)
     meta = {"id": bid, "label": label, "created": ctx.now().isoformat(), "image": image,
-            "cfg_version": config_version(data), "sha256": _sha256(final),
+            "cfg_version": ctx.app.data_version(data), "sha256": _sha256(final),
             "size": final.stat().st_size, "data_size": dir_size(data)}
     write_json_atomic(root / f"{bid}.json", meta)
     return Backup(bid, final, meta)

@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from talaria import adopt, hermes, images, lock, state, telegram, units
+from talaria import adopt, images, lock, service, state, telegram, units
 from talaria.conf import load_conf, parse_kv, write_env_value
 from talaria.disk import NOT_RENAMABLE, renamable
 from talaria.notify import ApiError, TelegramAPI
@@ -267,10 +267,10 @@ def service_phase(ctx, args, api=None) -> int:
                         "talaria-telegram.service"])
             ctx.sh.run(["systemctl", "--user", "restart", "talaria-telegram.service"])
             images.retag(ctx, "current", state.load(p)["current"])
-            if changed or not hermes.is_active(ctx):
-                hermes.stop(ctx)
-                hermes.start(ctx)
-                reason = hermes.post_start_check(ctx)
+            if changed or not service.is_active(ctx):
+                service.stop(ctx)
+                service.start(ctx)
+                reason = service.post_start_check(ctx)
                 if reason:
                     say("STOP", f"Hermes did not come up: {reason}")
                     if found:

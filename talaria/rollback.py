@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from talaria import backup, disk, hermes, images, marker, retention, state
+from talaria import backup, disk, images, marker, retention, service, state
 from talaria.notify import Message
 from talaria.restore import restore_data
 
@@ -48,10 +48,10 @@ def needs_resume(ctx, st) -> bool:
 
 
 def resume(ctx) -> str | None:
-    hermes.start(ctx)
-    reason = hermes.post_start_check(ctx)
+    service.start(ctx)
+    reason = service.post_start_check(ctx)
     if reason:
-        hermes.stop(ctx)
+        service.stop(ctx)
         return reason
     st = state.load(ctx.paths)
     st["op"] = None
@@ -107,7 +107,7 @@ def fresh(ctx, minute: str) -> bool:
 
 def _swap(ctx, b, image: dict, op: str, revert: tuple[str, dict]) -> str | None:
     """Stop, restore b, switch to image, start, check. The marker points at `revert`."""
-    hermes.stop(ctx)
+    service.stop(ctx)
     marker.write(ctx.paths, op, revert[0], revert[1], ctx.now())
     restore_data(ctx, b)
     st = state.load(ctx.paths)
@@ -115,8 +115,8 @@ def _swap(ctx, b, image: dict, op: str, revert: tuple[str, dict]) -> str | None:
     state.save(ctx.paths, st)
     images.retag(ctx, "current", image)
     marker.clear(ctx.paths)
-    hermes.start(ctx)
-    return hermes.post_start_check(ctx)
+    service.start(ctx)
+    return service.post_start_check(ctx)
 
 
 def rollback(ctx) -> tuple[str | None, str | None]:
@@ -143,10 +143,10 @@ def rollback(ctx) -> tuple[str | None, str | None]:
         state.save(ctx.paths, st)
     if live:
         try:
-            hermes.stop(ctx)
+            service.stop(ctx)
             pre = backup.create(ctx, "pre-rollback", st["current"]).id
         except Exception as e:
-            hermes.start(ctx)
+            service.start(ctx)
             if ours:
                 st["op"] = None
                 state.save(ctx.paths, st)
@@ -155,7 +155,7 @@ def rollback(ctx) -> tuple[str | None, str | None]:
         state.save(ctx.paths, st)
     reason = _swap(ctx, b, image, op, (bid, image))
     if reason:
-        hermes.stop(ctx)
+        service.stop(ctx)
         marker.write(ctx.paths, op, bid, image, ctx.now())
         return reason, pre
     st = state.load(ctx.paths)
@@ -235,10 +235,10 @@ def restore_cmd(ctx, bid: str) -> None:
                 "started": ctx.now().isoformat()}
     state.save(ctx.paths, st)
     try:
-        hermes.stop(ctx)
+        service.stop(ctx)
         pre = backup.create(ctx, "pre-restore", old)
     except Exception as e:
-        hermes.start(ctx)
+        service.start(ctx)
         st["op"] = None
         state.save(ctx.paths, st)
         ctx.notify.send(Message(f"Restore of {bid} failed before changing anything: {e}. "
