@@ -223,6 +223,16 @@ Then as root: `rm /etc/sudoers.d/talaria-<user>` and `loginctl disable-linger <u
 
 Your data dir and `~/.local/state/talaria/backups` are left untouched.
 
+## Architecture
+
+Talaria is a small app-neutral core (state, backup, deploy, rollback, restore,
+rehearsal, setup, notify) plus a thin per-app adapter under `talaria/apps/` that
+supplies everything that differs between the apps Talaria can manage: release
+discovery and image fetch, health and data-version checks, quadlet template
+variables, secret setup and the texts shown to you. `ctx.app` is the adapter in
+use; `talaria.apps.get(name)` looks one up by the `app` key in `talaria.conf`.
+`talaria/apps/hermes.py` is the only adapter today.
+
 ## Development
 
 ```bash
