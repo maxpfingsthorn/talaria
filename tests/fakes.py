@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from talaria import apps
 from talaria.conf import load_conf
 from talaria.ctx import Ctx, Paths
 from talaria.shell import CommandError, Result
@@ -62,10 +63,10 @@ class Clock:
         self.slept += s
 
 
-def make_test_ctx(tmp_path, **overrides) -> Ctx:
+def make_test_ctx(tmp_path, app="hermes", **overrides) -> Ctx:
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
-    paths = Paths(home)
+    paths = Paths(home, app)
     conf = load_conf(paths)
     conf.disk_floor_gb = 0          # tests must not depend on the real disk's free space
     for k, v in overrides.items():
@@ -74,6 +75,7 @@ def make_test_ctx(tmp_path, **overrides) -> Ctx:
     clock = Clock()
     ctx = Ctx(paths=paths, conf=conf, sh=FakeShell(), notify=FakeNotifier(),
               sleep=clock.sleep, now=clock.now,
-              http_get=lambda url, timeout=5.0: (200, b'{"auth_required": true}'))
+              http_get=lambda url, timeout=5.0: (200, b'{"auth_required": true}'),
+              app=apps.get(app))
     ctx.clock = clock
     return ctx

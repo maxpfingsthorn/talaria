@@ -14,6 +14,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 @dataclass(frozen=True)
 class Paths:
     home: Path
+    app: str = "hermes"
     helpers_dir = _ROOT / "helpers"
     templates_dir = _ROOT / "templates"
 
@@ -24,7 +25,11 @@ class Paths:
     @property
     def env_file(self): return self.conf_dir / ".env"
     @property
-    def hermes_env(self): return self.conf_dir / "hermes.env"
+    def app_env(self):
+        from talaria import apps
+        return self.conf_dir / apps.get(self.app).env_file
+    @property
+    def hermes_env(self): return self.app_env
     @property
     def state_dir(self): return self.home / ".local/state/talaria"
     @property
@@ -46,7 +51,9 @@ class Paths:
     @property
     def quadlet_dir(self): return self.home / ".config/containers/systemd"
     @property
-    def quadlet(self): return self.quadlet_dir / "hermes.container"
+    def quadlet(self):
+        from talaria import apps
+        return self.quadlet_dir / apps.get(self.app).quadlet_file
     @property
     def units_dir(self): return self.home / ".config/systemd/user"
 
@@ -74,13 +81,16 @@ class Ctx:
     sleep: Callable[[float], None] = time.sleep
     now: Callable[[], datetime] = _utcnow
     http_get: Callable[[str, float], tuple[int, bytes]] = http_get
+    app: object = None
 
 
 def make_ctx() -> Ctx:
+    from talaria import apps
     from talaria.conf import load_conf
     from talaria.notify import TelegramNotifier
     from talaria.shell import Shell
 
-    paths = Paths(Path.home())
-    conf = load_conf(paths)
-    return Ctx(paths=paths, conf=conf, sh=Shell(), notify=TelegramNotifier(conf))
+    conf = load_conf(Paths(Path.home()))
+    paths = Paths(Path.home(), conf.app)
+    return Ctx(paths=paths, conf=conf, sh=Shell(), notify=TelegramNotifier(conf),
+               app=apps.get(conf.app))

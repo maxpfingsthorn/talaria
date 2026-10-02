@@ -23,6 +23,7 @@ def _bool(v: str) -> bool:
 @dataclass
 class Conf:
     data_dir: Path
+    app: str = "hermes"
     image: str = "docker.io/nousresearch/hermes-agent"
     hermes_repo: str = "https://github.com/NousResearch/hermes-agent"
     talaria_repo: str = "https://github.com/maxpfingsthorn/talaria"
@@ -48,7 +49,7 @@ class Conf:
 
 
 _KEYS = {
-    "data_dir": ("data_dir", "path"), "image": ("image", str),
+    "data_dir": ("data_dir", "path"), "app": ("app", str), "image": ("image", str),
     "hermes_repo": ("hermes_repo", str), "talaria_repo": ("talaria_repo", str),
     "dashboard.bind": ("dashboard_bind", str), "dashboard.port": ("dashboard_port", int),
     "tailscale_ip": ("tailscale_ip", str), "backup.keep": ("backup_keep", int),
@@ -75,6 +76,8 @@ def load_conf(paths) -> Conf:
             else:
                 val = kind(v)
             setattr(conf, attr, val)
+        from talaria import apps
+        apps.get(conf.app)
         if conf.backup_keep < 1:   # retention would delete the undo backup it just made
             raise ValueError(f"backup.keep must be at least 1 in {paths.conf_file}")
     if paths.env_file.exists():
