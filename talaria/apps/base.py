@@ -66,3 +66,7 @@ class App:
     def after_start(self, ctx, pending: dict) -> str | None:
         """Extra check after service.post_start_check passes. Returns a failure reason or None."""
         raise NotImplementedError
+
+    def quadlet_vars(self, ctx) -> dict:
+        """Template variables for this app's quadlet, beyond the shared ones."""
+        raise NotImplementedError

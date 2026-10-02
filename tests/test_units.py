@@ -1,3 +1,5 @@
+import pytest
+
 from talaria import units
 from tests.fakes import make_test_ctx
 
@@ -42,7 +44,26 @@ def test_quadlet_runs_the_gateway(tmp_path):
 
 
 def test_quadlet_refuses_empty_bind_address(tmp_path):
-    import pytest
     ctx = make_test_ctx(tmp_path, dashboard_bind="tailscale", tailscale_ip="")
     with pytest.raises(ValueError, match="no address"):
         units.render_quadlet(ctx)
+
+
+def test_add_hosts_rendered_as_addhost_lines(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    ctx.conf.add_hosts = ("clawvisor:100.64.0.1",)
+    q = units.render_quadlet(ctx)
+    assert "\nAddHost=clawvisor:100.64.0.1\n" in q
+
+
+@pytest.mark.parametrize("bad", ["clawvisor", "a b:1.2.3.4", "x:not-an-ip", "x:1.2.3.4\nExec=sh"])
+def test_bad_add_hosts_refused(tmp_path, bad):
+    ctx = make_test_ctx(tmp_path)
+    ctx.conf.add_hosts = (bad,)
+    with pytest.raises(ValueError, match="add_hosts"):
+        units.render_quadlet(ctx)
+
+
+def test_hermes_quadlet_unchanged_without_add_hosts(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    assert "AddHost" not in units.render_quadlet(ctx)

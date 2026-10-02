@@ -32,6 +32,7 @@ class Conf:
     tailscale_ip: str = ""
     backup_keep: int = 5
     backup_exclude: tuple = (".cache", ".npm", "home/.cache", "home/.npm", "backups")
+    add_hosts: tuple = ()
     disk_floor_gb: float = 6.0
     check_time: str = "04:30"
     # test-only keys (spec §10)
@@ -53,7 +54,8 @@ _KEYS = {
     "hermes_repo": ("hermes_repo", str), "talaria_repo": ("talaria_repo", str),
     "dashboard.bind": ("dashboard_bind", str), "dashboard.port": ("dashboard_port", int),
     "tailscale_ip": ("tailscale_ip", str), "backup.keep": ("backup_keep", int),
-    "backup.exclude": ("backup_exclude", "list"), "disk.floor_gb": ("disk_floor_gb", float),
+    "backup.exclude": ("backup_exclude", "list"), "add_hosts": ("add_hosts", "list"),
+    "disk.floor_gb": ("disk_floor_gb", float),
     "check.time": ("check_time", str), "registry_tls_verify": ("registry_tls_verify", "bool"),
     "min_release": ("min_release", str), "settle_seconds": ("settle_seconds", int),
     "telegram_api": ("telegram_api", str),

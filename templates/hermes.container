@@ -12,9 +12,9 @@ UserNS=keep-id:uid=10000,gid=10000
 Volume=${data_dir}:/opt/data
 Environment=HERMES_UID=10000 HERMES_GID=10000 HERMES_SKIP_CONFIG_MIGRATION=1
 Environment=HERMES_DASHBOARD=1 HERMES_DASHBOARD_BASIC_AUTH_USERNAME=admin
-EnvironmentFile=${hermes_env}
+EnvironmentFile=${app_env}
 PublishPort=${bind_ip}:${port}:9119
-Exec=gateway run
+${add_hosts}Exec=gateway run
 
 [Service]
 ExecCondition=/bin/sh -c 'test ! -e "${marker}"'

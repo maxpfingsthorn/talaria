@@ -162,5 +162,8 @@ class Hermes(App):
     def after_start(self, ctx, pending: dict) -> str | None:
         return None
 
+    def quadlet_vars(self, ctx) -> dict:
+        return {}
+
 
 APP = Hermes()

@@ -1,5 +1,5 @@
 [Unit]
-Description=Talaria: check for Hermes releases
+Description=Talaria: check for ${title} releases
 
 [Service]
 Type=oneshot

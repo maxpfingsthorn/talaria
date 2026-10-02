@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import re
 from string import Template
 
 TALARIA_UNITS = ("talaria-check.service", "talaria-check.timer", "talaria-telegram.service")
+
+_ADD_HOST = re.compile(r"[a-z0-9][a-z0-9.-]{0,62}:\d{1,3}(\.\d{1,3}){3}")
 
 
 def _tpl(ctx, name: str) -> Template:
@@ -17,13 +20,18 @@ def render_quadlet(ctx) -> str:
     if c.dashboard_bind == "tailscale":
         wait = ("ExecStartPre=/usr/bin/timeout 120 /bin/sh -c "
                 f"'until ip -4 -o addr show | grep -qF \" {c.tailscale_ip}/\"; do sleep 1; done'")
-    return _tpl(ctx, "hermes.container").substitute(
-        data_dir=c.data_dir, hermes_env=ctx.paths.hermes_env, bind_ip=c.bind_ip,
-        port=c.dashboard_port, marker=ctx.paths.marker, wait_tailscale=wait)
+    for h in c.add_hosts:
+        if not _ADD_HOST.fullmatch(h):
+            raise ValueError(f"bad add_hosts entry: {h!r}")
+    add_hosts = "".join(f"AddHost={h}\n" for h in c.add_hosts)
+    return _tpl(ctx, ctx.app.quadlet_file).substitute(
+        data_dir=c.data_dir, app_env=ctx.paths.app_env, bind_ip=c.bind_ip,
+        port=c.dashboard_port, marker=ctx.paths.marker, wait_tailscale=wait,
+        add_hosts=add_hosts, title=ctx.app.title, **ctx.app.quadlet_vars(ctx))
 
 
 def render_units(ctx) -> dict[str, str]:
-    return {name: _tpl(ctx, name).substitute(check_time=ctx.conf.check_time)
+    return {name: _tpl(ctx, name).substitute(check_time=ctx.conf.check_time, title=ctx.app.title)
             for name in TALARIA_UNITS}
 
 
