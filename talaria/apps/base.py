@@ -25,3 +25,15 @@ class App:
     @staticmethod
     def tag_key(tag: str) -> tuple:
         raise NotImplementedError
+
+    def releases(self, ctx) -> dict:
+        raise NotImplementedError
+
+    def published(self, ctx, tags) -> set:
+        raise NotImplementedError
+
+    def fetch(self, ctx, tag: str, commit: str) -> dict:
+        raise NotImplementedError
+
+    def reacquire(self, ctx, rec: dict) -> None:
+        raise NotImplementedError

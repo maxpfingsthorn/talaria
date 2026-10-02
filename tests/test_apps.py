@@ -31,3 +31,16 @@ def test_paths_follow_the_app(tmp_path):
     p = Paths(tmp_path)
     assert p.quadlet == tmp_path / ".config/containers/systemd/hermes.container"
     assert p.app_env == p.hermes_env == tmp_path / ".config/talaria/hermes.env"
+
+
+def test_hermes_releases_published_fetch(tmp_path, monkeypatch):
+    from talaria.apps import hermes as h
+    from tests.fakes import make_test_ctx
+    ctx = make_test_ctx(tmp_path)
+    monkeypatch.setattr(h, "git_release_tags", lambda sh, repo: {"v2026.9.24": "c"})
+    monkeypatch.setattr(h, "registry_tags", lambda sh, image, tls_verify=True: {"v2026.9.24"})
+    monkeypatch.setattr(h, "pull_verify", lambda c, tag, commit: {"tag": tag, "id": commit})
+    app = ctx.app
+    assert app.releases(ctx) == {"v2026.9.24": "c"}
+    assert app.published(ctx, ["v2026.9.24"]) == {"v2026.9.24"}
+    assert app.fetch(ctx, "v2026.9.24", "c") == {"tag": "v2026.9.24", "id": "c"}

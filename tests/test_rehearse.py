@@ -52,7 +52,7 @@ def happy(tmp_path, monkeypatch):
                         "removed": [], "error": None},
     }
     calls = []
-    monkeypatch.setattr(rehearse, "pull_verify", lambda c, tag, commit: c is ctx and dict(IMG))
+    monkeypatch.setattr(ctx.app, "fetch", lambda c, tag, commit: c is ctx and dict(IMG))
     monkeypatch.setattr(rehearse, "run_helper",
                         lambda c, rec, script, data, work, args=(): (
                             calls.append((rec["id"], script, args, c is ctx, data, work,
@@ -131,7 +131,7 @@ def test_helper_crash_is_permanent(happy, monkeypatch):
 def test_revision_mismatch_is_permanent(happy, monkeypatch):
     def bad(*a):
         raise RevisionMismatch("wrong")
-    monkeypatch.setattr(rehearse, "pull_verify", bad)
+    monkeypatch.setattr(happy.app, "fetch", bad)
     with pytest.raises(rehearse.Permanent):
         rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
 
@@ -139,7 +139,7 @@ def test_revision_mismatch_is_permanent(happy, monkeypatch):
 def test_pull_failure_is_transient(happy, monkeypatch):
     def down(*a):
         raise CommandError(["podman", "pull"], Result(125, "", "network down"))
-    monkeypatch.setattr(rehearse, "pull_verify", down)
+    monkeypatch.setattr(happy.app, "fetch", down)
     with pytest.raises(rehearse.Transient, match="network down"):
         rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
 
@@ -257,7 +257,7 @@ def test_same_tag_is_not_replaced(happy):
 
 
 def test_permanent_message_from_revision(happy, monkeypatch):
-    monkeypatch.setattr(rehearse, "pull_verify",
+    monkeypatch.setattr(happy.app, "fetch",
                         lambda *a: (_ for _ in ()).throw(RevisionMismatch("wrong commit")))
     with pytest.raises(rehearse.Permanent) as e:
         rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
@@ -278,7 +278,7 @@ def test_failure_texts_exact(happy):
 def test_transient_pull_text_exact(happy, monkeypatch):
     def down(*a):
         raise CommandError(["podman", "pull"], Result(125, "", "network down"))
-    monkeypatch.setattr(rehearse, "pull_verify", down)
+    monkeypatch.setattr(happy.app, "fetch", down)
     with pytest.raises(rehearse.Transient) as e:
         rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
     assert str(e.value) == "pull failed: podman pull … exited 125: network down"

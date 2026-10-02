@@ -135,9 +135,9 @@ def svc(tmp_path, monkeypatch):
     ctx.sh.on("systemctl").on("systemctl", "--user", "is-active", out="inactive\n")
     ctx.sh.on("podman", "tag")
     monkeypatch.setattr(setup.adopt, "detect", lambda c: [])
-    monkeypatch.setattr(setup, "git_release_tags", lambda sh, r: {"v2026.9.24": "c"})
-    monkeypatch.setattr(setup, "registry_tags", lambda sh, i, tls_verify=True: {"v2026.9.24"})
-    monkeypatch.setattr(setup, "pull_verify",
+    monkeypatch.setattr(ctx.app, "releases", lambda c: {"v2026.9.24": "c"})
+    monkeypatch.setattr(ctx.app, "published", lambda c, tags: {"v2026.9.24"})
+    monkeypatch.setattr(ctx.app, "fetch",
                         lambda c, t, commit: {"tag": t, "id": "sha256:n", "ref": "r", "digest": "d"})
     monkeypatch.setattr(setup.hermes, "post_start_check", lambda c: None)
     monkeypatch.setattr(setup.telegram, "pair",

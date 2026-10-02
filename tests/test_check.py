@@ -18,11 +18,8 @@ def cctx(tmp_path, monkeypatch):
     ctx.talaria_latest = f"v{__version__}"
     ctx.rehearsed = []
     ctx.rehearse_exc = None
-    monkeypatch.setattr(check, "git_release_tags",
-                        lambda sh, repo: (sh is ctx.sh and repo == ctx.conf.hermes_repo) and ctx.git)
-    monkeypatch.setattr(check, "registry_tags",
-                        lambda sh, image, tls_verify=True: (sh is ctx.sh and image == ctx.conf.image
-                                                            and tls_verify is ctx.conf.registry_tls_verify) and ctx.reg)
+    monkeypatch.setattr(ctx.app, "releases", lambda c: (c is ctx) and ctx.git)
+    monkeypatch.setattr(ctx.app, "published", lambda c, tags: (c is ctx) and ctx.reg)
     monkeypatch.setattr(check, "latest_semver",
                         lambda sh, repo: (sh is ctx.sh and repo == ctx.conf.talaria_repo) and ctx.talaria_latest)
     ctx.history = []
@@ -74,10 +71,10 @@ def test_transient_failure_reported_once(cctx):
 def test_unreachable_upstream_reported_after_three_days(cctx, monkeypatch):
     ctx, st = cctx
 
-    def down(sh, repo):
+    def down(c):
         raise CommandError(["git"], Result(128, "", "could not resolve host"))
 
-    monkeypatch.setattr(check, "git_release_tags", down)
+    monkeypatch.setattr(ctx.app, "releases", down)
     for _ in range(2):
         check.check(ctx, st)
     assert ctx.notify.sent == []
@@ -120,17 +117,17 @@ def test_history_commit_daily(cctx):
 def test_failure_counter_exact(cctx, monkeypatch):
     ctx, st = cctx
 
-    def down(sh, repo):
+    def down(c):
         raise CommandError(["git"], Result(128, "", "no route"))
 
-    monkeypatch.setattr(check, "git_release_tags", down)
+    monkeypatch.setattr(ctx.app, "releases", down)
     del st["check_failures"]
     for n in range(1, 5):
         check.check(ctx, st)
         assert st["check_failures"] == n
     assert [m.text for m in ctx.notify.sent] == [
         "Talaria could not check for releases for 3 days: git … exited 128: no route"]
-    monkeypatch.setattr(check, "git_release_tags", lambda sh, repo: ctx.git)
+    monkeypatch.setattr(ctx.app, "releases", lambda c: ctx.git)
     check.check(ctx, st)
     assert st["check_failures"] == 0
 

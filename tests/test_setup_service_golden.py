@@ -141,7 +141,7 @@ def test_check_fail_exact(s, monkeypatch, capsys):
 
 
 def test_no_release_exact(s, monkeypatch, capsys):
-    monkeypatch.setattr(setup, "registry_tags", lambda sh, i, tls_verify=True: set())
+    monkeypatch.setattr(s.app, "published", lambda c, tags: set())
     rc, out, cmds = run(s, capsys)
     assert rc == 1 and cmds == []
     assert out == NEW + PW + PAIR + PAIRED + "STOP: no Hermes release image found\n"
@@ -149,14 +149,14 @@ def test_no_release_exact(s, monkeypatch, capsys):
 
 def test_fresh_image_respects_floor_and_tls(s, monkeypatch, capsys):
     seen = {}
-    monkeypatch.setattr(setup, "git_release_tags",
-                        lambda sh, repo: seen.setdefault("repo", repo) and
+    monkeypatch.setattr(s.app, "releases",
+                        lambda c: seen.setdefault("repo", c.conf.hermes_repo) and
                         {"v2026.5.1": "a", "v2026.9.24": "c"})
-    monkeypatch.setattr(setup, "registry_tags",
-                        lambda sh, image, tls_verify=True: (seen.update(image=image, tls=tls_verify),
-                                                            {"v2026.5.1", "v2026.9.24"})[1])
+    monkeypatch.setattr(s.app, "published",
+                        lambda c, tags: (seen.update(image=c.conf.image, tls=c.conf.registry_tls_verify),
+                                         {"v2026.5.1", "v2026.9.24"})[1])
     pulled = []
-    monkeypatch.setattr(setup, "pull_verify",
+    monkeypatch.setattr(s.app, "fetch",
                         lambda c, t, commit: (pulled.append((t, commit)),
                                               {"tag": t, "id": "sha256:n"})[1])
     s.conf.registry_tls_verify = False
@@ -166,8 +166,8 @@ def test_fresh_image_respects_floor_and_tls(s, monkeypatch, capsys):
 
 
 def test_fresh_image_below_floor_only(s, monkeypatch, capsys):
-    monkeypatch.setattr(setup, "git_release_tags", lambda sh, repo: {"v2026.5.1": "a"})
-    monkeypatch.setattr(setup, "registry_tags", lambda sh, image, tls_verify=True: {"v2026.5.1"})
+    monkeypatch.setattr(s.app, "releases", lambda c: {"v2026.5.1": "a"})
+    monkeypatch.setattr(s.app, "published", lambda c, tags: {"v2026.5.1"})
     rc, out, cmds = run(s, capsys)
     assert rc == 1 and "STOP: no Hermes release image found" in out
 

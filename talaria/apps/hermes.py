@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from talaria import tags
 from talaria.apps.base import App
+from talaria.images import ImageMissing, pull_verify
+from talaria.upstream import git_release_tags, registry_tags
 
 
 class Hermes(App):
@@ -22,6 +24,21 @@ class Hermes(App):
 
     is_release = staticmethod(tags.is_release)
     tag_key = staticmethod(tags.key)
+
+    def releases(self, ctx) -> dict:
+        return git_release_tags(ctx.sh, ctx.conf.hermes_repo)
+
+    def published(self, ctx, tags) -> set:
+        return registry_tags(ctx.sh, ctx.conf.image, ctx.conf.registry_tls_verify)
+
+    def fetch(self, ctx, tag: str, commit: str) -> dict:
+        return pull_verify(ctx, tag, commit)
+
+    def reacquire(self, ctx, rec: dict) -> None:
+        if not rec.get("ref"):
+            raise ImageMissing(f"local image {rec['id'][:19]} is gone and cannot be pulled again")
+        tls = [] if ctx.conf.registry_tls_verify else ["--tls-verify=false"]
+        ctx.sh.run(["podman", "pull", "-q", *tls, rec["ref"]], timeout=3600)
 
 
 APP = Hermes()

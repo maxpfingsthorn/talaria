@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import re
 
-LOCAL = "localhost/hermes-agent"
 _VERSION = re.compile(r"\((\d{4})\.(\d{1,2})\.(\d{1,2})(?:\.(\d+))?\)")
 
 
@@ -45,15 +44,12 @@ def exists(ctx, rec: dict) -> bool:
 
 
 def ensure(ctx, rec: dict) -> None:
-    if exists(ctx, rec):
-        return
-    if not rec.get("ref"):
-        raise ImageMissing(f"local image {rec['id'][:19]} is gone and cannot be pulled again")
-    ctx.sh.run(["podman", "pull", "-q", *_tls(ctx), rec["ref"]], timeout=3600)
+    if not exists(ctx, rec):
+        ctx.app.reacquire(ctx, rec)
 
 
 def retag(ctx, name: str, rec: dict) -> None:
-    ctx.sh.run(["podman", "tag", rec["id"], f"{LOCAL}:{name}"])
+    ctx.sh.run(["podman", "tag", rec["id"], f"{ctx.app.local_image}:{name}"])
 
 
 def prune(ctx, keep: list) -> list[str]:

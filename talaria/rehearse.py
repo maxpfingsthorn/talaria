@@ -10,7 +10,7 @@ from pathlib import Path
 from talaria import disk
 from talaria.backup import excluded
 from talaria.containers import HelperError, run_doctor, run_helper
-from talaria.images import RevisionMismatch, pull_verify
+from talaria.images import RevisionMismatch
 from talaria.notify import Message
 from talaria.shell import CommandError
 from talaria.state import ensure_dir
@@ -135,7 +135,7 @@ def candidate_message(ctx, st, report: dict, replaced: str | None) -> Message:
 
 def rehearse(ctx, st: dict, tag: str, commit: str) -> None:
     try:
-        image = pull_verify(ctx, tag, commit)
+        image = ctx.app.fetch(ctx, tag, commit)
     except RevisionMismatch as e:
         raise Permanent(str(e)) from None
     except CommandError as e:

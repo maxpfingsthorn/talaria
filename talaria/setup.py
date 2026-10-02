@@ -13,11 +13,9 @@ from pathlib import Path
 from talaria import adopt, hermes, images, lock, state, telegram, units
 from talaria.conf import load_conf, parse_kv, write_env_value
 from talaria.disk import NOT_RENAMABLE, renamable
-from talaria.images import pull_verify
 from talaria.notify import ApiError, TelegramAPI
 from talaria.state import ensure_dir
 from talaria.tags import pick_candidate
-from talaria.upstream import git_release_tags, registry_tags
 
 REPO = Path(__file__).resolve().parent.parent
 TOKEN_RE = re.compile(r"^\d{3,}:[A-Za-z0-9_-]{30,}$")
@@ -155,13 +153,13 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
 
 
 def _fresh_image(ctx, st) -> bool:
-    git = git_release_tags(ctx.sh, ctx.conf.hermes_repo)
-    reg = registry_tags(ctx.sh, ctx.conf.image, ctx.conf.registry_tls_verify)
+    git = ctx.app.releases(ctx)
+    reg = ctx.app.published(ctx, list(git))
     tag = pick_candidate(ctx.app, git, reg, None, set(), ctx.conf.min_release)
     if not tag:
         say("STOP", "no Hermes release image found")
         return False
-    st["current"] = pull_verify(ctx, tag, git[tag])
+    st["current"] = ctx.app.fetch(ctx, tag, git[tag])
     state.save(ctx.paths, st)
     ctx.conf.data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     say("OK", f"Hermes {tag} pulled and verified")
