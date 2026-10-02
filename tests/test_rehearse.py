@@ -388,3 +388,17 @@ def test_leftover_staging_is_removed(happy):
     (old / ".env").write_text("KEY=x\n")
     rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
     assert list(happy.paths.staging.iterdir()) == []
+
+
+def test_candidate_message_replaced_and_no_doctor_problems(happy):
+    report = {"tag": "v2", "cfg_before": 1, "cfg_after": 2,
+              "db": {"before": 30, "after": 30, "schema_version": 30},
+              "messages": [], "diff": {}, "doctor": []}
+    m = rehearse.candidate_message(happy, {"current": {"tag": "v1"}}, report, "v1.5")
+    assert m.text == ("Hermes v2 is ready to deploy (current v1). The rehearsal on a copy passed.\n"
+                      "Release notes: https://github.com/NousResearch/hermes-agent/releases/tag/v2\n"
+                      "Config version: 1 → 2\n"
+                      "state.db: 30 → 30\n"
+                      "Doctor: no new problems.\n"
+                      "Replaces the pending v1.5.")
+    assert m.untrusted == []
