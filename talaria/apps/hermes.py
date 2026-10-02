@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from talaria import tags
 from talaria.apps.base import App
 
 
@@ -18,6 +19,9 @@ class Hermes(App):
     default_repo = "https://github.com/NousResearch/hermes-agent"
     min_release = "v2026.6.5"
     backup_exclude = (".cache", ".npm", "home/.cache", "home/.npm", "backups")
+
+    is_release = staticmethod(tags.is_release)
+    tag_key = staticmethod(tags.key)
 
 
 APP = Hermes()

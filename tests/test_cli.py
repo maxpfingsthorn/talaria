@@ -6,6 +6,7 @@ import pytest
 
 import talaria
 from talaria import cli
+from tests.fakes import make_test_ctx
 
 ROOT = Path(__file__).resolve().parent.parent
 # the bash wrapper is not mutated; under mutmut its subprocess cannot reach mutmut's state
@@ -32,6 +33,14 @@ def test_unknown_command_exits_2():
         assert e.code == 2
     else:
         raise AssertionError("expected SystemExit")
+
+
+@pytest.mark.parametrize("cmd", ["deploy", "rehearse", "reject"])
+def test_release_command_refuses_the_other_apps_tag_scheme(cmd, tmp_path, capsys):
+    ctx = make_test_ctx(tmp_path)
+    rc = cli.main([cmd, "v0.9.10"], make=lambda: ctx)
+    assert rc == 2
+    assert "v0.9.10 is not a Hermes release tag" in capsys.readouterr().err
 
 
 @not_under_mutmut

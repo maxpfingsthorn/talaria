@@ -157,7 +157,7 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
 def _fresh_image(ctx, st) -> bool:
     git = git_release_tags(ctx.sh, ctx.conf.hermes_repo)
     reg = registry_tags(ctx.sh, ctx.conf.image, ctx.conf.registry_tls_verify)
-    tag = pick_candidate(git, reg, None, set(), ctx.conf.min_release)
+    tag = pick_candidate(ctx.app, git, reg, None, set(), ctx.conf.min_release)
     if not tag:
         say("STOP", "no Hermes release image found")
         return False

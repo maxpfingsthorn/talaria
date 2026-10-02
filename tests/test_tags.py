@@ -1,6 +1,6 @@
 import pytest
 
-from talaria import tags, upstream
+from talaria import apps, tags, upstream
 from tests.fakes import FakeShell
 
 
@@ -21,14 +21,35 @@ def test_ordering_uses_numbers_and_suffix():
 
 
 def test_pick_candidate():
+    h = apps.get("hermes")
     git = ["v2026.6.5", "v2026.8.3", "v2026.9.24", "v2026.9.30", "v0.21.5"]
     reg = {"v2026.6.5", "v2026.8.3", "v2026.9.24", "latest"}
-    pick = lambda cur, ex=set(), floor="v2026.6.5": tags.pick_candidate(git, reg, cur, ex, floor)
+    pick = lambda cur, ex=set(), floor="v2026.6.5": tags.pick_candidate(h, git, reg, cur, ex, floor)
     assert pick("v2026.6.5") == "v2026.9.24"           # v2026.9.30 has no image yet
     assert pick("v2026.6.5", {"v2026.9.24"}) == "v2026.8.3"
     assert pick("v2026.9.24") is None
     assert pick(None) == "v2026.9.24"
-    assert tags.pick_candidate(["v2026.5.1"], {"v2026.5.1"}, None, set(), "v2026.6.5") is None
+    assert tags.pick_candidate(h, ["v2026.5.1"], {"v2026.5.1"}, None, set(), "v2026.6.5") is None
+
+
+def test_tag_arg_shape():
+    for t in ("v2026.9.24", "v2026.9.24.1", "v0.9.10"):
+        assert tags.TAG_ARG.match(t)
+    for t in ("latest", "v1.2", "v1.2.3-rc1", "v1.2.3;rm", "v" + "1" * 5 + ".1.1"):
+        assert not tags.TAG_ARG.match(t)
+
+
+def test_hermes_tags_via_app():
+    h = apps.get("hermes")
+    assert h.is_release("v2026.9.24") and not h.is_release("v0.9.10")
+    assert h.tag_key("v2026.9.24.2") == (2026, 9, 24, 2)
+
+
+def test_pick_candidate_uses_the_apps_order():
+    h = apps.get("hermes")
+    git = {"v2026.9.7": "a", "v2026.9.24": "b", "v0.9.10": "c"}
+    assert tags.pick_candidate(h, git, {"v2026.9.7", "v2026.9.24", "v0.9.10"},
+                               "v2026.9.7", set(), "v2026.6.5") == "v2026.9.24"
 
 
 def test_semver_newer():

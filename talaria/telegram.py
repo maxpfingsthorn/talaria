@@ -8,7 +8,6 @@ from datetime import timedelta
 from talaria import rollback, status
 from talaria.backup import ID_RE
 from talaria.notify import ApiError, Message, TelegramAPI, keyboard
-from talaria.tags import RELEASE_TAG
 
 ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 HELP = ("/status · /check · /approve <tag> · /reject <tag> · /rollback [CONFIRM] · "
@@ -82,10 +81,10 @@ class Bot:
         if cmd == "/check" and not args:
             self.spawn("check")
             return "Checking for releases."
-        if cmd == "/approve" and len(args) == 1 and RELEASE_TAG.match(args[0]):
+        if cmd == "/approve" and len(args) == 1 and ctx.app.is_release(args[0]):
             self.spawn("deploy", args[0])
             return f"Deploying {args[0]}. I will report the result."
-        if cmd == "/reject" and len(args) == 1 and RELEASE_TAG.match(args[0]):
+        if cmd == "/reject" and len(args) == 1 and ctx.app.is_release(args[0]):
             from talaria.cli import reject
             return reject(ctx, args[0])
         if cmd == "/rollback" and not args:
@@ -111,7 +110,7 @@ class Bot:
         if kind == "done":
             return "Already handled", None
         st = state.load(self.ctx.paths)
-        if kind in ("ap", "rj") and RELEASE_TAG.match(arg):
+        if kind in ("ap", "rj") and self.ctx.app.is_release(arg):
             if kind == "rj":
                 from talaria.cli import reject
                 if reject(self.ctx, arg).startswith("Busy"):

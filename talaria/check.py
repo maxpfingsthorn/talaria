@@ -53,7 +53,7 @@ def check(ctx, st: dict) -> None:
         return
     st["check_failures"] = 0
     current = (st.get("current") or {}).get("tag")
-    cand = pick_candidate(git, reg, current, set(st["rejected"]) | set(st["failed"]),
+    cand = pick_candidate(ctx.app, git, reg, current, set(st["rejected"]) | set(st["failed"]),
                           ctx.conf.min_release)
     if not cand or (st.get("pending") or {}).get("tag") == cand:
         return

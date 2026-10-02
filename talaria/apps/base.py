@@ -17,3 +17,11 @@ class App:
     default_repo = ""
     min_release = ""
     backup_exclude: tuple = ()
+
+    @staticmethod
+    def is_release(tag: str) -> bool:
+        raise NotImplementedError
+
+    @staticmethod
+    def tag_key(tag: str) -> tuple:
+        raise NotImplementedError

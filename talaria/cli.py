@@ -10,13 +10,13 @@ from talaria import (__version__, backup, check, deploy, hermes, history, lock, 
 from talaria.backup import ID_RE
 from talaria.ctx import make_ctx
 from talaria.notify import Message
-from talaria.tags import RELEASE_TAG, SEMVER
+from talaria.tags import SEMVER, TAG_ARG
 
 EXIT_BUSY = 75
 
 
 def _release(v: str) -> str:
-    if not RELEASE_TAG.match(v):
+    if not TAG_ARG.match(v):
         raise argparse.ArgumentTypeError(f"not a release tag: {v!r}")
     return v
 
@@ -117,6 +117,9 @@ def main(argv: list[str] | None = None, make=make_ctx) -> int:
         from talaria import setup
         return setup.setup(args)
     ctx = make()
+    if args.cmd in ("deploy", "rehearse", "reject") and not ctx.app.is_release(args.tag):
+        print(f"{args.tag} is not a {ctx.app.title} release tag", file=sys.stderr)
+        return 2
     if args.cmd == "set-token":
         from talaria import setup
         return setup.set_token(ctx)

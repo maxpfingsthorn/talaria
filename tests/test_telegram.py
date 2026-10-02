@@ -65,6 +65,13 @@ def test_approve_spawns_deploy_with_absolute_path(bot):
     assert ctx.paths.bin_link.is_absolute()
 
 
+def test_approve_refuses_the_other_apps_tag_scheme(bot):
+    ctx, api, b = bot
+    b.handle(upd(1, "/approve v0.9.10"))
+    assert ctx.sh.called("systemd-run") == []
+    assert "Not understood" in api.sent()[-1]
+
+
 def test_invalid_arguments_never_spawn(bot):
     ctx, api, b = bot
     for text in ["/approve v2026.9.24;rm -rf", "/approve", "/restore ../x CONFIRM",

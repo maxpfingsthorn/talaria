@@ -13,7 +13,6 @@ from talaria.conf import write_env_value
 from talaria.disk import NOT_RENAMABLE, dir_size, renamable
 from talaria.hermes import config_version
 from talaria.state import ensure_dir, write_json_atomic
-from talaria.tags import is_release, key
 
 MANAGED = {"HERMES_DASHBOARD", "HERMES_DASHBOARD_INSECURE", "HERMES_DASHBOARD_BASIC_AUTH_USERNAME",
            "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", "HERMES_UID", "HERMES_GID", "HERMES_HOME",
@@ -126,7 +125,8 @@ def plan(ctx, f: Found) -> Plan:
             problems.append(NOT_RENAMABLE.format(data_dir))
     image = images.local_record(ctx, f.image_id)
     tag = image.get("tag")
-    if not tag or not is_release(tag) or key(tag) < key(ctx.conf.min_release):
+    if (not tag or not ctx.app.is_release(tag)
+            or ctx.app.tag_key(tag) < ctx.app.tag_key(ctx.conf.min_release)):
         problems.append(f"Hermes {tag or 'of unknown version'} is older than "
                         f"{ctx.conf.min_release}; update it by hand first")
     img_env = _env(json.loads(ctx.sh.run(["podman", "image", "inspect", f.image_id]).stdout)[0]
