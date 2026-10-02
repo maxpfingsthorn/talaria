@@ -95,6 +95,19 @@ def test_status_minimal(tmp_path, monkeypatch):
     assert status.status_text(ctx) == "Hermes unknown (), not running.\n0.0 GB free, data 0.00 GB."
 
 
+def test_status_data_size_is_measured_on_the_apps_data_dir(tmp_path, monkeypatch):
+    ctx = sctx(tmp_path)
+    seen = {}
+
+    def spy_dir_size(p):
+        seen["path"] = p
+        return int(0.5 * disk.GB)
+    monkeypatch.setattr(disk, "free_bytes", lambda p: 0)
+    monkeypatch.setattr(disk, "dir_size", spy_dir_size)
+    status.status_text(ctx)
+    assert seen["path"] == ctx.conf.data_dir
+
+
 def test_status_names_the_app_and_data_size(tmp_path, monkeypatch):
     ctx = make_test_ctx(tmp_path)
     monkeypatch.setattr(type(ctx.app), "title", "Demo")
