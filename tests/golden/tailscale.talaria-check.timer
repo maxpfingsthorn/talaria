@@ -1,0 +1,10 @@
+[Unit]
+Description=Talaria: daily release check
+
+[Timer]
+OnCalendar=*-*-* 03:15
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

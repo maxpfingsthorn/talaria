@@ -1,0 +1,6 @@
+[Unit]
+Description=Talaria: check for Hermes releases
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/talaria check --timer

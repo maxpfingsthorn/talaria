@@ -1,0 +1,27 @@
+# Managed by Talaria. Re-run `talaria setup` after changing talaria.conf.
+[Unit]
+Description=Hermes Agent (managed by Talaria)
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+ContainerName=hermes
+Image=localhost/hermes-agent:current
+Pull=never
+UserNS=keep-id:uid=10000,gid=10000
+Volume=/home/talaria-fixture/hermes-data:/opt/data
+Environment=HERMES_UID=10000 HERMES_GID=10000 HERMES_SKIP_CONFIG_MIGRATION=1
+Environment=HERMES_DASHBOARD=1 HERMES_DASHBOARD_BASIC_AUTH_USERNAME=admin
+EnvironmentFile=/home/talaria-fixture/.config/talaria/hermes.env
+PublishPort=100.83.113.68:9120:9119
+Exec=gateway run
+
+[Service]
+ExecCondition=/bin/sh -c 'test ! -e "/home/talaria-fixture/.local/state/talaria/changing"'
+ExecStartPre=/usr/bin/timeout 120 /bin/sh -c 'until ip -4 -o addr show | grep -qF " 100.83.113.68/"; do sleep 1; done'
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

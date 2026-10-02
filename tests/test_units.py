@@ -1,7 +1,24 @@
+from pathlib import Path
+
 import pytest
 
-from talaria import units
+from talaria import apps, units
+from talaria.conf import load_conf
+from talaria.ctx import Ctx, Paths
 from tests.fakes import make_test_ctx
+
+GOLDEN = Path(__file__).parent / "golden"
+# A fixed, nonexistent home: the rendered text embeds this path, so it must be stable
+# across runs to match the golden fixtures byte for byte (unlike pytest's tmp_path).
+FIXED_HOME = Path("/home/talaria-fixture")
+
+
+def _fixed_ctx(app: str = "hermes", **overrides):
+    paths = Paths(FIXED_HOME, app)
+    conf = load_conf(paths)
+    for k, v in overrides.items():
+        setattr(conf, k, v)
+    return Ctx(paths=paths, conf=conf, sh=None, notify=None, app=apps.get(app))
 
 
 def test_quadlet_loopback(tmp_path):
@@ -79,3 +96,37 @@ def test_add_hosts_accepts_clawvisor_tailscale_ip(tmp_path):
 def test_hermes_quadlet_unchanged_without_add_hosts(tmp_path):
     ctx = make_test_ctx(tmp_path)
     assert "AddHost" not in units.render_quadlet(ctx)
+
+
+def test_two_add_hosts_rendered_exact_text(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    ctx.conf.add_hosts = ("clawvisor:100.83.113.68", "db:10.0.0.5")
+    q = units.render_quadlet(ctx)
+    assert ("\nAddHost=clawvisor:100.83.113.68\nAddHost=db:10.0.0.5\nExec=gateway run\n") in q
+
+
+# ---- byte-for-byte golden tests (final review I1 / adversarial #2) ----
+#
+# These pin the one property self-update depends on to not restart Hermes on every
+# existing install: the rendered Quadlet and unit files for a v0.2.5-shaped conf must
+# be *exactly* what main (ec151ec, pre-adapters) rendered. The fixtures were produced
+# by rendering main's code with a fixed, nonexistent home path in a throwaway worktree
+# (never committed), then diffed byte-for-byte against this tree's render of the same
+# configs before being saved under tests/golden/.
+
+
+def test_default_quadlet_and_units_match_main_byte_for_byte():
+    ctx = _fixed_ctx()
+    assert units.render_quadlet(ctx) == (GOLDEN / "default.hermes.container").read_text()
+    rendered = units.render_units(ctx)
+    for name in units.TALARIA_UNITS:
+        assert rendered[name] == (GOLDEN / f"default.{name}").read_text()
+
+
+def test_tailscale_quadlet_and_units_match_main_byte_for_byte():
+    ctx = _fixed_ctx(dashboard_bind="tailscale", tailscale_ip="100.83.113.68",
+                      dashboard_port=9120, check_time="03:15")
+    assert units.render_quadlet(ctx) == (GOLDEN / "tailscale.hermes.container").read_text()
+    rendered = units.render_units(ctx)
+    for name in units.TALARIA_UNITS:
+        assert rendered[name] == (GOLDEN / f"tailscale.{name}").read_text()
