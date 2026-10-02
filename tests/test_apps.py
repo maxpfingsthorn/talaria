@@ -37,13 +37,50 @@ def test_hermes_releases_published_fetch(tmp_path, monkeypatch):
     from talaria.apps import hermes as h
     from tests.fakes import make_test_ctx
     ctx = make_test_ctx(tmp_path)
-    monkeypatch.setattr(h, "git_release_tags", lambda sh, repo: {"v2026.9.24": "c"})
-    monkeypatch.setattr(h, "registry_tags", lambda sh, image, tls_verify=True: {"v2026.9.24"})
-    monkeypatch.setattr(h, "pull_verify", lambda c, tag, commit: {"tag": tag, "id": commit})
+    ctx.conf.hermes_repo = "https://example/repo"
+    ctx.conf.image = "img:tag"
+    ctx.conf.registry_tls_verify = False
+    calls = {}
+    monkeypatch.setattr(h, "git_release_tags",
+                        lambda sh, repo: (calls.__setitem__("releases", (sh, repo)),
+                                          {"v2026.9.24": "c"})[1])
+    monkeypatch.setattr(h, "registry_tags",
+                        lambda sh, image, tls_verify: (
+                            calls.__setitem__("published", (sh, image, tls_verify)),
+                            {"v2026.9.24"})[1])
+    monkeypatch.setattr(h, "pull_verify",
+                        lambda c, tag, commit: (calls.__setitem__("fetch", c),
+                                                {"tag": tag, "id": commit})[1])
     app = ctx.app
     assert app.releases(ctx) == {"v2026.9.24": "c"}
+    assert calls["releases"] == (ctx.sh, "https://example/repo")
     assert app.published(ctx, ["v2026.9.24"]) == {"v2026.9.24"}
+    assert calls["published"] == (ctx.sh, "img:tag", False)
     assert app.fetch(ctx, "v2026.9.24", "c") == {"tag": "v2026.9.24", "id": "c"}
+    assert calls["fetch"] is ctx
+
+
+def test_hermes_reacquire_tls_flag_exact(tmp_path):
+    from tests.fakes import make_test_ctx
+    ctx = make_test_ctx(tmp_path)   # registry_tls_verify defaults to True
+    ctx.sh.on("podman", "pull")
+    ctx.app.reacquire(ctx, {"id": "sha256:i1", "ref": "x@d"})
+    assert ctx.sh.calls[-1] == ["podman", "pull", "-q", "x@d"]
+
+    ctx2 = make_test_ctx(tmp_path, registry_tls_verify=False)
+    ctx2.sh.on("podman", "pull")
+    ctx2.app.reacquire(ctx2, {"id": "sha256:i1", "ref": "x@d"})
+    assert ctx2.sh.calls[-1] == ["podman", "pull", "-q", "--tls-verify=false", "x@d"]
+
+
+def test_hermes_prepare_generates_a_24_byte_token(tmp_path, monkeypatch):
+    from talaria.apps import hermes as h
+    from tests.fakes import make_test_ctx
+    ctx = make_test_ctx(tmp_path)
+    calls = []
+    monkeypatch.setattr(h.secrets, "token_urlsafe", lambda n: (calls.append(n), "tok")[1])
+    ctx.app.prepare(ctx)
+    assert calls == [24]
 
 
 def test_generic_rehearse_delegates_to_the_app(tmp_path, monkeypatch):

@@ -325,6 +325,17 @@ def test_deploy_runs_the_apps_hooks_in_order(tmp_path, monkeypatch):
     assert order == [("before", True), ("after", None)]
 
 
+def test_after_start_receives_ctx_and_the_pending_record(tmp_path, monkeypatch):
+    ctx = ops_ctx(tmp_path, monkeypatch)
+    pending = load(ctx)["pending"]
+    seen = {}
+    monkeypatch.setattr(type(ctx.app), "after_start",
+                        lambda self, c, p: seen.update(ctx=c, pending=p) or None)
+    deploy.deploy(ctx, "v2026.9.24")
+    assert seen["ctx"] is ctx
+    assert seen["pending"] == pending
+
+
 def test_after_start_failure_rolls_back(tmp_path, monkeypatch):
     ctx = ops_ctx(tmp_path, monkeypatch)
     monkeypatch.setattr(type(ctx.app), "after_start", lambda self, c, p: "schema mismatch")

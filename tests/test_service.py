@@ -1,7 +1,7 @@
 import pytest
 
 from talaria import service
-from talaria.shell import Result
+from talaria.shell import CommandError, Result
 from tests.fakes import make_test_ctx
 
 
@@ -132,6 +132,13 @@ def test_start_continues_when_reset_failed_fails(tmp_path):
     ctx.sh.on("systemctl").on("systemctl", "--user", "reset-failed", rc=1)
     service.start(ctx)
     assert ctx.sh.calls[-1] == ["systemctl", "--user", "start", "hermes.service"]
+
+
+def test_stop_checks_the_result(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("systemctl", "--user", "stop", rc=1)
+    with pytest.raises(CommandError):
+        service.stop(ctx)
 
 
 def test_stop_and_is_active_exact(tmp_path):

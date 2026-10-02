@@ -250,6 +250,43 @@ def test_no_current_skips_first_doctor(happy, monkeypatch):
     assert runs == ["sha256:new"]
 
 
+def test_doc_before_distinguishes_persisting_problem(happy, monkeypatch):
+    def fake_run_doctor(c, rec, data):
+        return "✗ persists\n" if rec["id"] == "sha256:cur" else "✗ persists\n✗ brand new\n"
+    monkeypatch.setattr(hermes_app, "run_doctor", fake_run_doctor)
+    st = st_with_current()
+    rehearse.rehearse(happy, st, "v2026.9.24", "c0ffee")
+    assert st["pending"]["report"]["doctor"] == ["+ ✗ brand new"]
+
+
+def test_doc_before_value_exact_when_no_current(happy, monkeypatch):
+    captured = {}
+
+    def fake_doctor_changes(before, after):
+        captured["before"] = before
+        return []
+    monkeypatch.setattr(hermes_app, "_doctor_changes", fake_doctor_changes)
+    monkeypatch.setattr(hermes_app, "run_doctor", lambda c, rec, data: "x\n")
+    st = st_with_current()
+    st["current"] = None
+    rehearse.rehearse(happy, st, "v2026.9.24", "c0ffee")
+    assert captured["before"] == ""
+
+
+def test_doc_after_called_with_ctx_and_the_copy_dir(happy, monkeypatch):
+    seen = {}
+
+    def fake_run_doctor(c, rec, data):
+        if rec["id"] == "sha256:new":
+            seen["ctx"] = c
+            seen["data"] = data
+        return "x\n"
+    monkeypatch.setattr(hermes_app, "run_doctor", fake_run_doctor)
+    rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
+    assert seen["ctx"] is happy
+    assert seen["data"].name == "data"
+
+
 def test_same_tag_is_not_replaced(happy):
     st = st_with_current()
     st["pending"] = {"tag": "v2026.9.24"}
@@ -337,6 +374,22 @@ def test_doctor_changes_only_problems():
     after = "  ✓ ok\n  ✓ brand new check\n  ✗ Gateway not reachable\n  → detail line\n  ⚠ disk low\n"
     assert hermes_app._doctor_changes(before, after) == ["+ ✗ Gateway not reachable", "+ ⚠ disk low",
                                                         "- ⚠ old warning"]
+
+
+def test_doctor_changes_ignores_persisting_problems():
+    before = "✗ known issue\n✓ ok\n"
+    after = "✗ known issue\n✓ ok\n✓ new check\n"
+    assert hermes_app._doctor_changes(before, after) == []
+
+
+def test_keys_boundary_at_max():
+    items = [[f"k{i}"] for i in range(10)]
+    assert hermes_app._keys("+", items, "added") == [f"+ k{i}" for i in range(10)]
+
+
+def test_fmt_diff_more_added_label_exact():
+    d = {"added": [[f"k{i}", "v"] for i in range(12)]}
+    assert "… and 2 more added" in hermes_app._fmt_diff(d)
 
 
 def test_fmt_diff_lists_added_and_removed_keys_only():

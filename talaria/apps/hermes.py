@@ -111,8 +111,9 @@ class Hermes(App):
         try:
             cfg = copy / "config.yaml"
             has_cfg = cfg.is_file() and not cfg.is_symlink()   # never read through a symlink
+            # equivalent mutant: has_cfg already excludes symlinks, so follow_symlinks never matters
             if has_cfg:
-                shutil.copy2(cfg, stage / "config.orig.yaml", follow_symlinks=False)
+                shutil.copy2(cfg, stage / "config.orig.yaml", follow_symlinks=False)  # pragma: no mutate
             doc_before = run_doctor(ctx, st["current"], copy) if st.get("current") else ""
             mig = run_helper(ctx, image, "migrate.py", copy, stage)
             if not mig["ok"]:
