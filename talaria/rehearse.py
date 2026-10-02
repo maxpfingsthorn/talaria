@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import sqlite3
 import stat
@@ -9,14 +8,12 @@ from pathlib import Path
 
 from talaria import disk
 from talaria.backup import excluded
-from talaria.containers import HelperError, run_doctor, run_helper
 from talaria.images import RevisionMismatch
 from talaria.notify import Message
 from talaria.shell import CommandError
 from talaria.state import ensure_dir
 
 SQLITE_MAGIC = b"SQLite format 3\x00"
-EMPTY_DIFF = {"ok": True, "changed": [], "added": [], "removed": [], "error": None}
 
 
 class Transient(Exception):
@@ -72,62 +69,16 @@ def _sqlite_copy(src: Path, dst: Path) -> None:
         s.close()
 
 
-PROBLEM = re.compile(r"[✗✘✖⚠❌]|\b(error|fail(ed|ure)?|warning)\b", re.I)
-MAX_KEYS = 10
-
-
-def _doctor_changes(before: str, after: str) -> list[str]:
-    """Only problem lines that are new ("+") or gone ("-"); passing checks are noise."""
-    b, a = before.splitlines(), after.splitlines()
-    out = [f"+ {l.strip()}" for l in a if PROBLEM.search(l) and l not in b]
-    out += [f"- {l.strip()}" for l in b if PROBLEM.search(l) and l not in a]
-    return out[:40]
-
-
-def _keys(sign: str, items: list, word: str) -> list[str]:
-    lines = [f"{sign} {k}" for k, *_ in items[:MAX_KEYS]]
-    if len(items) > MAX_KEYS:
-        lines.append(f"… and {len(items) - MAX_KEYS} more {word}")
-    return lines
-
-
-def _fmt_diff(d: dict) -> str:
-    """Changed values in full; added and removed keys by name only."""
-    lines = [f"~ {k}: {o} → {n}" for k, o, n in d.get("changed", [])]
-    lines += _keys("+", d.get("added", []), "added")
-    lines += _keys("-", d.get("removed", []), "removed")
-    return "\n".join(lines)
-
-
-def _diff_title(d: dict) -> str:
-    counts = [f"{len(d.get(k, []))} {k}" for k in ("changed", "added", "removed") if d.get(k)]
-    return "Config changes: " + ", ".join(counts)
-
-
 def candidate_message(ctx, st, report: dict, replaced: str | None) -> Message:
     tag = report["tag"]
     cur = (st.get("current") or {}).get("tag") or "unknown"
-    lines = [f"Hermes {tag} is ready to deploy (current {cur}). The rehearsal on a copy passed."]
+    lines = [f"{ctx.app.title} {tag} is ready to deploy (current {cur}). The rehearsal on a copy passed."]
     if ctx.conf.hermes_repo.startswith("https://github.com/"):
         lines.append(f"Release notes: {ctx.conf.hermes_repo}/releases/tag/{tag}")
-    lines.append(f"Config version: {report['cfg_before']} → {report['cfg_after']}")
-    db = report["db"]
-    held = db["after"] is not None and db["schema_version"] and db["after"] < db["schema_version"]
-    lines.append(f"state.db: {db['before']} → {db['after']}"
-                 + (f" (held back; image supports {db['schema_version']})" if held else ""))
+    app_lines, blocks = ctx.app.report_lines(ctx, report)
+    lines += app_lines
     if replaced:
         lines.append(f"Replaces the pending {replaced}.")
-    blocks = []
-    if report["messages"]:
-        blocks.append((f"Migrations that ran ({len(report['messages'])})",
-                       "\n".join(report["messages"])))
-    if _fmt_diff(report["diff"]):
-        blocks.append((_diff_title(report["diff"]), _fmt_diff(report["diff"])))
-    if report["doctor"]:
-        blocks.append((f"Doctor: new or fixed problems ({len(report['doctor'])})",
-                       "\n".join(report["doctor"])))
-    else:
-        lines.append("Doctor: no new problems.")
     return Message("\n".join(lines), untrusted=blocks,
                    commands=[f"/approve {tag}", f"/reject {tag}"],
                    buttons=[[(f"Approve {tag}", f"ap:{tag}"), ("Reject", f"rj:{tag}")]])
@@ -155,29 +106,10 @@ def rehearse(ctx, st: dict, tag: str, commit: str) -> None:
             copy_data(data, copy, ctx.conf.backup_exclude)
         except (OSError, shutil.Error, sqlite3.Error) as e:
             raise Transient(f"could not copy the data dir: {str(e)[:300]}") from None
-        cfg = copy / "config.yaml"
-        has_cfg = cfg.is_file() and not cfg.is_symlink()   # never read through a symlink
-        if has_cfg:
-            shutil.copy2(cfg, stage / "config.orig.yaml", follow_symlinks=False)
-        doc_before = run_doctor(ctx, st["current"], copy) if st.get("current") else ""
-        mig = run_helper(ctx, image, "migrate.py", copy, stage)
-        if not mig["ok"]:
-            raise Permanent(f"config migration failed: {mig['error']}", mig["messages"])
-        db = run_helper(ctx, image, "dbopen.py", copy, stage)
-        if not db["ok"]:
-            raise Permanent(f"state.db could not be opened: {db['error']}")
-        doc_after = run_doctor(ctx, image, copy)
-        diff = run_helper(ctx, image, "confdiff.py", copy, stage,
-                          args=["/opt/talaria-out/config.orig.yaml", "/opt/data/config.yaml"]) \
-            if has_cfg else EMPTY_DIFF
-    except HelperError as e:
-        raise Permanent(str(e)) from None
+        report = ctx.app.rehearse(ctx, st, image, copy, stage)
     finally:
         shutil.rmtree(stage, ignore_errors=True)
-    report = {"tag": tag, "digest": image["digest"], "cfg_before": mig["before"],
-              "cfg_after": mig["after"], "db": db, "messages": mig["messages"],
-              "diff": diff, "doctor": _doctor_changes(doc_before, doc_after)}
     old = st.get("pending")
     replaced = old["tag"] if old and old.get("tag") != tag else None
-    st["pending"] = {"tag": tag, "image": image, "cfg_after": mig["after"], "report": report}
+    st["pending"] = {"tag": tag, "image": image, "report": report, **ctx.app.pending_extra(report)}
     ctx.notify.send(candidate_message(ctx, st, report, replaced))

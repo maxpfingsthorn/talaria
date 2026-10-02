@@ -2,14 +2,47 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 
 from talaria import tags
 from talaria.apps.base import App
+from talaria.containers import HelperError, run_doctor, run_helper
 from talaria.images import ImageMissing, pull_verify
 from talaria.upstream import git_release_tags, registry_tags
 
 _CFG = re.compile(r"^_config_version:\s*(\d+)\s*$", re.M)
+EMPTY_DIFF = {"ok": True, "changed": [], "added": [], "removed": [], "error": None}
+PROBLEM = re.compile(r"[✗✘✖⚠❌]|\b(error|fail(ed|ure)?|warning)\b", re.I)
+MAX_KEYS = 10
+
+
+def _doctor_changes(before: str, after: str) -> list[str]:
+    """Only problem lines that are new ("+") or gone ("-"); passing checks are noise."""
+    b, a = before.splitlines(), after.splitlines()
+    out = [f"+ {l.strip()}" for l in a if PROBLEM.search(l) and l not in b]
+    out += [f"- {l.strip()}" for l in b if PROBLEM.search(l) and l not in a]
+    return out[:40]
+
+
+def _keys(sign: str, items: list, word: str) -> list[str]:
+    lines = [f"{sign} {k}" for k, *_ in items[:MAX_KEYS]]
+    if len(items) > MAX_KEYS:
+        lines.append(f"… and {len(items) - MAX_KEYS} more {word}")
+    return lines
+
+
+def _fmt_diff(d: dict) -> str:
+    """Changed values in full; added and removed keys by name only."""
+    lines = [f"~ {k}: {o} → {n}" for k, o, n in d.get("changed", [])]
+    lines += _keys("+", d.get("added", []), "added")
+    lines += _keys("-", d.get("removed", []), "removed")
+    return "\n".join(lines)
+
+
+def _diff_title(d: dict) -> str:
+    counts = [f"{len(d.get(k, []))} {k}" for k in ("changed", "added", "removed") if d.get(k)]
+    return "Config changes: " + ", ".join(counts)
 
 
 class Hermes(App):
@@ -68,6 +101,52 @@ class Hermes(App):
         except (FileNotFoundError, UnicodeDecodeError):
             return None
         return int(found[0]) if len(found) == 1 else None
+
+    def rehearse(self, ctx, st, image, copy: Path, stage: Path) -> dict:
+        from talaria.rehearse import Permanent
+        try:
+            cfg = copy / "config.yaml"
+            has_cfg = cfg.is_file() and not cfg.is_symlink()   # never read through a symlink
+            if has_cfg:
+                shutil.copy2(cfg, stage / "config.orig.yaml", follow_symlinks=False)
+            doc_before = run_doctor(ctx, st["current"], copy) if st.get("current") else ""
+            mig = run_helper(ctx, image, "migrate.py", copy, stage)
+            if not mig["ok"]:
+                raise Permanent(f"config migration failed: {mig['error']}", mig["messages"])
+            db = run_helper(ctx, image, "dbopen.py", copy, stage)
+            if not db["ok"]:
+                raise Permanent(f"state.db could not be opened: {db['error']}")
+            doc_after = run_doctor(ctx, image, copy)
+            diff = run_helper(ctx, image, "confdiff.py", copy, stage,
+                              args=["/opt/talaria-out/config.orig.yaml", "/opt/data/config.yaml"]) \
+                if has_cfg else EMPTY_DIFF
+        except HelperError as e:
+            raise Permanent(str(e)) from None
+        return {"tag": image["tag"], "digest": image["digest"], "cfg_before": mig["before"],
+                "cfg_after": mig["after"], "db": db, "messages": mig["messages"],
+                "diff": diff, "doctor": _doctor_changes(doc_before, doc_after)}
+
+    def report_lines(self, ctx, report: dict) -> tuple[list[str], list]:
+        lines = [f"Config version: {report['cfg_before']} → {report['cfg_after']}"]
+        db = report["db"]
+        held = db["after"] is not None and db["schema_version"] and db["after"] < db["schema_version"]
+        lines.append(f"state.db: {db['before']} → {db['after']}"
+                     + (f" (held back; image supports {db['schema_version']})" if held else ""))
+        blocks = []
+        if report["messages"]:
+            blocks.append((f"Migrations that ran ({len(report['messages'])})",
+                           "\n".join(report["messages"])))
+        if _fmt_diff(report["diff"]):
+            blocks.append((_diff_title(report["diff"]), _fmt_diff(report["diff"])))
+        if report["doctor"]:
+            blocks.append((f"Doctor: new or fixed problems ({len(report['doctor'])})",
+                           "\n".join(report["doctor"])))
+        else:
+            lines.append("Doctor: no new problems.")
+        return lines, blocks
+
+    def pending_extra(self, report: dict) -> dict:
+        return {"cfg_after": report["cfg_after"]}
 
 
 APP = Hermes()

@@ -44,3 +44,29 @@ def test_hermes_releases_published_fetch(tmp_path, monkeypatch):
     assert app.releases(ctx) == {"v2026.9.24": "c"}
     assert app.published(ctx, ["v2026.9.24"]) == {"v2026.9.24"}
     assert app.fetch(ctx, "v2026.9.24", "c") == {"tag": "v2026.9.24", "id": "c"}
+
+
+def test_generic_rehearse_delegates_to_the_app(tmp_path, monkeypatch):
+    from talaria import rehearse, state
+    from tests.fakes import make_test_ctx
+    ctx = make_test_ctx(tmp_path)
+    (ctx.conf.data_dir / "f").write_text("x")
+    seen = {}
+
+    class FakeApp(type(ctx.app)):
+        def fetch(self, c, tag, commit):
+            return {"tag": tag, "id": "sha256:i", "digest": "d"}
+        def rehearse(self, c, st, image, copy, stage):
+            seen["copy"] = (copy / "f").read_text()
+            return {"tag": image["tag"], "digest": "d", "x": 1}
+        def report_lines(self, c, report):
+            return ["Line"], [("Block", "body")]
+        def pending_extra(self, report):
+            return {"x": report["x"]}
+    ctx.app = FakeApp()
+    st = state.load(ctx.paths)
+    rehearse.rehearse(ctx, st, "v2026.9.24", "c")
+    assert seen["copy"] == "x" and st["pending"]["x"] == 1
+    m = ctx.notify.sent[-1]
+    assert "Line" in m.text and m.untrusted == [("Block", "body")]
+    assert m.buttons == [[("Approve v2026.9.24", "ap:v2026.9.24"), ("Reject", "rj:v2026.9.24")]]

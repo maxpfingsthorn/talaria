@@ -44,3 +44,16 @@ class App:
     @staticmethod
     def data_version(data_dir) -> int | str | None:
         raise NotImplementedError
+
+    def rehearse(self, ctx, st: dict, image: dict, copy, stage) -> dict:
+        """Run the app's checks on `copy` (a copy of the data dir); return the report.
+        Raises talaria.rehearse.Permanent when the candidate must not be deployed."""
+        raise NotImplementedError
+
+    def report_lines(self, ctx, report: dict) -> tuple[list[str], list]:
+        """Plain message lines and untrusted (title, body) blocks for the candidate message."""
+        raise NotImplementedError
+
+    def pending_extra(self, report: dict) -> dict:
+        """App-specific fields stored next to tag/image/report in st["pending"]."""
+        raise NotImplementedError

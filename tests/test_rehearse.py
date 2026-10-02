@@ -5,6 +5,7 @@ import shutil
 import pytest
 
 from talaria import rehearse
+from talaria.apps import hermes as hermes_app
 from talaria.containers import HelperError
 from talaria.images import RevisionMismatch
 from talaria.shell import CommandError, Result
@@ -53,11 +54,11 @@ def happy(tmp_path, monkeypatch):
     }
     calls = []
     monkeypatch.setattr(ctx.app, "fetch", lambda c, tag, commit: c is ctx and dict(IMG))
-    monkeypatch.setattr(rehearse, "run_helper",
+    monkeypatch.setattr(hermes_app, "run_helper",
                         lambda c, rec, script, data, work, args=(): (
                             calls.append((rec["id"], script, args, c is ctx, data, work,
                                           oct(work.stat().st_mode & 0o777))), results[script])[1])
-    monkeypatch.setattr(rehearse, "run_doctor",
+    monkeypatch.setattr(hermes_app, "run_doctor",
                         lambda c, rec, data: (c is ctx and data.name == "data") and "✓ ok\n" if rec["id"] == "sha256:cur"
                         else "✓ ok\n✗ new problem\n")
     ctx.results, ctx.helper_calls = results, calls
@@ -123,7 +124,7 @@ def test_dbopen_failure_is_permanent(happy):
 def test_helper_crash_is_permanent(happy, monkeypatch):
     def boom(*a, **k):
         raise HelperError("no result")
-    monkeypatch.setattr(rehearse, "run_helper", boom)
+    monkeypatch.setattr(hermes_app, "run_helper", boom)
     with pytest.raises(rehearse.Permanent, match="no result"):
         rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
 
@@ -212,37 +213,37 @@ def test_candidate_message_no_db_and_empty_blocks(happy):
 def test_doctor_changes_rules():
     before = "same\n\n  \n✗ old\n"
     after = "same\n\n  \n✗ new\n" + "".join(f"✗ n{i}\n" for i in range(45))
-    out = rehearse._doctor_changes(before, after)
+    out = hermes_app._doctor_changes(before, after)
     assert out[:2] == ["+ ✗ new", "+ ✗ n0"] and len(out) == 40
-    assert rehearse._doctor_changes("a\n⚠ b\n", "a\n") == ["- ⚠ b"]
+    assert hermes_app._doctor_changes("a\n⚠ b\n", "a\n") == ["- ⚠ b"]
 
 
 def test_fmt_diff_partial_keys():
-    assert rehearse._fmt_diff({"removed": [["a", 1]]}) == "- a"
-    assert rehearse._fmt_diff({"changed": [["a", 1, 2]], "added": [["b", 3]]}) == "~ a: 1 → 2\n+ b"
+    assert hermes_app._fmt_diff({"removed": [["a", 1]]}) == "- a"
+    assert hermes_app._fmt_diff({"changed": [["a", 1, 2]], "added": [["b", 3]]}) == "~ a: 1 → 2\n+ b"
 
 
 def test_config_copy_passed_to_confdiff(happy):
     st = st_with_current()
     seen = {}
-    real = rehearse.run_helper
+    real = hermes_app.run_helper
 
     def spy(c, rec, script, data, work, args=()):
         if script == "confdiff.py":
             seen["orig"] = (work / "config.orig.yaml").read_text()
         return real(c, rec, script, data, work, args)
 
-    rehearse.run_helper = spy
+    hermes_app.run_helper = spy
     try:
         rehearse.rehearse(happy, st, "v2026.9.24", "c0ffee")
     finally:
-        rehearse.run_helper = real
+        hermes_app.run_helper = real
     assert seen["orig"] == "_config_version: 27\n"
 
 
 def test_no_current_skips_first_doctor(happy, monkeypatch):
     runs = []
-    monkeypatch.setattr(rehearse, "run_doctor", lambda c, rec, data: (runs.append(rec["id"]), "")[1])
+    monkeypatch.setattr(hermes_app, "run_doctor", lambda c, rec, data: (runs.append(rec["id"]), "")[1])
     st = st_with_current()
     st["current"] = None
     rehearse.rehearse(happy, st, "v2026.9.24", "c0ffee")
@@ -334,14 +335,14 @@ def test_candidate_message_has_buttons(happy):
 def test_doctor_changes_only_problems():
     before = "  ✓ ok\n  ⚠ old warning\n"
     after = "  ✓ ok\n  ✓ brand new check\n  ✗ Gateway not reachable\n  → detail line\n  ⚠ disk low\n"
-    assert rehearse._doctor_changes(before, after) == ["+ ✗ Gateway not reachable", "+ ⚠ disk low",
+    assert hermes_app._doctor_changes(before, after) == ["+ ✗ Gateway not reachable", "+ ⚠ disk low",
                                                         "- ⚠ old warning"]
 
 
 def test_fmt_diff_lists_added_and_removed_keys_only():
     d = {"changed": [["a.b", 1, 2]], "added": [["n1", {"big": "value"}]],
          "removed": [[f"old{i}", "v"] for i in range(13)]}
-    assert rehearse._fmt_diff(d) == "\n".join(
+    assert hermes_app._fmt_diff(d) == "\n".join(
         ["~ a.b: 1 → 2", "+ n1"] + [f"- old{i}" for i in range(10)] + ["… and 3 more removed"])
 
 
@@ -372,11 +373,11 @@ def test_symlinked_config_is_not_read(happy, tmp_path):
     cfg.symlink_to(secret)
     seen = []
     real = shutil.copy2
-    rehearse.shutil.copy2 = lambda *a, **k: (seen.append(a), real(*a, **k))[1]
+    hermes_app.shutil.copy2 = lambda *a, **k: (seen.append(a), real(*a, **k))[1]
     try:
         rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
     finally:
-        rehearse.shutil.copy2 = real
+        hermes_app.shutil.copy2 = real
     assert "confdiff.py" not in [c[1] for c in happy.helper_calls]
     assert not any(str(a[0]).endswith("config.yaml") for a in seen)
 
