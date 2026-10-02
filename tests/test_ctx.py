@@ -3,6 +3,7 @@ from datetime import timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+from talaria import apps
 from talaria import ctx as ctxmod
 from talaria.notify import TelegramNotifier
 from talaria.shell import Shell
@@ -59,6 +60,24 @@ def test_make_ctx(tmp_path, monkeypatch):
     assert isinstance(c.sh, Shell) and isinstance(c.notify, TelegramNotifier)
     assert c.notify.conf is c.conf
     assert c.http_get is ctxmod.http_get and c.now is ctxmod._utcnow
+
+
+def test_make_ctx_sets_app_and_paths_app_from_conf(tmp_path, monkeypatch):
+    # Only "hermes" is a real app in Part A, so "hermes" alone can't tell correct
+    # wiring apart from a hard-coded default. A fake app name (validated and resolved
+    # through a monkeypatched apps.get, exactly as conf.py's own validation calls it)
+    # gives a value that isn't the default, so this kills ctx.x_make_ctx__mutmut_6
+    # (Paths(home, None)), _8 (Paths(home) with no app), _13 (app=None) and _18 (the
+    # app= kwarg dropped entirely).
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    sentinel = object()
+    real_get = apps.get
+    monkeypatch.setattr(apps, "get", lambda name: sentinel if name == "other" else real_get(name))
+    (tmp_path / ".config/talaria").mkdir(parents=True)
+    (tmp_path / ".config/talaria/talaria.conf").write_text("app = other\ndata_dir = ~/x\n")
+    c = ctxmod.make_ctx()
+    assert c.paths.app == "other"
+    assert c.app is sentinel
 
 
 def test_paths_layout(tmp_path):
