@@ -56,12 +56,24 @@ def test_add_hosts_rendered_as_addhost_lines(tmp_path):
     assert "\nAddHost=clawvisor:100.64.0.1\n" in q
 
 
-@pytest.mark.parametrize("bad", ["clawvisor", "a b:1.2.3.4", "x:not-an-ip", "x:1.2.3.4\nExec=sh"])
+@pytest.mark.parametrize("bad", [
+    "clawvisor", "a b:1.2.3.4", "x:not-an-ip", "x:1.2.3.4\nExec=sh",
+    "x:999.1.1.1",                       # octet out of range
+    "x:\uff11\uff10\uff10.\uff16\uff14.\uff10.\uff11",   # full-width digits (１００.６４.０.１)
+    "x: 100.64.0.1", "x:100.64.0.1 ",    # leading/trailing whitespace
+])
 def test_bad_add_hosts_refused(tmp_path, bad):
     ctx = make_test_ctx(tmp_path)
     ctx.conf.add_hosts = (bad,)
     with pytest.raises(ValueError, match="add_hosts"):
         units.render_quadlet(ctx)
+
+
+def test_add_hosts_accepts_clawvisor_tailscale_ip(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    ctx.conf.add_hosts = ("clawvisor:100.83.113.68",)
+    q = units.render_quadlet(ctx)
+    assert "\nAddHost=clawvisor:100.83.113.68\n" in q
 
 
 def test_hermes_quadlet_unchanged_without_add_hosts(tmp_path):
