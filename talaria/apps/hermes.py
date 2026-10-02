@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 import shutil
 from pathlib import Path
 
 from talaria import tags
 from talaria.apps.base import App
+from talaria.conf import parse_kv, write_env_value
 from talaria.containers import HelperError, run_doctor, run_helper
 from talaria.images import ImageMissing, pull_verify
 from talaria.state import ensure_dir
@@ -61,6 +63,7 @@ class Hermes(App):
     default_repo = "https://github.com/NousResearch/hermes-agent"
     min_release = "v2026.6.5"
     backup_exclude = (".cache", ".npm", "home/.cache", "home/.npm", "backups")
+    can_adopt = True
 
     is_release = staticmethod(tags.is_release)
     tag_key = staticmethod(tags.key)
@@ -164,6 +167,21 @@ class Hermes(App):
 
     def quadlet_vars(self, ctx) -> dict:
         return {}
+
+    def prepare(self, ctx) -> list[str]:
+        env = parse_kv(ctx.paths.app_env.read_text()) if ctx.paths.app_env.exists() else {}
+        if "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD" in env:
+            return []
+        write_env_value(ctx.paths.app_env, "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD",
+                        secrets.token_urlsafe(24))
+        return [f"dashboard password generated in {ctx.paths.app_env} (user admin)"]
+
+    def ready_text(self, ctx) -> str:
+        return (f"Hermes is running. Dashboard: http://{ctx.conf.bind_ip}:"
+                f"{ctx.conf.dashboard_port} (user admin, password in {ctx.paths.app_env})")
+
+    def initial_conf(self, ctx) -> str:
+        return "# Talaria settings; see README.\ndata_dir = ~/hermes-data\n"
 
 
 APP = Hermes()

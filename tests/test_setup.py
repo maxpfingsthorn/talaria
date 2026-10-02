@@ -278,3 +278,13 @@ def test_non_github_ssh_origin_stops(monkeypatch, tmp_path, capsys):
     sh.on("git", "-C", str(setup.REPO), "remote", out="git@gitlab.com:o/talaria.git\n")
     assert run(args(user="hermes")) == 1
     assert "clone Talaria over https" in capsys.readouterr().out
+
+
+# ---- app adapter hooks ----
+
+def test_prepare_never_overwrites_the_dashboard_password(tmp_path):
+    from talaria.conf import parse_kv, write_env_value
+    ctx = make_test_ctx(tmp_path)
+    write_env_value(ctx.paths.app_env, "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", "keep")
+    assert ctx.app.prepare(ctx) == []
+    assert parse_kv(ctx.paths.app_env.read_text())["HERMES_DASHBOARD_BASIC_AUTH_PASSWORD"] == "keep"

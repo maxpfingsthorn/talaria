@@ -4,14 +4,13 @@ import getpass
 import os
 import pwd
 import re
-import secrets
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 from talaria import adopt, images, lock, service, state, telegram, units
-from talaria.conf import load_conf, parse_kv, write_env_value
+from talaria.conf import load_conf, write_env_value
 from talaria.disk import NOT_RENAMABLE, renamable
 from talaria.notify import ApiError, TelegramAPI
 from talaria.state import ensure_dir
@@ -171,7 +170,7 @@ def service_phase(ctx, args, api=None) -> int:
     ensure_dir(p.conf_dir)
     ensure_dir(p.state_dir)
     if not p.conf_file.exists():
-        p.conf_file.write_text("# Talaria settings; see README.\ndata_dir = ~/hermes-data\n")
+        p.conf_file.write_text(ctx.app.initial_conf(ctx))
     if ctx.conf.dashboard_bind == "tailscale" and not ctx.conf.tailscale_ip:
         ip = ctx.sh.run(["tailscale", "ip", "-4"]).stdout.split()[0]
         with open(p.conf_file, "a") as f:
@@ -181,7 +180,10 @@ def service_phase(ctx, args, api=None) -> int:
     managed = adopt.is_managed(ctx) and st.get("current") is not None
     found = plan = None
     if not managed:
-        cands = adopt.detect(ctx)
+        if args.adopt and not ctx.app.can_adopt:
+            say("STOP", f"adopting is not supported for {ctx.app.title}")
+            return 1
+        cands = adopt.detect(ctx) if ctx.app.can_adopt else []
         if args.adopt:
             cands = [f for f in cands if f.unit == args.adopt]
             if not cands:
@@ -218,14 +220,11 @@ def service_phase(ctx, args, api=None) -> int:
             say("OK", "no existing Hermes found: fresh install")
     if args.plan:
         say("PLAN", "dashboard password, Telegram token and pairing, install units, "
-                    "start Hermes, verify")
+                    f"start {ctx.app.title}, verify")
         return 0
 
-    env = parse_kv(p.hermes_env.read_text()) if p.hermes_env.exists() else {}
-    if "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD" not in env:
-        write_env_value(p.hermes_env, "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD",
-                        secrets.token_urlsafe(24))
-        say("OK", f"dashboard password generated in {p.hermes_env} (user admin)")
+    for line in ctx.app.prepare(ctx):
+        say("OK", line)
 
     if not ctx.conf.telegram_token:
         say("ACTION REQUIRED",
@@ -279,8 +278,7 @@ def service_phase(ctx, args, api=None) -> int:
     except lock.Busy:
         say("STOP", "a Talaria operation is running; run setup again in a minute")
         return 1
-    say("OK", f"Hermes is running. Dashboard: http://{ctx.conf.bind_ip}:"
-              f"{ctx.conf.dashboard_port} (user admin, password in {p.hermes_env})")
+    say("OK", ctx.app.ready_text(ctx))
     print("DONE", flush=True)
     return 0
 

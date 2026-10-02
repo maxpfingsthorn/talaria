@@ -17,6 +17,7 @@ class App:
     default_repo = ""
     min_release = ""
     backup_exclude: tuple = ()
+    can_adopt = False
 
     @staticmethod
     def is_release(tag: str) -> bool:
@@ -69,4 +70,16 @@ class App:
 
     def quadlet_vars(self, ctx) -> dict:
         """Template variables for this app's quadlet, beyond the shared ones."""
+        raise NotImplementedError
+
+    def prepare(self, ctx) -> list[str]:
+        """Create any missing secrets (never overwrite). Returns OK-line texts to print."""
+        raise NotImplementedError
+
+    def ready_text(self, ctx) -> str:
+        """The final OK line once the app is confirmed running."""
+        raise NotImplementedError
+
+    def initial_conf(self, ctx) -> str:
+        """Contents written to a fresh talaria.conf."""
         raise NotImplementedError
