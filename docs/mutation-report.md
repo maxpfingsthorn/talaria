@@ -2,10 +2,11 @@
 
 Date: 2026-10-02 · Commit: v0.3.0 (core and app adapters) · Tool: mutmut 3.8.0 (Python 3.12)
 
-**Score: 95.5 %** (threshold 85 %). 6,428 mutants: 6,129 killed, 8 timeouts (counted as
-killed), 2 segfaults (counted as killed; the deploy module's e2e crash hook), 289
-survived, 0 without tests, 0 suspicious. Scoring is honest: `tests/mutation_score.py`
-counts no-tests and suspicious mutants as survivors.
+**Score: 95.5 %** (threshold 85 %). 6,428 mutants: 6,131 killed (including 2 segfault
+mutants in the deploy module's e2e crash hook, which kill the test process instead of
+raising normally -- see below), 8 timeouts (counted as killed), 289 survived, 0 without
+tests, 0 suspicious. Scoring is honest: `tests/mutation_score.py` counts no-tests and
+suspicious mutants as survivors.
 
 | Module | Mutants | Killed | Timeout | Survived |
 |---|---|---|---|---|
@@ -15,7 +16,7 @@ counts no-tests and suspicious mutants as survivors.
 | `talaria.adopt` | 567 | 550 | 0 | 17 |
 | `talaria.apps.hermes` | 393 | 393 | 0 | 0 |
 | `talaria.cli` | 359 | 338 | 0 | 21 |
-| `talaria.deploy` | 271 | 269 | 0 | 2 |
+| `talaria.deploy` | 271 | 271 | 0 | 0 |
 | `talaria.notify` | 234 | 219 | 0 | 15 |
 | `talaria.images` | 219 | 216 | 0 | 3 |
 | `talaria.rehearse` | 209 | 195 | 0 | 14 |
@@ -42,9 +43,9 @@ counts no-tests and suspicious mutants as survivors.
 | `talaria.marker` | 15 | 15 | 0 | 0 |
 | `talaria.apps` | 4 | 4 | 0 | 0 |
 
-The `deploy` row's 2 "survived" are the two crash-hook mutants (see below); the module
-otherwise has none. `service`'s 2 timeouts are pre-existing (the settle-loop increment,
-already timeouts in v0.2.5) and count as killed.
+The `deploy` row's Killed count includes its 2 crash-hook mutants (see below); the
+module has no true survivors. `service`'s 2 timeouts are pre-existing (the settle-loop
+increment, already timeouts in v0.2.5) and count as killed.
 
 ## What changed since v0.2.5
 
@@ -103,7 +104,8 @@ equivalent above. The largest groups elsewhere are the same as before:
 - config parsing of rarely used value forms;
 - CLI parser details.
 
-The deploy, rollback, restore, marker, service and apps modules have none left beyond
-the two deploy "segfault" mutants: they trigger the e2e crash hook, which kills the
-test process — detected, just not labelled killed. List them with
-`uv run mutmut results` after a run.
+The deploy, rollback, restore, marker, service and apps modules have no survivors left.
+Deploy's table row counts its 2 crash-hook mutants as killed: they trigger the e2e
+crash hook, which kills the test process rather than raising a normal assertion
+failure, so they are detected but mutmut's own run log may label them differently.
+List them with `uv run mutmut results` after a run to see how the tool recorded them.
