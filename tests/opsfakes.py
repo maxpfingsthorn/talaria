@@ -43,7 +43,8 @@ def ops_ctx(tmp_path, monkeypatch, *, migrate=None, check_results=None):
     ctx.checks = outcomes
 
     from talaria import deploy, rollback
-    monkeypatch.setattr(deploy, "run_helper", fake_helper)
+    from talaria.apps import hermes as hermes_app
+    monkeypatch.setattr(hermes_app, "run_helper", fake_helper)
     for mod in (deploy, rollback):
         monkeypatch.setattr(mod.service, "post_start_check",
                             lambda c: (c is ctx or pytest.fail("post_start_check got a wrong ctx"))

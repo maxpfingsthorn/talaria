@@ -4,10 +4,8 @@ import os
 import signal
 
 from talaria import backup, disk, history, images, marker, retention, service, state
-from talaria.containers import run_helper
 from talaria.notify import Message
 from talaria.rollback import MANUAL, interrupted, rollback
-from talaria.state import ensure_dir
 
 
 def _crash_point(name: str) -> None:
@@ -72,15 +70,11 @@ def deploy(ctx, tag: str) -> None:
     marker.write(ctx.paths, "deploy", b.id, old, ctx.now())
     _crash_point("after_marker")
     try:
-        ensure_dir(ctx.paths.staging)
-        mig = run_helper(ctx, p["image"], "migrate.py", data, ctx.paths.staging)
+        reason, details = ctx.app.before_start(ctx, p)
     except Exception as e:
-        return _fail(ctx, tag, f"migration could not run: {e}", b.id, old)
-    if not mig["ok"]:
-        return _fail(ctx, tag, f"migration failed: {mig['error']}", b.id, old, mig["messages"])
-    if mig["after"] != p["cfg_after"]:
-        return _fail(ctx, tag, f"config version {mig['after']}, expected {p['cfg_after']} "
-                               "from the rehearsal", b.id, old, mig["messages"])
+        reason, details = f"migration could not run: {e}", []
+    if reason:
+        return _fail(ctx, tag, reason, b.id, old, details)
     st["previous"], st["current"] = old, p["image"]
     st["last_deploy"], st["pending"] = {"tag": tag, "backup": b.id}, None
     state.save(ctx.paths, st)
@@ -90,6 +84,7 @@ def deploy(ctx, tag: str) -> None:
     try:
         service.start(ctx)
         reason = service.post_start_check(ctx)
+        reason = reason or ctx.app.after_start(ctx, p)
     except Exception as e:
         reason = str(e)
     if reason:
@@ -98,4 +93,4 @@ def deploy(ctx, tag: str) -> None:
     st["op"], st["adopt_backup"] = None, None
     retention.apply(ctx, st)
     state.save(ctx.paths, st)
-    ctx.notify.send(Message(f"Deployed Hermes {tag}.", commands=["/rollback"]))
+    ctx.notify.send(Message(f"Deployed {ctx.app.title} {tag}.", commands=["/rollback"]))

@@ -57,3 +57,12 @@ class App:
     def pending_extra(self, report: dict) -> dict:
         """App-specific fields stored next to tag/image/report in st["pending"]."""
         raise NotImplementedError
+
+    def before_start(self, ctx, pending: dict) -> tuple[str | None, list]:
+        """Runs in place while the deploy marker is set, before the app is started.
+        Returns (failure reason or None, untrusted details)."""
+        raise NotImplementedError
+
+    def after_start(self, ctx, pending: dict) -> str | None:
+        """Extra check after service.post_start_check passes. Returns a failure reason or None."""
+        raise NotImplementedError

@@ -9,6 +9,7 @@ from talaria import tags
 from talaria.apps.base import App
 from talaria.containers import HelperError, run_doctor, run_helper
 from talaria.images import ImageMissing, pull_verify
+from talaria.state import ensure_dir
 from talaria.upstream import git_release_tags, registry_tags
 
 _CFG = re.compile(r"^_config_version:\s*(\d+)\s*$", re.M)
@@ -147,6 +148,19 @@ class Hermes(App):
 
     def pending_extra(self, report: dict) -> dict:
         return {"cfg_after": report["cfg_after"]}
+
+    def before_start(self, ctx, pending: dict) -> tuple[str | None, list]:
+        ensure_dir(ctx.paths.staging)
+        mig = run_helper(ctx, pending["image"], "migrate.py", ctx.conf.data_dir, ctx.paths.staging)
+        if not mig["ok"]:
+            return f"migration failed: {mig['error']}", mig["messages"]
+        if mig["after"] != pending["cfg_after"]:
+            return (f"config version {mig['after']}, expected {pending['cfg_after']} "
+                    "from the rehearsal"), mig["messages"]
+        return None, []
+
+    def after_start(self, ctx, pending: dict) -> str | None:
+        return None
 
 
 APP = Hermes()

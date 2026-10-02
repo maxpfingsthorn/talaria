@@ -1,5 +1,6 @@
 import subprocess
 from talaria import backup, deploy, marker
+from talaria.apps import hermes as hermes_app
 from tests.opsfakes import CUR, NEW, load, ops_ctx
 
 
@@ -135,7 +136,7 @@ def test_state_and_marker_during_migration(tmp_path, monkeypatch):
         (data / "config.yaml").write_text("_config_version: 30\n")
         return {"ok": True, "before": 27, "after": 30, "latest": 30, "messages": [], "error": None}
 
-    monkeypatch.setattr(deploy, "run_helper", spy)
+    monkeypatch.setattr(hermes_app, "run_helper", spy)
     deploy.deploy(ctx, "v2026.9.24")
     bid = load(ctx)["last_deploy"]["backup"]
     assert seen["ctx_ok"] and seen["rec"] == NEW and seen["script"] == "migrate.py"
@@ -202,7 +203,7 @@ def test_backup_failure_restarts_hermes_exact(tmp_path, monkeypatch):
 
 def test_helper_crash_rolls_back_exact(tmp_path, monkeypatch):
     ctx = ops_ctx(tmp_path, monkeypatch)
-    monkeypatch.setattr(deploy, "run_helper",
+    monkeypatch.setattr(hermes_app, "run_helper",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no result")))
     deploy.deploy(ctx, "v2026.9.24")
     m = ctx.notify.sent[-1]
@@ -299,3 +300,24 @@ def test_deploy_refused_while_op_is_recorded(tmp_path, monkeypatch):
     deploy.deploy(ctx, "v2026.9.24")
     assert "refused: an interrupted deploy" in ctx.notify.sent[-1].text
     assert not ctx.sh.called("systemctl", "--user", "stop")
+
+
+def test_deploy_runs_the_apps_hooks_in_order(tmp_path, monkeypatch):
+    ctx = ops_ctx(tmp_path, monkeypatch)
+    order = []
+    real_before = type(ctx.app).before_start
+    monkeypatch.setattr(type(ctx.app), "before_start",
+                        lambda self, c, p: (order.append(("before", marker.read(c.paths) is not None)),
+                                            real_before(self, c, p))[1])
+    monkeypatch.setattr(type(ctx.app), "after_start",
+                        lambda self, c, p: order.append(("after", None)) or None)
+    deploy.deploy(ctx, "v2026.9.24")
+    assert order == [("before", True), ("after", None)]
+
+
+def test_after_start_failure_rolls_back(tmp_path, monkeypatch):
+    ctx = ops_ctx(tmp_path, monkeypatch)
+    monkeypatch.setattr(type(ctx.app), "after_start", lambda self, c, p: "schema mismatch")
+    deploy.deploy(ctx, "v2026.9.24")
+    assert load(ctx)["current"] == CUR
+    assert "failed during deploy: schema mismatch" in ctx.notify.sent[-1].text
