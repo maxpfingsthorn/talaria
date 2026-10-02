@@ -11,6 +11,15 @@ def deployed(tmp_path, monkeypatch, checks=None):
     return ctx
 
 
+def test_rollback_texts_name_the_app(tmp_path, monkeypatch):
+    ctx = deployed(tmp_path, monkeypatch)
+    monkeypatch.setattr(type(ctx.app), "title", "Demo")
+    assert "Demo" in rollback.describe(ctx)
+    assert "Demo" in rollback.describe_buttons(ctx)[0][0][0]
+    rollback.rollback_cmd(ctx)
+    assert "Demo" in ctx.notify.sent[-1].text
+
+
 def test_describe_names_backup_age(tmp_path, monkeypatch):
     ctx = deployed(tmp_path, monkeypatch)
     ctx.clock.sleep(3 * 3600)

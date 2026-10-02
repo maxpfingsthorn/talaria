@@ -14,8 +14,8 @@ HELP = ("/status · /check · /approve <tag> · /reject <tag> · /rollback [CONF
         "/backups · /restore <id> [CONFIRM]")
 
 
-MENU = [("status", "Hermes version, state, pending update"),
-        ("check", "Look for a new Hermes release now"),
+MENU = [("status", "{app} version, state, pending update"),
+        ("check", "Look for a new {app} release now"),
         ("approve", "Deploy the pending update: /approve <tag>"),
         ("reject", "Never offer a release: /reject <tag>"),
         ("rollback", "Undo the last change (asks to confirm)"),
@@ -184,8 +184,10 @@ class Bot:
 
     def startup(self) -> None:
         try:   # the "Menu" button in the chat; shown to the owner only
-            self.api.call("setMyCommands", commands=[{"command": c, "description": d}
-                                                     for c, d in MENU],
+            title = self.ctx.app.title
+            self.api.call("setMyCommands",
+                          commands=[{"command": c, "description": d.format(app=title)}
+                                   for c, d in MENU],
                           scope={"type": "chat", "chat_id": self.ctx.conf.telegram_user_id})
         except ApiError as e:
             print(f"[talaria] could not set the command menu: {e}", file=sys.stderr)

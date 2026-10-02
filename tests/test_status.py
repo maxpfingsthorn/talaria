@@ -66,6 +66,7 @@ from talaria import disk
 def test_status_exact(tmp_path, monkeypatch):
     ctx = sctx(tmp_path)
     monkeypatch.setattr(disk, "free_bytes", lambda p: int(12.34 * disk.GB))
+    monkeypatch.setattr(disk, "dir_size", lambda p: int(0.5 * disk.GB))
     st = state.load(ctx.paths)
     st["pending"] = {"tag": "v2026.9.24"}
     st["talaria_notified"] = "v99.0.0"
@@ -76,7 +77,7 @@ def test_status_exact(tmp_path, monkeypatch):
     from talaria import __version__
     assert status.status_text(ctx) == "\n".join([
         "Hermes v2026.8.3 (0123456789ab), running.",
-        "12.3 GB free.",
+        "12.3 GB free, data 0.50 GB.",
         "Pending: v2026.9.24. /approve v2026.9.24 · /reject v2026.9.24",
         "Interrupted deploy v2026.9.24 (2h ago). Hermes is stopped. Send /rollback CONFIRM to "
         "restore the state before it.",
@@ -87,10 +88,22 @@ def test_status_minimal(tmp_path, monkeypatch):
     ctx = make_test_ctx(tmp_path)
     ctx.sh.on("systemctl", "--user", "is-active", out="inactive\n")
     monkeypatch.setattr(disk, "free_bytes", lambda p: 0)
+    monkeypatch.setattr(disk, "dir_size", lambda p: 0)
     st = state.load(ctx.paths)
     st["talaria_notified"] = "v0.0.1"
     state.save(ctx.paths, st)
-    assert status.status_text(ctx) == "Hermes unknown (), not running.\n0.0 GB free."
+    assert status.status_text(ctx) == "Hermes unknown (), not running.\n0.0 GB free, data 0.00 GB."
+
+
+def test_status_names_the_app_and_data_size(tmp_path, monkeypatch):
+    ctx = make_test_ctx(tmp_path)
+    monkeypatch.setattr(type(ctx.app), "title", "Demo")
+    ctx.sh.on("systemctl", "--user", "is-active", out="active\n")
+    monkeypatch.setattr(status.disk, "free_bytes", lambda p: 19 * status.disk.GB)
+    monkeypatch.setattr(status.disk, "dir_size", lambda p: int(0.25 * status.disk.GB))
+    text = status.status_text(ctx)
+    assert text.splitlines()[0].startswith("Demo unknown")
+    assert "19.0 GB free, data 0.25 GB." in text
 
 
 def test_interrupted_texts_exact(tmp_path):

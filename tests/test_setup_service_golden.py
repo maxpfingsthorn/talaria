@@ -177,6 +177,14 @@ def test_adopt_unknown_exact(s, capsys):
     assert (rc, out, cmds) == (1, "STOP: no Hermes install with unit x.service\n", [])
 
 
+def test_fresh_and_adopt_texts_name_the_app(s, monkeypatch, capsys):
+    monkeypatch.setattr(type(s.app), "title", "Demo")
+    monkeypatch.setattr(s.app, "published", lambda c, tags: set())
+    rc, out, cmds = run(s, capsys)
+    assert rc == 1 and out == NEW.replace("Hermes", "Demo") + PW + PAIR + PAIRED + \
+        "STOP: no Demo release image found\n"
+
+
 def test_rerun_unchanged_running_does_not_restart(s, capsys):
     run(s, capsys)
     s.sh.calls.clear()

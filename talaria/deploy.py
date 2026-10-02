@@ -26,9 +26,9 @@ def _fail(ctx, tag: str, reason: str, bid: str, revert_image: dict, details=()) 
     if (st.get("pending") or {}).get("tag") == tag:
         st["pending"] = None
     state.save(ctx.paths, st)
-    tail = f"Rolled back to Hermes {revert_image.get('tag')}." if again is None else \
-        f"Rollback also failed: {again}. Hermes is stopped. {MANUAL}"
-    ctx.notify.send(Message(f"Hermes {tag} failed during deploy: {reason}. {tail}",
+    tail = f"Rolled back to {ctx.app.title} {revert_image.get('tag')}." if again is None else \
+        f"Rollback also failed: {again}. {ctx.app.title} is stopped. {MANUAL}"
+    ctx.notify.send(Message(f"{ctx.app.title} {tag} failed during deploy: {reason}. {tail}",
                             untrusted=list(details)))
 
 
@@ -63,7 +63,7 @@ def deploy(ctx, tag: str) -> None:
         st["op"] = None
         state.save(ctx.paths, st)
         ctx.notify.send(Message(f"Deploy of {tag} failed before changing anything: {e}. "
-                                "Hermes was started again."))
+                                f"{ctx.app.title} was started again."))
         return
     st["op"].update(backup=b.id, changed=True)
     state.save(ctx.paths, st)

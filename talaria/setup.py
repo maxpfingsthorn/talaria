@@ -156,12 +156,12 @@ def _fresh_image(ctx, st) -> bool:
     reg = ctx.app.published(ctx, list(git))
     tag = pick_candidate(ctx.app, git, reg, None, set(), ctx.conf.min_release)
     if not tag:
-        say("STOP", "no Hermes release image found")
+        say("STOP", f"no {ctx.app.title} release image found")
         return False
     st["current"] = ctx.app.fetch(ctx, tag, git[tag])
     state.save(ctx.paths, st)
     ctx.conf.data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    say("OK", f"Hermes {tag} pulled and verified")
+    say("OK", f"{ctx.app.title} {tag} pulled and verified")
     return True
 
 
@@ -187,22 +187,22 @@ def service_phase(ctx, args, api=None) -> int:
         if args.adopt:
             cands = [f for f in cands if f.unit == args.adopt]
             if not cands:
-                say("STOP", f"no Hermes install with unit {args.adopt}")
+                say("STOP", f"no {ctx.app.title} install with unit {args.adopt}")
                 return 1
         stopped = adopt.stopped_quadlets(ctx, cands)
         if stopped and not args.adopt:
             q = stopped[0]
-            say("STOP", f"found a Hermes Quadlet that is not running: {q}; start it "
+            say("STOP", f"found a {ctx.app.title} Quadlet that is not running: {q}; start it "
                         f"(systemctl --user start {q.stem}.service) and run setup again")
             return 1
         if not cands and p.quadlet.exists():
             say("STOP", f"{p.quadlet} exists but was not written by Talaria; start that "
-                        "Hermes and run setup again to adopt it, or move the file away")
+                        f"{ctx.app.title} and run setup again to adopt it, or move the file away")
             return 1
         if len(cands) > 1:
             for f in cands:
-                say("FOUND", f"Hermes unit {f.unit} (container {f.name})")
-            say("STOP", "several Hermes installs; choose one with --adopt UNIT")
+                say("FOUND", f"{ctx.app.title} unit {f.unit} (container {f.name})")
+            say("STOP", f"several {ctx.app.title} installs; choose one with --adopt UNIT")
             return 1
         if cands:
             found = cands[0]
@@ -217,7 +217,7 @@ def service_phase(ctx, args, api=None) -> int:
                     f"the diff above, then run: talaria setup --adopt {found.unit}")
                 return 0 if args.plan else 10
         else:
-            say("OK", "no existing Hermes found: fresh install")
+            say("OK", f"no existing {ctx.app.title} found: fresh install")
     if args.plan:
         say("PLAN", "dashboard password, Telegram token and pairing, install units, "
                     f"start {ctx.app.title}, verify")
@@ -271,7 +271,7 @@ def service_phase(ctx, args, api=None) -> int:
                 service.start(ctx)
                 reason = service.post_start_check(ctx)
                 if reason:
-                    say("STOP", f"Hermes did not come up: {reason}")
+                    say("STOP", f"{ctx.app.title} did not come up: {reason}")
                     if found:
                         print(adopt.manual_steps(ctx, plan))
                     return 1

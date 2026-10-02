@@ -4,6 +4,16 @@ from talaria.apps import hermes as hermes_app
 from tests.opsfakes import CUR, NEW, load, ops_ctx
 
 
+def test_deploy_failure_texts_name_the_app(tmp_path, monkeypatch):
+    ctx = ops_ctx(tmp_path, monkeypatch, check_results=["restarted"])
+    monkeypatch.setattr(type(ctx.app), "title", "Demo")
+    monkeypatch.setattr(deploy, "rollback", lambda c: (_ for _ in ()).throw(OSError("tar broke")))
+    deploy.deploy(ctx, "v2026.9.24")
+    assert ctx.notify.sent[-1].text == (
+        "Demo v2026.9.24 failed during deploy: restarted. Rollback also failed: tar broke. "
+        "Demo is stopped. Manual recovery: see README, section 'Manual recovery'.")
+
+
 def test_deploy_happy_path(tmp_path, monkeypatch):
     ctx = ops_ctx(tmp_path, monkeypatch)
     deploy.deploy(ctx, "v2026.9.24")

@@ -36,6 +36,14 @@ def cctx(tmp_path, monkeypatch):
     return ctx, st
 
 
+def test_permanent_failure_text_names_the_app(cctx, monkeypatch):
+    ctx, st = cctx
+    monkeypatch.setattr(type(ctx.app), "title", "Demo")
+    ctx.rehearse_exc = Permanent("boom", ["x"])
+    check.check(ctx, st)
+    assert "Demo v2026.9.24 failed the rehearsal: boom." in ctx.notify.sent[-1].text
+
+
 def test_new_release_is_rehearsed(cctx):
     ctx, st = cctx
     check.check(ctx, st)

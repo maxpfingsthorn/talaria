@@ -84,7 +84,7 @@ The bot token is never typed into a chat or an agent. You store it yourself with
 
 | Telegram command | Effect |
 |---|---|
-| `/status` | Hermes version and state, free disk, pending update, interrupted change |
+| `/status` | Hermes version and state, free disk, data size, pending update, interrupted change |
 | `/check` | look for a release now |
 | `/approve <tag>` | deploy the pending update |
 | `/reject <tag>` | never offer this release again |

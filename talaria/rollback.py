@@ -63,7 +63,7 @@ def describe(ctx) -> str:
     st = state.load(ctx.paths)
     if needs_resume(ctx, st):
         return (f"The interrupted {st['op']['op']} left nothing to undo. Send /rollback CONFIRM "
-                "to start Hermes and check it.")
+                f"to start {ctx.app.title} and check it.")
     t = target(ctx, st)
     if not t:
         return "Nothing to roll back: no interrupted change and no previous deploy."
@@ -71,18 +71,19 @@ def describe(ctx) -> str:
     undo = ("" if marker.read(ctx.paths) else
             " Talaria first takes a pre-rollback backup, so this can be undone.")
     return (f"Rollback restores backup {b.id} ({age(ctx, b.meta['created'])} old) and "
-            f"Hermes {t[1].get('tag')}. Everything Hermes wrote since then is replaced.{undo}\n"
+            f"{ctx.app.title} {t[1].get('tag')}. Everything {ctx.app.title} wrote since then is "
+            f"replaced.{undo}\n"
             "Send /rollback CONFIRM to proceed.")
 
 
 def describe_buttons(ctx) -> list:
     st = state.load(ctx.paths)
     if needs_resume(ctx, st):
-        return [[("Start Hermes and check it", "rb:resume")]]
+        return [[(f"Start {ctx.app.title} and check it", "rb:resume")]]
     t = target(ctx, st)
     if not t:
         return []
-    return [[(f"Roll back to Hermes {t[1].get('tag')}", f"rb:{t[0]}:{stamp(ctx)}")]]
+    return [[(f"Roll back to {ctx.app.title} {t[1].get('tag')}", f"rb:{t[0]}:{stamp(ctx)}")]]
 
 
 def describe_restore_buttons(ctx, bid: str) -> list:
@@ -174,10 +175,12 @@ def rollback_cmd(ctx) -> None:
         except Exception as e:
             reason = str(e)
         if reason:
-            ctx.notify.send(Message(f"Recovery failed: {reason}. Hermes is stopped. {MANUAL}"))
+            ctx.notify.send(Message(f"Recovery failed: {reason}. {ctx.app.title} is stopped. "
+                                    f"{MANUAL}"))
         else:
-            ctx.notify.send(Message(f"Hermes {(st.get('current') or {}).get('tag')} is running "
-                                    f"again. The interrupted {op} had nothing left to undo."))
+            ctx.notify.send(Message(f"{ctx.app.title} {(st.get('current') or {}).get('tag')} is "
+                                    f"running again. The interrupted {op} had nothing left to "
+                                    "undo."))
         return
     try:
         reason, pre = rollback(ctx)
@@ -186,19 +189,21 @@ def rollback_cmd(ctx) -> None:
                                 "previous deploy."))
         return
     except Refused as e:
-        ctx.notify.send(Message(f"Rollback refused: {e}. Nothing was changed; Hermes is "
+        ctx.notify.send(Message(f"Rollback refused: {e}. Nothing was changed; {ctx.app.title} is "
                                 "running."))
         return
     except Exception as e:
-        ctx.notify.send(Message(f"Rollback failed: {e}. Hermes may be stopped. {MANUAL}"))
+        ctx.notify.send(Message(f"Rollback failed: {e}. {ctx.app.title} may be stopped. "
+                                f"{MANUAL}"))
         return
     if reason:
         keep = f" The data from before the rollback is in backup {pre}." if pre else ""
-        ctx.notify.send(Message(f"Rollback failed: {reason}. Hermes is stopped.{keep} {MANUAL}",
+        ctx.notify.send(Message(f"Rollback failed: {reason}. {ctx.app.title} is "
+                                f"stopped.{keep} {MANUAL}",
                                 commands=[f"/restore {pre} CONFIRM"] if pre else []))
         return
     tag = state.load(ctx.paths)["current"].get("tag")
-    ctx.notify.send(Message(f"Rolled back to Hermes {tag}.",
+    ctx.notify.send(Message(f"Rolled back to {ctx.app.title} {tag}.",
                             commands=[f"/restore {pre} CONFIRM"] if pre else []))
 
 
@@ -207,8 +212,9 @@ def describe_restore(ctx, bid: str) -> str:
         b = backup.get(ctx, bid)
     except KeyError:
         return f"No backup {bid}. /backups lists them."
-    return (f"Restore replaces all Hermes data with backup {b.id} "
-            f"({age(ctx, b.meta['created'])} old, Hermes {(b.meta.get('image') or {}).get('tag')}). "
+    return (f"Restore replaces all {ctx.app.title} data with backup {b.id} "
+            f"({age(ctx, b.meta['created'])} old, {ctx.app.title} "
+            f"{(b.meta.get('image') or {}).get('tag')}). "
             "Talaria first takes a pre-restore backup, so this can be undone.\n"
             f"Send /restore {b.id} CONFIRM to proceed.")
 
@@ -242,7 +248,7 @@ def restore_cmd(ctx, bid: str) -> None:
         st["op"] = None
         state.save(ctx.paths, st)
         ctx.notify.send(Message(f"Restore of {bid} failed before changing anything: {e}. "
-                                "Hermes was started again."))
+                                f"{ctx.app.title} was started again."))
         return
     st["op"]["changed"] = True
     state.save(ctx.paths, st)
@@ -250,13 +256,13 @@ def restore_cmd(ctx, bid: str) -> None:
     if reason:
         marker.write(ctx.paths, "restore", pre.id, old, ctx.now())
         again, _ = rollback(ctx)
-        tail = "Hermes reverted to the state before the restore." if again is None else \
-            f"Reverting failed too: {again}. Hermes is stopped. {MANUAL}"
+        tail = f"{ctx.app.title} reverted to the state before the restore." if again is None \
+            else f"Reverting failed too: {again}. {ctx.app.title} is stopped. {MANUAL}"
         ctx.notify.send(Message(f"Restore of {bid} failed: {reason}. {tail}"))
         return
     st = state.load(ctx.paths)
     st["op"] = None
     retention.apply(ctx, st)
     state.save(ctx.paths, st)
-    ctx.notify.send(Message(f"Restored backup {bid} (Hermes {image.get('tag')}).",
+    ctx.notify.send(Message(f"Restored backup {bid} ({ctx.app.title} {image.get('tag')}).",
                             commands=[f"/restore {pre.id} CONFIRM"]))

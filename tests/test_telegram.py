@@ -372,6 +372,16 @@ def pending(ctx, tag="v2026.9.24"):
     state.save(ctx.paths, st)
 
 
+def test_menu_descriptions_name_the_app(bot, monkeypatch):
+    ctx, api, b = bot
+    monkeypatch.setattr(type(ctx.app), "title", "Demo")
+    b.startup()
+    (params,) = calls(api, "setMyCommands")
+    descs = {c["command"]: c["description"] for c in params["commands"]}
+    assert descs["status"] == "Demo version, state, pending update"
+    assert descs["check"] == "Look for a new Demo release now"
+
+
 def test_startup_registers_command_menu_for_owner_only(bot):
     ctx, api, b = bot
     b.startup()

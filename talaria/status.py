@@ -17,19 +17,22 @@ def interrupted_text(ctx, st) -> str | None:
         return f"An operation is in progress: {what}."
     when = age(ctx, op["started"])
     if marker.read(ctx.paths):
-        return (f"Interrupted {what} ({when} ago). Hermes is stopped. "
+        return (f"Interrupted {what} ({when} ago). {ctx.app.title} is stopped. "
                 "Send /rollback CONFIRM to restore the state before it.")
     running = "running" if service.is_active(ctx) else "not running"
-    return (f"Interrupted {what} ({when} ago): Hermes is {running} but the change was not "
-            "verified. Send /rollback CONFIRM to recover.")
+    return (f"Interrupted {what} ({when} ago): {ctx.app.title} is {running} but the change was "
+            "not verified. Send /rollback CONFIRM to recover.")
 
 
 def status_text(ctx) -> str:
     st = state.load(ctx.paths)
     cur = st.get("current") or {}
     running = "running" if service.is_active(ctx) else "not running"
-    lines = [f"Hermes {cur.get('tag', 'unknown')} ({(cur.get('id') or '')[7:19]}), {running}.",
-             f"{disk.free_bytes(ctx.conf.data_dir) / disk.GB:.1f} GB free."]
+    free = disk.free_bytes(ctx.conf.data_dir) / disk.GB
+    size = disk.dir_size(ctx.conf.data_dir) / disk.GB
+    lines = [f"{ctx.app.title} {cur.get('tag', 'unknown')} ({(cur.get('id') or '')[7:19]}), "
+             f"{running}.",
+             f"{free:.1f} GB free, data {size:.2f} GB."]
     if st.get("pending"):
         t = st["pending"]["tag"]
         lines.append(f"Pending: {t}. /approve {t} · /reject {t}")
@@ -48,5 +51,6 @@ def backups_text(ctx) -> str:
         return "No backups yet."
     return "\n".join(
         f"{b.id}  {b.meta.get('label')}  {age(ctx, b.meta['created'])} old  "
-        f"{b.meta.get('size', 0) / disk.GB:.2f} GB  Hermes {(b.meta.get('image') or {}).get('tag')}"
+        f"{b.meta.get('size', 0) / disk.GB:.2f} GB  {ctx.app.title} "
+        f"{(b.meta.get('image') or {}).get('tag')}"
         for b in bs)

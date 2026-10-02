@@ -28,13 +28,13 @@ def _run_rehearsal(ctx, st, tag: str, commit: str) -> None:
     except Transient as e:
         reason = str(e)
         if (st.get("transient") or {}).get("reason") != reason:
-            ctx.notify.send(Message(f"Could not rehearse Hermes {tag}: {reason}. "
+            ctx.notify.send(Message(f"Could not rehearse {ctx.app.title} {tag}: {reason}. "
                                     "Talaria retries at the next check."))
         st["transient"] = {"tag": tag, "reason": reason}
     except Permanent as e:
         if tag not in st["failed"]:
             st["failed"].append(tag)
-        ctx.notify.send(Message(f"Hermes {tag} failed the rehearsal: {e}. "
+        ctx.notify.send(Message(f"{ctx.app.title} {tag} failed the rehearsal: {e}. "
                                 "Production was not touched.", untrusted=e.details))
 
 
