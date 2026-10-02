@@ -361,6 +361,12 @@ def test_unreadable_file_is_transient_and_cleaned_up(happy):
     assert not any(happy.paths.staging.iterdir())
 
 
+def test_pending_extra_colliding_with_a_core_key_raises(happy, monkeypatch):
+    monkeypatch.setattr(happy.app, "pending_extra", lambda report: {"tag": "sneaky"})
+    with pytest.raises(ValueError, match="tag"):
+        rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
+
+
 def test_candidate_message_has_buttons(happy):
     rehearse.rehearse(happy, st_with_current(), "v2026.9.24", "c0ffee")
     assert happy.notify.sent[-1].buttons == [[("Approve v2026.9.24", "ap:v2026.9.24"),

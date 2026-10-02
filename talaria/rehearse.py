@@ -111,5 +111,9 @@ def rehearse(ctx, st: dict, tag: str, commit: str) -> None:
         shutil.rmtree(stage, ignore_errors=True)
     old = st.get("pending")
     replaced = old["tag"] if old and old.get("tag") != tag else None
-    st["pending"] = {"tag": tag, "image": image, "report": report, **ctx.app.pending_extra(report)}
+    extra = ctx.app.pending_extra(report)
+    collide = {"tag", "image", "report"} & extra.keys()
+    if collide:
+        raise ValueError(f"app.pending_extra() overwrote core pending key(s): {sorted(collide)}")
+    st["pending"] = {"tag": tag, "image": image, "report": report, **extra}
     ctx.notify.send(candidate_message(ctx, st, report, replaced))
