@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from talaria import containers, images, tags, upstream
+from talaria import apps, containers, images, tags, upstream
 from talaria.conf import Conf
 from talaria.ctx import Ctx, Paths
 from talaria.shell import Shell
@@ -17,10 +17,11 @@ def img(tmp_path_factory):
     if os.environ.get("TALARIA_CONTRACT") != "1":
         pytest.skip("set TALARIA_CONTRACT=1")
     home = tmp_path_factory.mktemp("home")
-    ctx = Ctx(paths=Paths(home), conf=Conf(data_dir=home / "data"), sh=Shell(), notify=None)
+    ctx = Ctx(paths=Paths(home), conf=Conf(data_dir=home / "data"), sh=Shell(), notify=None,
+             app=apps.get("hermes"))
     git = upstream.git_release_tags(ctx.sh, ctx.conf.hermes_repo)
     reg = upstream.registry_tags(ctx.sh, ctx.conf.image)
-    tag = tags.pick_candidate(git, reg, None, set(), ctx.conf.min_release)   # F1, F3
+    tag = tags.pick_candidate(ctx.app, git, reg, None, set(), ctx.conf.min_release)   # F1, F3
     assert tag, "no release tag with a published image"
     rec = images.pull_verify(ctx, tag, git[tag])                             # F2
     return ctx, rec
