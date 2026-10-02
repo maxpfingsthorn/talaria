@@ -189,6 +189,28 @@ def test_several_installs_stop(svc, monkeypatch, capsys):
     assert out.count("FOUND:") == 2 and "--adopt" in out
 
 
+def test_adopt_flag_refused_when_app_cannot_adopt(svc, monkeypatch, capsys):
+    monkeypatch.setattr(type(svc.app), "can_adopt", False)
+    spy = []
+    monkeypatch.setattr(setup.adopt, "detect", lambda c: spy.append(1) or [])
+    rc = setup.service_phase(svc, args(as_service=True, adopt="hermes.service"))
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert out == "STOP: adopting is not supported for Hermes\n"
+    assert spy == []
+    assert svc.sh.calls == []
+
+
+def test_detection_skipped_when_app_cannot_adopt(svc, monkeypatch, capsys):
+    monkeypatch.setattr(type(svc.app), "can_adopt", False)
+    spy = []
+    monkeypatch.setattr(setup.adopt, "detect", lambda c: spy.append(1) or [])
+    rc = setup.service_phase(svc, args(as_service=True))
+    out = capsys.readouterr().out
+    assert spy == []                                  # detection itself was never called
+    assert rc == 0 and "no existing Hermes found: fresh install" in out
+
+
 def test_set_token_validates(monkeypatch, tmp_path, capsys):
     ctx = make_test_ctx(tmp_path)
     monkeypatch.setattr("sys.stdin", io.StringIO("not-a-token\n"))
