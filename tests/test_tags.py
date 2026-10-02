@@ -45,6 +45,25 @@ def test_hermes_tags_via_app():
     assert h.tag_key("v2026.9.24.2") == (2026, 9, 24, 2)
 
 
+def test_pick_candidate_orders_numerically_not_lexicographically():
+    h = apps.get("hermes")
+    # lexicographically "v2026.9.24" > "v2026.10.1" ('9' > '1'); numerically it's the reverse
+    git = ["v2026.9.24", "v2026.10.1"]
+    assert tags.pick_candidate(h, git, set(git), None, set(), "v2026.6.5") == "v2026.10.1"
+    # same trap with a release's optional suffix
+    git2 = ["v2026.9.24", "v2026.9.24.2"]
+    assert tags.pick_candidate(h, git2, set(git2), None, set(), "v2026.6.5") == "v2026.9.24.2"
+
+
+def test_pick_candidate_raises_for_a_non_release_current():
+    # main's behaviour: an odd state.json with a non-release current tag fails loudly
+    # rather than silently offering a possible downgrade.
+    h = apps.get("hermes")
+    git = ["v2026.8.3", "v2026.9.24"]
+    with pytest.raises(ValueError, match="not a release tag"):
+        tags.pick_candidate(h, git, set(git), "v1999.12.1", set(), "v2026.6.5")
+
+
 def test_pick_candidate_uses_the_apps_order():
     h = apps.get("hermes")
     git = {"v2026.9.7": "a", "v2026.9.24": "b", "v0.9.10": "c"}

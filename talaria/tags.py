@@ -25,8 +25,7 @@ def pick_candidate(app, git_tags: Iterable[str], published: set[str], current: s
     ok = [t for t in git_tags
           if app.is_release(t) and t in published and t not in excluded
           and app.tag_key(t) >= app.tag_key(floor)
-          and (current is None or not app.is_release(current)
-               or app.tag_key(t) > app.tag_key(current))]
+          and (current is None or app.tag_key(t) > app.tag_key(current))]
     return max(ok, key=app.tag_key) if ok else None
 
 
