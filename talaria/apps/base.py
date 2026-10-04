@@ -19,18 +19,22 @@ class App:
     backup_exclude: tuple = ()
     can_adopt = False
 
-    @staticmethod
-    def is_release(tag: str) -> bool:
+    def is_release(self, tag: str) -> bool:
         raise NotImplementedError
 
-    @staticmethod
-    def tag_key(tag: str) -> tuple:
+    def tag_key(self, tag: str) -> tuple:
         raise NotImplementedError
 
     def releases(self, ctx) -> dict:
         raise NotImplementedError
 
     def published(self, ctx, tags) -> set:
+        raise NotImplementedError
+
+    def image_refs(self, ctx) -> list[str]:
+        """Reference filters for `podman images`/`prune`. Never an empty string:
+        an unfiltered listing would reach every image the user has, including the
+        pinned base image."""
         raise NotImplementedError
 
     def fetch(self, ctx, tag: str, commit: str) -> dict:
@@ -42,8 +46,7 @@ class App:
     def health(self, ctx) -> str | None:
         raise NotImplementedError
 
-    @staticmethod
-    def data_version(data_dir) -> int | str | None:
+    def data_version(self, data_dir) -> int | str | None:
         raise NotImplementedError
 
     def rehearse(self, ctx, st: dict, image: dict, copy, stage) -> dict:
@@ -62,15 +65,15 @@ class App:
     def before_start(self, ctx, pending: dict) -> tuple[str | None, list]:
         """Runs in place while the deploy marker is set, before the app is started.
         Returns (failure reason or None, untrusted details)."""
-        raise NotImplementedError
+        return None, []
 
     def after_start(self, ctx, pending: dict) -> str | None:
         """Extra check after service.post_start_check passes. Returns a failure reason or None."""
-        raise NotImplementedError
+        return None
 
     def quadlet_vars(self, ctx) -> dict:
         """Template variables for this app's quadlet, beyond the shared ones."""
-        raise NotImplementedError
+        return {}
 
     def prepare(self, ctx) -> list[str]:
         """Create any missing secrets (never overwrite). Returns OK-line texts to print."""

@@ -172,6 +172,20 @@ def test_fresh_image_below_floor_only(s, monkeypatch, capsys):
     assert rc == 1 and "STOP: no Hermes release image found" in out
 
 
+def test_fresh_image_transient_fetch_failure_stops_cleanly(s, monkeypatch, capsys):
+    from talaria import rehearse
+    monkeypatch.setattr(s.app, "releases", lambda c: {"v2026.9.24": "c"})
+    monkeypatch.setattr(s.app, "published", lambda c, tags: {"v2026.9.24"})
+
+    def fetch(c, t, commit):
+        raise rehearse.Transient("release assets of v2026.9.24 are not published yet")
+    monkeypatch.setattr(s.app, "fetch", fetch)
+    rc, out, cmds = run(s, capsys)
+    assert rc == 1
+    assert out == NEW + PW + PAIR + PAIRED + \
+        "STOP: release assets of v2026.9.24 are not published yet\n"
+
+
 def test_adopt_unknown_exact(s, capsys):
     rc, out, cmds = run(s, capsys, adopt="x.service")
     assert (rc, out, cmds) == (1, "STOP: no Hermes install with unit x.service\n", [])

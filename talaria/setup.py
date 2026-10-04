@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from talaria import adopt, images, lock, service, state, telegram, units
+from talaria import adopt, images, lock, rehearse, service, state, telegram, units
 from talaria.conf import load_conf, write_env_value
 from talaria.disk import NOT_RENAMABLE, renamable
 from talaria.notify import ApiError, TelegramAPI
@@ -158,7 +158,11 @@ def _fresh_image(ctx, st) -> bool:
     if not tag:
         say("STOP", f"no {ctx.app.title} release image found")
         return False
-    st["current"] = ctx.app.fetch(ctx, tag, git[tag])
+    try:
+        st["current"] = ctx.app.fetch(ctx, tag, git[tag])
+    except rehearse.Transient as e:
+        say("STOP", str(e))
+        return False
     state.save(ctx.paths, st)
     ctx.conf.data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     say("OK", f"{ctx.app.title} {tag} pulled and verified")

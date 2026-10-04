@@ -72,6 +72,22 @@ def http_get(url: str, timeout: float = 5.0) -> tuple[int, bytes]:
         return 0, b""
 
 
+def download(url: str, dest: Path, max_bytes: int) -> int:
+    try:
+        with urllib.request.urlopen(url, timeout=60) as r, open(dest, "wb") as f:
+            n = 0
+            while chunk := r.read(1 << 20):
+                n += len(chunk)
+                if n > max_bytes:
+                    raise OSError(f"{url} is larger than {max_bytes} bytes")
+                f.write(chunk)
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except (urllib.error.URLError, TimeoutError):
+        return 0
+
+
 @dataclass
 class Ctx:
     paths: Paths
@@ -81,6 +97,7 @@ class Ctx:
     sleep: Callable[[float], None] = time.sleep
     now: Callable[[], datetime] = _utcnow
     http_get: Callable[[str, float], tuple[int, bytes]] = http_get
+    download: Callable[[str, Path, int], int] = download
     app: object = None
 
 

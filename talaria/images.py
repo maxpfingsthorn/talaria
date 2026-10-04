@@ -54,15 +54,22 @@ def retag(ctx, name: str, rec: dict) -> None:
 
 def prune(ctx, keep: list) -> list[str]:
     keep_ids = {r["id"] for r in keep if r}
-    listed = json.loads(ctx.sh.run(["podman", "images", "--format", "json",
-                                    "--filter", f"reference={ctx.conf.image}"]).stdout or "[]")
     removed = []
-    for img in listed:
-        iid = img["Id"]  # `podman images` omits the sha256: prefix that `inspect` has
-        if iid in keep_ids or f"sha256:{iid}" in keep_ids:
+    seen = set()
+    for ref in ctx.app.image_refs(ctx):
+        if not ref:   # never list/prune with an empty filter: that would hit every image
             continue
-        ctx.sh.run(["podman", "rmi", iid], check=False)
-        removed.append(iid)
+        listed = json.loads(ctx.sh.run(["podman", "images", "--format", "json",
+                                        "--filter", f"reference={ref}"]).stdout or "[]")
+        for img in listed:
+            iid = img["Id"]  # `podman images` omits the sha256: prefix that `inspect` has
+            if iid in seen:
+                continue
+            seen.add(iid)
+            if iid in keep_ids or f"sha256:{iid}" in keep_ids:
+                continue
+            ctx.sh.run(["podman", "rmi", iid], check=False)
+            removed.append(iid)
     return removed
 
 

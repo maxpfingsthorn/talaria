@@ -65,14 +65,20 @@ class Hermes(App):
     backup_exclude = (".cache", ".npm", "home/.cache", "home/.npm", "backups")
     can_adopt = True
 
-    is_release = staticmethod(tags.is_release)
-    tag_key = staticmethod(tags.key)
+    def is_release(self, tag: str) -> bool:
+        return tags.is_release(tag)
+
+    def tag_key(self, tag: str) -> tuple:
+        return tags.key(tag)
 
     def releases(self, ctx) -> dict:
         return git_release_tags(ctx.sh, ctx.conf.hermes_repo)
 
     def published(self, ctx, tags) -> set:
         return registry_tags(ctx.sh, ctx.conf.image, ctx.conf.registry_tls_verify)
+
+    def image_refs(self, ctx) -> list[str]:
+        return [ctx.conf.image]
 
     def fetch(self, ctx, tag: str, commit: str) -> dict:
         return pull_verify(ctx, tag, commit)
@@ -95,8 +101,7 @@ class Hermes(App):
             pass
         return "/api/status does not report auth_required: true"
 
-    @staticmethod
-    def data_version(data_dir) -> int | None:
+    def data_version(self, data_dir) -> int | None:
         cfg = Path(data_dir) / "config.yaml"
         if cfg.is_symlink():
             return None
@@ -162,12 +167,6 @@ class Hermes(App):
             return (f"config version {mig['after']}, expected {pending['cfg_after']} "
                     "from the rehearsal"), mig["messages"]
         return None, []
-
-    def after_start(self, ctx, pending: dict) -> str | None:
-        return None
-
-    def quadlet_vars(self, ctx) -> dict:
-        return {}
 
     def prepare(self, ctx) -> list[str]:
         env = parse_kv(ctx.paths.app_env.read_text()) if ctx.paths.app_env.exists() else {}

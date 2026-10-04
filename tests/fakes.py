@@ -68,6 +68,7 @@ def make_test_ctx(tmp_path, app="hermes", **overrides) -> Ctx:
     home.mkdir(exist_ok=True)
     paths = Paths(home, app)
     conf = load_conf(paths)
+    conf.app = app
     conf.disk_floor_gb = 0          # tests must not depend on the real disk's free space
     for k, v in overrides.items():
         setattr(conf, k, v)

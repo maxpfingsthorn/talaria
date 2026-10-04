@@ -167,6 +167,17 @@ def test_prune_empty_listing(tmp_path):
     assert images.prune(ctx, []) == []
 
 
+def test_prune_is_app_aware_for_clawvisor(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.sh.on("podman", "images", out=json.dumps([{"Id": "old"}, {"Id": "keep"}]))
+    ctx.sh.on("podman", "rmi")
+    removed = images.prune(ctx, [{"id": "keep"}])
+    assert removed == ["old"]
+    assert ctx.sh.calls[0] == ["podman", "images", "--format", "json", "--filter",
+                               "reference=localhost/clawvisor"]
+    assert ctx.sh.called("podman", "rmi") == [["podman", "rmi", "old"]]
+
+
 def test_local_record_exact(tmp_path):
     ctx = make_test_ctx(tmp_path)
     ctx.sh.on("podman", "image", "inspect", out=json.dumps(

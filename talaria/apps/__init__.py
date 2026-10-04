@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from talaria.apps.base import App
 
-NAMES = ("hermes",)
+NAMES = ("hermes", "clawvisor")
 
 
 def get(name: str) -> App:
     if name == "hermes":
         from talaria.apps.hermes import APP
+        return APP
+    if name == "clawvisor":
+        from talaria.apps.clawvisor import APP
         return APP
     raise ValueError(f"unknown app: {name!r}")
