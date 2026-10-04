@@ -160,7 +160,7 @@ def _fresh_image(ctx, st) -> bool:
         return False
     try:
         st["current"] = ctx.app.fetch(ctx, tag, git[tag])
-    except rehearse.Transient as e:
+    except (rehearse.Transient, rehearse.Permanent, images.RevisionMismatch) as e:
         say("STOP", str(e))
         return False
     state.save(ctx.paths, st)

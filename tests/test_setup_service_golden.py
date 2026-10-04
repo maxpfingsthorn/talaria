@@ -4,6 +4,7 @@ import pytest
 from talaria import lock, setup, state
 from talaria.adopt import Found, Plan
 from talaria.conf import parse_kv
+from tests.fakes import make_test_ctx
 from tests.test_setup import args, svc  # noqa: F401  (fixture)
 
 H = "~H"
@@ -184,6 +185,31 @@ def test_fresh_image_transient_fetch_failure_stops_cleanly(s, monkeypatch, capsy
     assert rc == 1
     assert out == NEW + PW + PAIR + PAIRED + \
         "STOP: release assets of v2026.9.24 are not published yet\n"
+
+
+def test_fresh_image_clawvisor_oversized_asset_stops_without_traceback(tmp_path, monkeypatch,
+                                                                       capsys):
+    """images.RevisionMismatch (raised by Clawvisor.fetch for an oversized or
+    checksum-mismatched asset) must stop _fresh_image cleanly too, not just
+    rehearse.Transient."""
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.conf.min_release = "v0.9.9"
+    monkeypatch.setattr(ctx.app, "releases", lambda c: {"v0.9.10": "abc"})
+    monkeypatch.setattr(ctx.app, "published", lambda c, tags: set(tags))
+    ctx.sh.on("uname", "-m", out="x86_64\n")
+
+    def oversized_download(url, dest, max_bytes):
+        raise OSError(f"{url} is larger than {max_bytes} bytes")
+    ctx.download = oversized_download
+    st = state.load(ctx.paths)
+    ok = setup._fresh_image(ctx, st)
+    out = capsys.readouterr().out
+    assert ok is False
+    assert out == ("STOP: v0.9.10: checksums.txt exceeds the 1048576-byte download limit "
+                   "(https://github.com/NousResearch/hermes-agent/releases/download/v0.9.10/"
+                   "checksums.txt is larger than 1048576 bytes)\n")
+    assert ctx.sh.called("podman", "build") == []
+    assert state.load(ctx.paths)["current"] is None
 
 
 def test_adopt_unknown_exact(s, capsys):
