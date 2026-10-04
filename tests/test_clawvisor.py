@@ -65,3 +65,24 @@ def test_binary_version_must_match_the_tag(tmp_path):
     ctx.sh.on("podman", "run", out="clawvisor-server 0.9.9\n")
     with pytest.raises(RevisionMismatch, match="reports version 0.9.9"):
         ctx.app.fetch(ctx, "v0.9.10", "abc")
+
+
+def test_oversized_asset_is_permanent_not_a_traceback(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.sh.on("uname", "-m", out="x86_64\n")
+
+    def download(url, dest, max_bytes):
+        raise OSError(f"{url} is larger than {max_bytes} bytes")
+    ctx.download = download
+    with pytest.raises(RevisionMismatch, match="checksums.txt exceeds the 1048576-byte"
+                                                " download limit"):
+        ctx.app.fetch(ctx, "v0.9.10", "abc")
+    assert ctx.sh.called("podman", "build") == []
+
+
+def test_network_error_during_download_is_still_transient(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.sh.on("uname", "-m", out="x86_64\n")
+    ctx.download = lambda url, dest, max_bytes: 0   # e.g. a DNS failure or connection refused
+    with pytest.raises(rehearse.Transient, match="release assets of v0.9.10 are not published yet"):
+        ctx.app.fetch(ctx, "v0.9.10", "abc")

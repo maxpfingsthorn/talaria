@@ -5,6 +5,18 @@ from talaria.conf import load_conf
 from talaria.ctx import Paths
 
 
+def test_base_class_defaults():
+    from talaria.apps.base import App
+
+    class Minimal(App):
+        name = "minimal"
+
+    app = Minimal()
+    assert app.after_start(None, {}) is None
+    assert app.quadlet_vars(None) == {}
+    assert app.before_start(None, {}) == (None, [])
+
+
 def test_registry():
     h = apps.get("hermes")
     assert (h.name, h.title, h.unit, h.container) == ("hermes", "Hermes", "hermes.service", "hermes")

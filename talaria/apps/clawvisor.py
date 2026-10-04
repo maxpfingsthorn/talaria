@@ -17,6 +17,17 @@ ARCH = {"x86_64": "amd64", "aarch64": "arm64"}
 MAX_BINARY = 300 * 1024 * 1024
 
 
+def _get(ctx, url: str, dest, max_bytes: int, tag: str, label: str) -> int:
+    """ctx.download, with an oversized asset treated as a bad publish (Permanent) rather
+    than a transient network error: a release's assets are immutable once published, so
+    retrying tomorrow would just re-download the same oversized file and crash again."""
+    try:
+        return ctx.download(url, dest, max_bytes)
+    except OSError as e:
+        raise RevisionMismatch(
+            f"{tag}: {label} exceeds the {max_bytes}-byte download limit ({e})") from None
+
+
 class Clawvisor(App):
     name = "clawvisor"
     title = "Clawvisor"
@@ -63,8 +74,10 @@ class Clawvisor(App):
         ensure_dir(ctx.paths.staging)
         work.mkdir(mode=0o700)
         try:
-            if ctx.download(f"{base}/checksums.txt", work / "checksums.txt", 1 << 20) != 200 \
-                    or ctx.download(f"{base}/{asset}", work / "clawvisor-server", MAX_BINARY) != 200:
+            if _get(ctx, f"{base}/checksums.txt", work / "checksums.txt", 1 << 20,
+                    tag, "checksums.txt") != 200 \
+                    or _get(ctx, f"{base}/{asset}", work / "clawvisor-server", MAX_BINARY,
+                            tag, asset) != 200:
                 raise Transient(f"release assets of {tag} are not published yet")
             want = {l.split()[-1]: l.split()[0] for l in
                     (work / "checksums.txt").read_text().splitlines() if len(l.split()) == 2}
