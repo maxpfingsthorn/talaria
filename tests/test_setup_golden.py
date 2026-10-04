@@ -25,7 +25,7 @@ UPDATE = [
 ]
 HANDOFF = SUDO + ["XDG_RUNTIME_DIR=/run/user/1001",
                   "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus",
-                  "/home/hermes/.local/bin/talaria", "setup", "--as-service"]
+                  "/home/hermes/.local/bin/talaria", "setup", "--as-service", "--app", "hermes"]
 ROOT_TAIL = ("loginctl enable-linger hermes\n"
              "echo 'admin ALL=(hermes) NOPASSWD: ALL' > /etc/sudoers.d/talaria-hermes\n"
              "chmod 440 /etc/sudoers.d/talaria-hermes\n"

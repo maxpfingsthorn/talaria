@@ -47,6 +47,11 @@ bin/talaria setup --user hermes          # run again until it prints DONE
 if it does not exist. Clone over https as shown: setup installs Talaria for the service
 user from your checkout's origin, and that user has no SSH key.
 
+`--app hermes|clawvisor` picks which app to manage (default `hermes`; the account
+defaults to the app's own name, e.g. `clawvisor`, unless `--user` says otherwise). Once
+`talaria.conf` exists, its `app` wins: re-running setup with a different `--app` stops
+with an error instead of silently switching apps.
+
 Setup never guesses. Each run does what it can and stops at the next thing only you
 can do:
 

@@ -264,3 +264,66 @@ def test_quadlet(tmp_path):
                  "PublishPort=100.64.0.1:25297:25297", "Environment=CLAWVISOR_AUTO_UPDATE_ENABLED=false",
                  f"EnvironmentFile={ctx.paths.app_env}"):
         assert f"\n{line}\n" in q
+
+
+def test_quadlet_environment_keys_match_the_rehearsal_env(tmp_path):
+    """The template's Environment= lines and the rehearsal's ENV list must name the same
+    variables, so a rehearsal keeps testing what production actually runs with."""
+    from talaria.apps.clawvisor import ENV
+    from talaria.ctx import Paths
+    text = (Paths.templates_dir / "clawvisor.container").read_text()
+    template_keys = {
+        pair.split("=", 1)[0]
+        for line in text.splitlines() if line.startswith("Environment=")
+        for pair in line[len("Environment="):].split()
+    }
+    env_keys = {e.split("=", 1)[0] for e in ENV}
+    assert template_keys == env_keys
+
+
+def test_health_rejects_non_object_json(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    for body in (b"[]", b"null", b'"ok"', b"42"):
+        ctx.http_get = lambda url, t, body=body: (200, body)
+        assert ctx.app.health(ctx) == "/ready did not answer a JSON object"
+
+
+def test_after_start_distinguishes_unreadable_db_from_empty(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    (ctx.conf.data_dir / "clawvisor.db").write_bytes(b"not a sqlite database at all")
+    reason = ctx.app.after_start(ctx, {"migrations_after": 2})
+    assert reason is not None
+    assert reason.startswith("could not read migrations: ")
+    assert "0 migrations" not in reason
+
+
+def test_after_start_missing_db_is_not_an_error(tmp_path):
+    """No clawvisor.db yet (e.g. a rehearsal that ran before the first real start) is a
+    normal empty state, not a read error."""
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    assert ctx.app.after_start(ctx, {"migrations_after": 0}) is None
+    assert ctx.app.after_start(ctx, {"migrations_after": 1}) == (
+        "the database has 0 migrations, the rehearsal expected 1")
+
+
+def test_vault_key_write_failure_leaves_no_empty_file(tmp_path, monkeypatch):
+    """base64.b64encode is specific to the vault-key write (the JWT secret uses
+    secrets.token_hex instead), so patching it only breaks that one step."""
+    from talaria.apps import clawvisor as cv
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    monkeypatch.setattr(cv.base64, "b64encode",
+                        lambda b: (_ for _ in ()).throw(OSError("disk full")))
+    with pytest.raises(OSError, match="disk full"):
+        ctx.app.prepare(ctx)
+    assert not (ctx.conf.data_dir / "vault.key").exists()
+    monkeypatch.undo()
+    # a later prepare(), once the disk has room again, can still create a real key
+    ctx.app.prepare(ctx)
+    assert len((ctx.conf.data_dir / "vault.key").read_text().strip()) == 44
+
+
+def test_prepare_refuses_an_existing_empty_vault_key(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    (ctx.conf.data_dir / "vault.key").touch()
+    with pytest.raises(ValueError, match="exists but is empty"):
+        ctx.app.prepare(ctx)

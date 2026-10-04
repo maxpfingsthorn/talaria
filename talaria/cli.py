@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 import traceback
 
@@ -42,6 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--user")
     s.add_argument("--adopt", metavar="UNIT")
     s.add_argument("--dev", action="store_true")
+    s.add_argument("--app", help="hermes (default) or clawvisor")
     s.add_argument("--as-service", action="store_true", help=argparse.SUPPRESS)
     sub.add_parser("set-token")
     c = sub.add_parser("check")
@@ -80,9 +82,16 @@ def login_link(ctx) -> int:
     if not sys.stdout.isatty():
         print("run this in your own terminal", file=sys.stderr)
         return 1
-    out = ctx.sh.run(["podman", "exec", ctx.app.container, "/clawvisor-server",
-                      "dashboard", "--no-open"]).stdout.strip()
-    print(out.replace("http://localhost:", f"http://{ctx.conf.bind_ip}:"))
+    try:
+        r = ctx.sh.run(["podman", "exec", ctx.app.container, "/clawvisor-server",
+                        "dashboard", "--no-open"], check=False, timeout=30)
+    except subprocess.TimeoutExpired:
+        print("STOP: podman exec timed out", file=sys.stderr)
+        return 1
+    if r.returncode != 0:
+        print("STOP: could not get a login link from Clawvisor", file=sys.stderr)
+        return 1
+    print(r.stdout.strip().replace("http://localhost:", f"http://{ctx.conf.bind_ip}:"))
     return 0
 
 

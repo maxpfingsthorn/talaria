@@ -12,7 +12,7 @@ from tests.fakes import FakeShell, make_test_ctx
 
 
 def args(**kw):
-    base = dict(plan=False, user=None, adopt=None, dev=False, as_service=False)
+    base = dict(plan=False, user=None, adopt=None, dev=False, app=None, as_service=False)
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -108,7 +108,8 @@ def test_installs_and_hands_over(monkeypatch, tmp_path):
     argv = calls[0]
     assert argv[:5] == ["sudo", "-n", "-u", "hermes", "-H"]
     assert "XDG_RUNTIME_DIR=/run/user/1001" in argv
-    assert argv[-4:] == ["setup", "--as-service", "--adopt", "hermes-gateway.service"]
+    assert argv[-6:] == ["setup", "--as-service", "--app", "hermes", "--adopt",
+                         "hermes-gateway.service"]
 
 
 def test_plan_changes_nothing(monkeypatch, tmp_path, capsys):
@@ -129,6 +130,72 @@ def test_plan_names_the_app_passed_in(monkeypatch, tmp_path, capsys):
     out = capsys.readouterr().out
     assert ("then: detect Clawvisor (fresh or adopt), secrets, Telegram bot token and "
             "pairing, units, start Clawvisor, verify") in out
+
+
+def test_operator_phase_rejects_an_unknown_app(tmp_path, capsys):
+    rc = setup.operator_phase(FakeShell(), args(), getpwnam=lambda n: PW, operator="admin",
+                              app="bogus")
+    assert rc == 1
+    assert capsys.readouterr().out == (
+        "STOP: unknown app: 'bogus'; choose one of hermes, clawvisor\n")
+
+
+def test_setup_dispatch_rejects_an_unknown_app_before_doing_anything(capsys):
+    assert setup.setup(args(app="bogus")) == 1
+    assert capsys.readouterr().out == (
+        "STOP: unknown app: 'bogus'; choose one of hermes, clawvisor\n")
+
+
+def test_setup_dispatch_rejects_an_unknown_app_as_service_too(capsys):
+    assert setup.setup(args(app="bogus", as_service=True)) == 1
+    assert capsys.readouterr().out == (
+        "STOP: unknown app: 'bogus'; choose one of hermes, clawvisor\n")
+
+
+def test_clawvisor_default_account_name_and_plan_text(monkeypatch, tmp_path, capsys):
+    """With no --user, the account to create/use follows the chosen app."""
+    monkeypatch.setattr(setup, "which", lambda t: f"/usr/bin/{t}")
+    sh = FakeShell()
+    sh.on("sudo")
+    sh.on("podman", "--version", out="podman version 4.9.3\n")
+    sh.on("getenforce", out="Permissive\n")
+    sh.on("git", "-C", str(setup.REPO), "describe", out="v0.1.0\n")
+    sh.on("git", "-C", str(setup.REPO), "remote", out="https://github.com/o/talaria\n")
+    ld = tmp_path / "linger"
+    ld.mkdir()
+    (ld / "clawvisor").touch()
+    rc = setup.operator_phase(sh, args(plan=True), getpwnam=lambda n: PW, operator="admin",
+                              linger_dir=ld, app="clawvisor")
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "install Talaria v0.1.0 for clawvisor from" in out
+
+
+def test_clawvisor_handoff_carries_the_app_flag(monkeypatch, tmp_path):
+    monkeypatch.setattr(setup, "which", lambda t: f"/usr/bin/{t}")
+    sh = FakeShell()
+    sh.on("sudo")
+    sh.on("podman", "--version", out="podman version 4.9.3\n")
+    sh.on("getenforce", out="Permissive\n")
+    sh.on("git", "-C", str(setup.REPO), "describe", out="v0.1.0\n")
+    sh.on("git", "-C", str(setup.REPO), "remote", out="https://github.com/o/talaria\n")
+    ld = tmp_path / "linger"
+    ld.mkdir()
+    (ld / "clawvisor").touch()
+    calls = []
+    rc = setup.operator_phase(sh, args(), getpwnam=lambda n: PW, operator="admin",
+                              call=lambda argv: calls.append(argv) or 0, linger_dir=ld,
+                              app="clawvisor")
+    assert rc == 0
+    assert calls[0][-3:] == ["--as-service", "--app", "clawvisor"]
+
+
+def test_hermes_handoff_still_carries_its_own_app_flag(monkeypatch, tmp_path):
+    """Hermes's handoff now names its app explicitly too, so a re-run can always detect a
+    contradiction with an existing talaria.conf."""
+    sh, run, calls = op_env(monkeypatch, tmp_path)
+    assert run(args(user="hermes")) == 0
+    assert calls[0][-3:] == ["--as-service", "--app", "hermes"]
 
 
 # ---- service phase ----
@@ -250,7 +317,7 @@ def test_handoff_drops_callers_xdg_dirs(monkeypatch, tmp_path):
 
 def test_setup_leaves_callers_cwd(monkeypatch, tmp_path):
     seen = []
-    monkeypatch.setattr(setup, "operator_phase", lambda sh, a: seen.append(os.getcwd()) or 0)
+    monkeypatch.setattr(setup, "operator_phase", lambda sh, a, **kw: seen.append(os.getcwd()) or 0)
     monkeypatch.chdir(tmp_path)
     assert setup.setup(args()) == 0
     assert seen == ["/"]      # the service user may not be able to enter the caller's cwd

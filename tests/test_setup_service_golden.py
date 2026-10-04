@@ -222,6 +222,49 @@ def test_clawvisor_plan_text_uses_secrets_not_dashboard_password(tmp_path, capsy
                    "Clawvisor, verify\n")
 
 
+def test_clawvisor_fresh_install_writes_app_into_conf(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    rc = setup.service_phase(ctx, args(as_service=True, plan=True))
+    assert rc == 0
+    assert ctx.paths.conf_file.read_text() == (
+        "# Talaria settings; see README.\napp = clawvisor\ndata_dir = ~/clawvisor-data\n")
+
+
+def test_prepare_value_error_stops_cleanly_no_traceback(tmp_path, capsys):
+    """prepare()'s refusal to invent a vault.key over an existing database must reach the
+    operator as a STOP line, not a Python traceback."""
+    from tests.test_clawvisor import make_db
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    make_db(ctx.conf.data_dir / "clawvisor.db", ["001_init.sql"])
+    rc = setup.service_phase(ctx, args(as_service=True))
+    out = capsys.readouterr().out
+    key = ctx.conf.data_dir / "vault.key"
+    assert rc == 1
+    assert out == ("OK: no existing Clawvisor found: fresh install\n"
+                   f"STOP: {key} is missing but a database exists; restore the key from a "
+                   "backup instead of generating a new one\n")
+
+
+def test_app_flag_contradicting_existing_conf_stops(tmp_path, capsys):
+    ctx = make_test_ctx(tmp_path, app="hermes")
+    ctx.paths.conf_file.parent.mkdir(parents=True, exist_ok=True)
+    ctx.paths.conf_file.write_text("app = hermes\ndata_dir = ~/hermes-data\n")
+    rc = setup.service_phase(ctx, args(as_service=True, app="clawvisor"))
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert out == (f"STOP: {ctx.paths.conf_file} already selects app = hermes; --app "
+                   "clawvisor contradicts it; omit --app to keep the existing app, or edit "
+                   "talaria.conf by hand\n")
+
+
+def test_app_flag_matching_existing_conf_proceeds(tmp_path, capsys):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.paths.conf_file.parent.mkdir(parents=True, exist_ok=True)
+    ctx.paths.conf_file.write_text("app = clawvisor\ndata_dir = ~/clawvisor-data\n")
+    rc = setup.service_phase(ctx, args(as_service=True, plan=True, app="clawvisor"))
+    assert rc == 0
+
+
 def test_clawvisor_setup_never_calls_stopped_quadlets(tmp_path, monkeypatch, capsys):
     """Clawvisor only supports fresh installs (can_adopt = False): service_phase must not
     even look for a foreign Quadlet to adopt."""

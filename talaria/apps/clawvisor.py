@@ -45,6 +45,19 @@ def migrations(db) -> list[str]:
         c.close()
 
 
+def _migrations_or_raise(db) -> list[str]:
+    """Like migrations(), but lets a sqlite3.Error through instead of treating it as an
+    empty list: after_start needs to tell "couldn't read the table" apart from "genuinely
+    no migrations yet" (the latter is normal before the very first start)."""
+    if not db.is_file() or db.is_symlink():
+        return []
+    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        return [r[0] for r in c.execute("select name from schema_migrations order by name")]
+    finally:
+        c.close()
+
+
 def _redact(ctx, copy, text: str) -> str:
     """Replace secret values with '***' before they can reach Permanent.details, which
     check.py forwards unchanged to Telegram: the real app_env (mounted into the rehearsal
@@ -211,11 +224,16 @@ class Clawvisor(App):
             r = json.loads(body)
         except ValueError:
             return "/ready did not answer JSON"
+        if not isinstance(r, dict):
+            return "/ready did not answer a JSON object"
         bad = [f"{k} {r.get(k)}" for k in ("status", "db", "vault") if r.get(k) != "ok"]
         return f"/ready reports {', '.join(bad)}" if bad else None
 
     def after_start(self, ctx, pending: dict) -> str | None:
-        n = len(migrations(ctx.conf.data_dir / "clawvisor.db"))
+        try:
+            n = len(_migrations_or_raise(ctx.conf.data_dir / "clawvisor.db"))
+        except sqlite3.Error as e:
+            return f"could not read migrations: {e}"
         want = pending.get("migrations_after")
         if want is not None and n != want:
             return f"the database has {n} migrations, the rehearsal expected {want}"
@@ -241,9 +259,18 @@ class Clawvisor(App):
                 raise ValueError(f"{key} is missing but a database exists; restore the key "
                                  "from a backup instead of generating a new one")
             fd = os.open(key, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "w") as f:
-                f.write(base64.b64encode(_secrets.token_bytes(32)).decode() + "\n")
+            try:
+                with os.fdopen(fd, "w") as f:
+                    f.write(base64.b64encode(_secrets.token_bytes(32)).decode() + "\n")
+            except BaseException:
+                # an interrupted write (e.g. disk full) must never leave an empty key behind
+                # for the next prepare() to mistake for a real one
+                key.unlink(missing_ok=True)
+                raise
             out.append(f"vault key generated in {key}")
+        elif not key.read_bytes().strip():
+            raise ValueError(f"{key} exists but is empty; a previous write may have failed. "
+                             "Restore it from a backup, or remove it to generate a new one.")
         return out
 
     def ready_text(self, ctx) -> str:

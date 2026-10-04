@@ -71,6 +71,32 @@ def test_login_link_prints_the_link_with_the_bind_ip(tmp_path, monkeypatch, caps
                          "--no-open")
 
 
+def test_login_link_refuses_on_a_failed_podman_exec_without_echoing_stdout(tmp_path, monkeypatch,
+                                                                           capsys):
+    import sys
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.sh.on("podman", "exec", rc=1,
+             out="Open this link: http://localhost:25297/login?token=SECRET\n")
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    rc = cli.main(["login-link"], make=lambda: ctx)
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert err == "STOP: could not get a login link from Clawvisor\n"
+    assert "SECRET" not in err and "localhost" not in err
+
+
+def test_login_link_refuses_on_a_timeout(tmp_path, monkeypatch, capsys):
+    import sys
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.sh.on("podman", "exec",
+             fn=lambda argv, input: (_ for _ in ()).throw(
+                 subprocess.TimeoutExpired(cmd=argv, timeout=30)))
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    rc = cli.main(["login-link"], make=lambda: ctx)
+    assert rc == 1
+    assert capsys.readouterr().err == "STOP: podman exec timed out\n"
+
+
 @not_under_mutmut
 def test_bin_wrapper_ignores_callers_cwd(tmp_path):
     fake = tmp_path / "talaria"

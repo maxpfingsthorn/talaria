@@ -95,10 +95,11 @@ def parse(*argv):
 
 def test_parser_setup_flags():
     assert parse("setup") == {"cmd": "setup", "plan": False, "user": None, "adopt": None,
-                              "dev": False, "as_service": False}
+                              "dev": False, "app": None, "as_service": False}
     assert parse("setup", "--plan", "--user", "h", "--adopt", "u.service", "--dev",
-                 "--as-service") == {"cmd": "setup", "plan": True, "user": "h",
-                                     "adopt": "u.service", "dev": True, "as_service": True}
+                 "--app", "clawvisor", "--as-service") == {
+        "cmd": "setup", "plan": True, "user": "h", "adopt": "u.service", "dev": True,
+        "app": "clawvisor", "as_service": True}
 
 
 @pytest.mark.parametrize("argv,expected", [

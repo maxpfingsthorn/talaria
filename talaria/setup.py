@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from talaria import adopt, images, lock, rehearse, service, state, telegram, units
+from talaria import adopt, apps, images, lock, rehearse, service, state, telegram, units
 from talaria.conf import load_conf, write_env_value
 from talaria.disk import NOT_RENAMABLE, renamable
 from talaria.notify import ApiError, TelegramAPI
@@ -79,10 +79,12 @@ def install_url(url: str) -> str | None:
 
 def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subprocess.call,
                    linger_dir=Path("/var/lib/systemd/linger"), app="hermes") -> int:
-    from talaria import apps as _apps
-    A = _apps.get(app)
+    if app not in apps.NAMES:
+        say("STOP", f"unknown app: {app!r}; choose one of {', '.join(apps.NAMES)}")
+        return 1
+    A = apps.get(app)
     operator = operator or getpass.getuser()
-    user = args.user or "hermes"
+    user = args.user or app
     for name in (user, operator):
         if not NAME_RE.match(name):
             say("STOP", f"not a valid account name: {name!r}")
@@ -147,7 +149,7 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
     sh.run(sudo + ["mkdir", "-p", f"{home}/.local/bin"])
     sh.run(sudo + ["ln", "-sfn", f"{install}/bin/talaria", f"{home}/.local/bin/talaria"])
     say("OK", f"Talaria {ref} installed for {user}")
-    rest = ["--adopt", args.adopt] if args.adopt else []
+    rest = ["--app", app] + (["--adopt", args.adopt] if args.adopt else [])
     return call(sudo + [f"XDG_RUNTIME_DIR=/run/user/{pw.pw_uid}",
                         f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{pw.pw_uid}/bus",
                         f"{home}/.local/bin/talaria", "setup", "--as-service", *rest])
@@ -173,6 +175,12 @@ def _fresh_image(ctx, st) -> bool:
 
 def service_phase(ctx, args, api=None) -> int:
     p = ctx.paths
+    requested = getattr(args, "app", None)
+    if requested and p.conf_file.exists() and requested != ctx.conf.app:
+        say("STOP", f"{p.conf_file} already selects app = {ctx.conf.app}; --app {requested} "
+                    "contradicts it; omit --app to keep the existing app, or edit "
+                    "talaria.conf by hand")
+        return 1
     ensure_dir(p.conf_dir)
     ensure_dir(p.state_dir)
     if not p.conf_file.exists():
@@ -229,7 +237,12 @@ def service_phase(ctx, args, api=None) -> int:
                     f"start {ctx.app.title}, verify")
         return 0
 
-    for line in ctx.app.prepare(ctx):
+    try:
+        prepared = ctx.app.prepare(ctx)
+    except ValueError as e:
+        say("STOP", str(e))
+        return 1
+    for line in prepared:
         say("OK", line)
 
     if not ctx.conf.telegram_token:
@@ -308,7 +321,11 @@ def set_token(ctx) -> int:
 def setup(args) -> int:
     from talaria.ctx import make_ctx
     from talaria.shell import Shell
+    requested = getattr(args, "app", None)
+    if requested is not None and requested not in apps.NAMES:
+        say("STOP", f"unknown app: {requested!r}; choose one of {', '.join(apps.NAMES)}")
+        return 1
     if args.as_service:
-        return service_phase(make_ctx(), args)
+        return service_phase(make_ctx(app=requested), args)
     os.chdir("/")  # commands run as the service user, which may not enter the caller's cwd
-    return operator_phase(Shell(), args)
+    return operator_phase(Shell(), args, app=requested or "hermes")
