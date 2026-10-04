@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 import shutil
+import sqlite3
 from string import Template
 
 from talaria.apps.base import App
@@ -15,6 +16,26 @@ BASE = ("gcr.io/distroless/static-debian12@sha256:"
         "afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab")
 ARCH = {"x86_64": "amd64", "aarch64": "arm64"}
 MAX_BINARY = 300 * 1024 * 1024
+NAME = "talaria-rehearse"
+ENV = ["CONFIG_FILE=/data/config.yaml", "SERVER_HOST=0.0.0.0", "DATABASE_DRIVER=sqlite",
+       "SQLITE_PATH=/data/clawvisor.db", "VAULT_KEY_FILE=/data/vault.key",
+       "CLAWVISOR_RELAY_KEY_FILE=/data/daemon-ed25519.key",
+       "CLAWVISOR_RELAY_E2E_KEY_FILE=/data/daemon-x25519.key",
+       "CLAWVISOR_DAEMON_DATA_DIR=/data", "CLAWVISOR_CONTAINER=1", "MAX_USERS=1",
+       "CLAWVISOR_AUTO_UPDATE_ENABLED=false"]
+
+
+def migrations(db) -> list[str]:
+    """Names of migrations already applied, oldest first. Read-only; never writes to db."""
+    if not db.is_file() or db.is_symlink():
+        return []
+    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        return [r[0] for r in c.execute("select name from schema_migrations order by name")]
+    except sqlite3.Error:
+        return []
+    finally:
+        c.close()
 
 
 def _get(ctx, url: str, dest, max_bytes: int, tag: str, label: str) -> int:
@@ -103,6 +124,48 @@ class Clawvisor(App):
 
     def reacquire(self, ctx, rec: dict) -> None:
         self.fetch(ctx, rec["tag"], rec.get("commit") or "")
+
+    def rehearse(self, ctx, st, image, copy, stage) -> dict:
+        """Start the new image offline on the copy of the data dir, wait for it to become
+        ready, then report how many migrations it applied. --network=none keeps the
+        rehearsal from touching anything outside the copy."""
+        from talaria.rehearse import Permanent
+        before = migrations(copy / "clawvisor.db")
+        ctx.sh.run(["podman", "rm", "-f", NAME], check=False, timeout=120)
+        envs = [a for e in ENV for a in ("-e", e)]
+        ctx.sh.run(["podman", "run", "-d", "--name", NAME, "--network=none",
+                    "--userns=keep-id:uid=65532,gid=65532", "-v", f"{copy}:/data:Z",
+                    "--env-file", str(ctx.paths.app_env), *envs, image["id"]], timeout=300)
+        try:
+            ready, waited = False, 0
+            while waited < max(ctx.conf.settle_seconds, 10):
+                if ctx.sh.run(["podman", "exec", NAME, "/clawvisor-server", "healthcheck"],
+                              check=False, timeout=30).returncode == 0:
+                    ready = True
+                    break
+                ctx.sleep(2)
+                waited += 2
+            if not ready:
+                tail = ctx.sh.run(["podman", "logs", "--tail", "20", NAME], check=False,
+                                  timeout=60)
+                raise Permanent(f"{image['tag']} did not become ready on the copy",
+                                [("Log (last lines)", (tail.stdout + tail.stderr).strip())])
+        finally:
+            ctx.sh.run(["podman", "stop", "-t", "30", NAME], check=False, timeout=120)
+            ctx.sh.run(["podman", "rm", "-f", NAME], check=False, timeout=120)
+        after = migrations(copy / "clawvisor.db")
+        return {"tag": image["tag"], "digest": image.get("digest"), "before": len(before),
+                "after": len(after), "new": [n for n in after if n not in set(before)],
+                "latest": after[-1] if after else None}
+
+    def report_lines(self, ctx, report: dict) -> tuple[list[str], list]:
+        lines = [f"Database migrations: {report['before']} → {report['after']}"]
+        blocks = [(f"Migrations that will run ({len(report['new'])})", "\n".join(report["new"]))] \
+            if report["new"] else []
+        return lines, blocks
+
+    def pending_extra(self, report: dict) -> dict:
+        return {"migrations_after": report["after"]}
 
 
 APP = Clawvisor()
