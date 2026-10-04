@@ -1,9 +1,11 @@
 import hashlib
 import sqlite3
+import subprocess
 
 import pytest
 
 from talaria import apps, rehearse
+from talaria.conf import write_env_value
 from talaria.images import RevisionMismatch
 from tests.fakes import make_test_ctx
 
@@ -117,7 +119,12 @@ def test_rehearse_reports_new_migrations(tmp_path):
     assert (rep["before"], rep["after"], rep["new"]) == (2, 3, ["055_y.sql"])
     run = ctx.sh.called("podman", "run")[0]
     assert "--network=none" in run and f"{copy}:/data:Z" in " ".join(run)
+    assert "--userns=keep-id:uid=65532,gid=65532" in run
+    assert "--env-file" in run and str(ctx.paths.app_env) in run
     assert ctx.sh.called("podman", "rm", "-f", "talaria-rehearse")   # leftover removed first
+    # cleanup also runs after a *successful* rehearsal, not just on failure
+    assert ctx.sh.called("podman", "stop", "-t", "30", "talaria-rehearse")
+    assert len(ctx.sh.called("podman", "rm", "-f", "talaria-rehearse")) == 2
     lines, blocks = ctx.app.report_lines(ctx, rep)
     assert "Database migrations: 2 → 3" in lines
     assert blocks == [("Migrations that will run (1)", "055_y.sql")]
@@ -134,3 +141,69 @@ def test_rehearse_not_ready_is_permanent_with_log_tail(tmp_path):
     with pytest.raises(rehearse.Permanent, match="did not become ready") as e:
         ctx.app.rehearse(ctx, {}, {"tag": "v0.9.10", "id": "sha256:i"}, copy, stage)
     assert e.value.details == [("Log (last lines)", "boom: migration 055 failed")]
+
+
+def test_rehearse_run_failure_is_transient_and_cleans_up(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    copy, stage = tmp_path / "copy", tmp_path / "stage"
+    copy.mkdir(); stage.mkdir()
+    make_db(copy / "clawvisor.db", ["001_init.sql"])
+    ctx.sh.on("podman", "rm").on("podman", "run", rc=1, err="no space left on device\n")
+    ctx.sh.on("podman", "stop")
+    with pytest.raises(rehearse.Transient, match="could not start"):
+        ctx.app.rehearse(ctx, {}, {"tag": "v0.9.10", "id": "sha256:i"}, copy, stage)
+    assert ctx.sh.called("podman", "stop", "-t", "30", "talaria-rehearse")
+    # leading cleanup of a leftover container, plus the cleanup after the failed start
+    assert len(ctx.sh.called("podman", "rm", "-f", "talaria-rehearse")) == 2
+    assert ctx.sh.called("podman", "exec") == []   # never reached the readiness poll
+
+
+def test_rehearse_run_timeout_is_transient_and_cleans_up(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    copy, stage = tmp_path / "copy", tmp_path / "stage"
+    copy.mkdir(); stage.mkdir()
+    make_db(copy / "clawvisor.db", ["001_init.sql"])
+
+    def timeout_run(argv, input):
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=300)
+    ctx.sh.on("podman", "rm").on("podman", "run", fn=timeout_run)
+    ctx.sh.on("podman", "stop")
+    with pytest.raises(rehearse.Transient, match="could not start"):
+        ctx.app.rehearse(ctx, {}, {"tag": "v0.9.10", "id": "sha256:i"}, copy, stage)
+    assert ctx.sh.called("podman", "stop", "-t", "30", "talaria-rehearse")
+    assert len(ctx.sh.called("podman", "rm", "-f", "talaria-rehearse")) == 2
+
+
+def test_log_tail_redacts_env_secrets_and_vault_key(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    copy, stage = tmp_path / "copy", tmp_path / "stage"
+    copy.mkdir(); stage.mkdir()
+    make_db(copy / "clawvisor.db", ["001_init.sql"])
+    write_env_value(ctx.paths.app_env, "JWT_SECRET", "sekrit-token-value")
+    (copy / "vault.key").write_text("vault-key-bytes-xyz\n")
+    ctx.sh.on("podman", "rm").on("podman", "run", out="cid\n").on("podman", "stop")
+    ctx.sh.on("podman", "exec", rc=1)
+    ctx.sh.on("podman", "logs", out="boot failed, env dump: JWT_SECRET=sekrit-token-value "
+                                     "vault=vault-key-bytes-xyz\n")
+    ctx.conf.settle_seconds = 10
+    with pytest.raises(rehearse.Permanent) as e:
+        ctx.app.rehearse(ctx, {}, {"tag": "v0.9.10", "id": "sha256:i"}, copy, stage)
+    tail = e.value.details[0][1]
+    assert "sekrit-token-value" not in tail
+    assert "vault-key-bytes-xyz" not in tail
+    assert "***" in tail
+
+
+def test_migrations_missing_file_and_missing_table(tmp_path):
+    from talaria.apps.clawvisor import migrations
+    assert migrations(tmp_path / "nope.db") == []
+    db = tmp_path / "empty.db"
+    sqlite3.connect(db).close()
+    assert migrations(db) == []
+
+
+def test_report_lines_with_no_new_migrations(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    lines, blocks = ctx.app.report_lines(ctx, {"before": 3, "after": 3, "new": []})
+    assert lines == ["Database migrations: 3 → 3"]
+    assert blocks == []

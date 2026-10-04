@@ -4,10 +4,13 @@ import hashlib
 import re
 import shutil
 import sqlite3
+import subprocess
 from string import Template
 
 from talaria.apps.base import App
+from talaria.conf import parse_kv
 from talaria.images import RevisionMismatch
+from talaria.shell import CommandError
 from talaria.state import ensure_dir
 from talaria.upstream import _ls_remote
 
@@ -36,6 +39,29 @@ def migrations(db) -> list[str]:
         return []
     finally:
         c.close()
+
+
+def _redact(ctx, copy, text: str) -> str:
+    """Replace secret values with '***' before they can reach Permanent.details, which
+    check.py forwards unchanged to Telegram: the real app_env (mounted into the rehearsal
+    via --env-file, so it carries JWT_SECRET and friends) and the copy's vault.key, in
+    case the app ever echoes its environment or a decrypted secret on a failed boot."""
+    values = []
+    try:
+        values += [v for v in parse_kv(ctx.paths.app_env.read_text()).values() if v]
+    except (FileNotFoundError, OSError):
+        pass
+    vault = copy / "vault.key"
+    if vault.is_file() and not vault.is_symlink():
+        try:
+            v = vault.read_text().strip()
+        except (OSError, UnicodeDecodeError):
+            v = ""
+        if v:
+            values.append(v)
+    for v in sorted(values, key=len, reverse=True):   # longest first: avoid partial overlaps
+        text = text.replace(v, "***")
+    return text
 
 
 def _get(ctx, url: str, dest, max_bytes: int, tag: str, label: str) -> int:
@@ -129,14 +155,19 @@ class Clawvisor(App):
         """Start the new image offline on the copy of the data dir, wait for it to become
         ready, then report how many migrations it applied. --network=none keeps the
         rehearsal from touching anything outside the copy."""
-        from talaria.rehearse import Permanent
+        from talaria.rehearse import Permanent, Transient
         before = migrations(copy / "clawvisor.db")
         ctx.sh.run(["podman", "rm", "-f", NAME], check=False, timeout=120)
         envs = [a for e in ENV for a in ("-e", e)]
-        ctx.sh.run(["podman", "run", "-d", "--name", NAME, "--network=none",
-                    "--userns=keep-id:uid=65532,gid=65532", "-v", f"{copy}:/data:Z",
-                    "--env-file", str(ctx.paths.app_env), *envs, image["id"]], timeout=300)
         try:
+            try:
+                ctx.sh.run(["podman", "run", "-d", "--name", NAME, "--network=none",
+                            "--userns=keep-id:uid=65532,gid=65532", "-v", f"{copy}:/data:Z",
+                            "--env-file", str(ctx.paths.app_env), *envs, image["id"]],
+                           timeout=300)
+            except (CommandError, subprocess.TimeoutExpired) as e:
+                raise Transient(
+                    f"could not start {image['tag']} for the rehearsal: {e}") from None
             ready, waited = False, 0
             while waited < max(ctx.conf.settle_seconds, 10):
                 if ctx.sh.run(["podman", "exec", NAME, "/clawvisor-server", "healthcheck"],
@@ -148,8 +179,9 @@ class Clawvisor(App):
             if not ready:
                 tail = ctx.sh.run(["podman", "logs", "--tail", "20", NAME], check=False,
                                   timeout=60)
+                log = _redact(ctx, copy, (tail.stdout + tail.stderr).strip())
                 raise Permanent(f"{image['tag']} did not become ready on the copy",
-                                [("Log (last lines)", (tail.stdout + tail.stderr).strip())])
+                                [("Log (last lines)", log)])
         finally:
             ctx.sh.run(["podman", "stop", "-t", "30", NAME], check=False, timeout=120)
             ctx.sh.run(["podman", "rm", "-f", NAME], check=False, timeout=120)
