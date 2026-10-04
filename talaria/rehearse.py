@@ -73,8 +73,8 @@ def candidate_message(ctx, st, report: dict, replaced: str | None) -> Message:
     tag = report["tag"]
     cur = (st.get("current") or {}).get("tag") or "unknown"
     lines = [f"{ctx.app.title} {tag} is ready to deploy (current {cur}). The rehearsal on a copy passed."]
-    if ctx.conf.hermes_repo.startswith("https://github.com/"):
-        lines.append(f"Release notes: {ctx.conf.hermes_repo}/releases/tag/{tag}")
+    if ctx.conf.repo.startswith("https://github.com/"):
+        lines.append(f"Release notes: {ctx.conf.repo}/releases/tag/{tag}")
     app_lines, blocks = ctx.app.report_lines(ctx, report)
     lines += app_lines
     if replaced:
@@ -90,7 +90,7 @@ def rehearse(ctx, st: dict, tag: str, commit: str) -> None:
     except RevisionMismatch as e:
         raise Permanent(str(e)) from None
     except CommandError as e:
-        raise Transient(f"pull failed: {e}") from None
+        raise Transient(f"{ctx.app.fetch_error}: {e}") from None
     data = ctx.conf.data_dir
     try:
         disk.ensure_space(ctx, disk.dir_size(data), ctx.paths.state_dir)

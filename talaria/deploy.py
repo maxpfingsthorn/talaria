@@ -72,7 +72,7 @@ def deploy(ctx, tag: str) -> None:
     try:
         reason, details = ctx.app.before_start(ctx, p)
     except Exception as e:
-        reason, details = f"migration could not run: {e}", []
+        reason, details = f"{ctx.app.before_start_error}: {e}", []
     if reason:
         return _fail(ctx, tag, reason, b.id, old, details)
     st["previous"], st["current"] = old, p["image"]

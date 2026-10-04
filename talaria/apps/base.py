@@ -18,6 +18,9 @@ class App:
     min_release = ""
     backup_exclude: tuple = ()
     can_adopt = False
+    fetch_error = "fetch failed"            # core prefix when ctx.app.fetch() raises CommandError
+    before_start_error = "before_start failed"   # core prefix when ctx.app.before_start() raises
+    prepare_summary = "secrets"             # what ctx.app.prepare() generates, for PLAN texts
 
     def is_release(self, tag: str) -> bool:
         raise NotImplementedError

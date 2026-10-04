@@ -67,7 +67,7 @@ def rehearse_tag(ctx, st: dict, tag: str) -> None:
         return
     git = ctx.app.releases(ctx)
     if tag not in git:
-        ctx.notify.send(Message(f"{tag} is not a release tag of {ctx.conf.hermes_repo}."))
+        ctx.notify.send(Message(f"{tag} is not a release tag of {ctx.conf.repo}."))
         return
     if tag in st["failed"]:
         st["failed"].remove(tag)

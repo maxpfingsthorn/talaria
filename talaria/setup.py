@@ -78,7 +78,9 @@ def install_url(url: str) -> str | None:
 
 
 def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subprocess.call,
-                   linger_dir=Path("/var/lib/systemd/linger")) -> int:
+                   linger_dir=Path("/var/lib/systemd/linger"), app="hermes") -> int:
+    from talaria import apps as _apps
+    A = _apps.get(app)
     operator = operator or getpass.getuser()
     user = args.user or "hermes"
     for name in (user, operator):
@@ -135,8 +137,8 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         return 1
     if args.plan:
         say("PLAN", f"install Talaria {ref} for {user} from {url}")
-        say("PLAN", "then: detect Hermes (fresh or adopt), dashboard password, Telegram bot "
-                    "token and pairing, units, start Hermes, verify")
+        say("PLAN", f"then: detect {A.title} (fresh or adopt), {A.prepare_summary}, Telegram bot "
+                    f"token and pairing, units, start {A.title}, verify")
         return 0
     if not installed:
         sh.run(sudo + ["git", "clone", "-q", url, install], timeout=600)
@@ -193,7 +195,7 @@ def service_phase(ctx, args, api=None) -> int:
             if not cands:
                 say("STOP", f"no {ctx.app.title} install with unit {args.adopt}")
                 return 1
-        stopped = adopt.stopped_quadlets(ctx, cands)
+        stopped = adopt.stopped_quadlets(ctx, cands) if ctx.app.can_adopt else []
         if stopped and not args.adopt:
             q = stopped[0]
             say("STOP", f"found a {ctx.app.title} Quadlet that is not running: {q}; start it "
@@ -223,7 +225,7 @@ def service_phase(ctx, args, api=None) -> int:
         else:
             say("OK", f"no existing {ctx.app.title} found: fresh install")
     if args.plan:
-        say("PLAN", "dashboard password, Telegram token and pairing, install units, "
+        say("PLAN", f"{ctx.app.prepare_summary}, Telegram token and pairing, install units, "
                     f"start {ctx.app.title}, verify")
         return 0
 

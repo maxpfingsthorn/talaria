@@ -25,7 +25,7 @@ class Conf:
     data_dir: Path
     app: str = "hermes"
     image: str = "docker.io/nousresearch/hermes-agent"
-    hermes_repo: str = "https://github.com/NousResearch/hermes-agent"
+    repo: str = "https://github.com/NousResearch/hermes-agent"
     talaria_repo: str = "https://github.com/maxpfingsthorn/talaria"
     dashboard_bind: str = "loopback"
     dashboard_port: int = 9119
@@ -48,10 +48,15 @@ class Conf:
     def bind_ip(self) -> str:
         return self.tailscale_ip if self.dashboard_bind == "tailscale" else "127.0.0.1"
 
+    @property
+    def hermes_repo(self) -> str:
+        """Read-only alias of `repo`, kept until all callers use `repo` directly."""
+        return self.repo
+
 
 _KEYS = {
     "data_dir": ("data_dir", "path"), "app": ("app", str), "image": ("image", str),
-    "hermes_repo": ("hermes_repo", str), "talaria_repo": ("talaria_repo", str),
+    "repo": ("repo", str), "hermes_repo": ("repo", str), "talaria_repo": ("talaria_repo", str),
     "dashboard.bind": ("dashboard_bind", str), "dashboard.port": ("dashboard_port", int),
     "tailscale_ip": ("tailscale_ip", str), "backup.keep": ("backup_keep", int),
     "backup.exclude": ("backup_exclude", "list"), "add_hosts": ("add_hosts", "list"),
@@ -62,15 +67,20 @@ _KEYS = {
 }
 
 
+def _as_path(paths, v: str) -> Path:
+    return paths.home / v[2:] if v.startswith("~/") else Path(v)
+
+
 def load_conf(paths) -> Conf:
-    conf = Conf(data_dir=paths.home / "hermes-data")
+    conf = Conf(data_dir=paths.home / "hermes-data", app=paths.app)
+    seen = set()
     if paths.conf_file.exists():
         for k, v in parse_kv(paths.conf_file.read_text()).items():
             if k not in _KEYS:
                 raise ValueError(f"unknown key in {paths.conf_file}: {k}")
             attr, kind = _KEYS[k]
             if kind == "path":
-                val = paths.home / v[2:] if v.startswith("~/") else Path(v)
+                val = _as_path(paths, v)
             elif kind == "list":
                 val = tuple(v.split())
             elif kind == "bool":
@@ -78,10 +88,24 @@ def load_conf(paths) -> Conf:
             else:
                 val = kind(v)
             setattr(conf, attr, val)
-        from talaria import apps
-        apps.get(conf.app)
-        if conf.backup_keep < 1:   # retention would delete the undo backup it just made
-            raise ValueError(f"backup.keep must be at least 1 in {paths.conf_file}")
+            seen.add(attr)
+    from talaria import apps
+    app = apps.get(conf.app)
+    if paths.conf_file.exists() and conf.backup_keep < 1:
+        # retention would delete the undo backup it just made
+        raise ValueError(f"backup.keep must be at least 1 in {paths.conf_file}")
+    if "data_dir" not in seen:
+        conf.data_dir = _as_path(paths, app.default_data_dir)
+    if "dashboard_port" not in seen:
+        conf.dashboard_port = app.default_port
+    if "repo" not in seen:
+        conf.repo = app.default_repo
+    if "image" not in seen:
+        conf.image = app.default_image
+    if "min_release" not in seen:
+        conf.min_release = app.min_release
+    if "backup_exclude" not in seen:
+        conf.backup_exclude = app.backup_exclude
     if paths.env_file.exists():
         env = parse_kv(paths.env_file.read_text())
         conf.telegram_token = env.get("TALARIA_TELEGRAM_TOKEN", "")

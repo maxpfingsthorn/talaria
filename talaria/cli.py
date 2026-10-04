@@ -53,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     r = sub.add_parser("restore")
     r.add_argument("id", type=_backup_id)
     r.add_argument("--confirm", action="store_true")
-    for name in ("backup", "backups", "status", "history", "bot"):
+    for name in ("backup", "backups", "status", "history", "bot", "login-link"):
         sub.add_parser(name)
     sub.add_parser("self-update").add_argument("tag", type=_semver)
     return p
@@ -71,6 +71,19 @@ def reject(ctx, tag: str) -> str:
     except lock.Busy:
         return "Busy: another operation is running. Try again in a minute."
     return f"Rejected {tag}. It will not be offered again."
+
+
+def login_link(ctx) -> int:
+    if ctx.app.name != "clawvisor":
+        print(f"not available for {ctx.app.title}", file=sys.stderr)
+        return 1
+    if not sys.stdout.isatty():
+        print("run this in your own terminal", file=sys.stderr)
+        return 1
+    out = ctx.sh.run(["podman", "exec", ctx.app.container, "/clawvisor-server",
+                      "dashboard", "--no-open"]).stdout.strip()
+    print(out.replace("http://localhost:", f"http://{ctx.conf.bind_ip}:"))
+    return 0
 
 
 def _manual_backup(ctx) -> None:
@@ -135,6 +148,8 @@ def main(argv: list[str] | None = None, make=make_ctx) -> int:
     if args.cmd == "backups":
         print(status.backups_text(ctx))
         return 0
+    if args.cmd == "login-link":
+        return login_link(ctx)
     if args.cmd == "reject":
         print(reject(ctx, args.tag))
         return 0

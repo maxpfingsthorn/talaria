@@ -43,6 +43,34 @@ def test_release_command_refuses_the_other_apps_tag_scheme(cmd, tmp_path, capsys
     assert "v0.9.10 is not a Hermes release tag" in capsys.readouterr().err
 
 
+def test_login_link_refuses_hermes(tmp_path, capsys):
+    ctx = make_test_ctx(tmp_path)
+    rc = cli.main(["login-link"], make=lambda: ctx)
+    assert rc == 1
+    assert capsys.readouterr().err == "not available for Hermes\n"
+
+
+def test_login_link_refuses_without_a_tty(tmp_path, monkeypatch, capsys):
+    import sys
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
+    rc = cli.main(["login-link"], make=lambda: ctx)
+    assert rc == 1
+    assert capsys.readouterr().err == "run this in your own terminal\n"
+
+
+def test_login_link_prints_the_link_with_the_bind_ip(tmp_path, monkeypatch, capsys):
+    import sys
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.sh.on("podman", "exec", out="Open this link: http://localhost:25297/login?token=abc\n")
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    rc = cli.main(["login-link"], make=lambda: ctx)
+    assert rc == 0
+    assert capsys.readouterr().out == "Open this link: http://127.0.0.1:25297/login?token=abc\n"
+    assert ctx.sh.called("podman", "exec", "clawvisor", "/clawvisor-server", "dashboard",
+                         "--no-open")
+
+
 @not_under_mutmut
 def test_bin_wrapper_ignores_callers_cwd(tmp_path):
     fake = tmp_path / "talaria"

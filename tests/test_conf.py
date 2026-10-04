@@ -77,3 +77,27 @@ def test_backup_keep_one_is_allowed(tmp_path):
     p.conf_file.parent.mkdir(parents=True)
     p.conf_file.write_text("backup.keep = 1\n")
     assert load_conf(p).backup_keep == 1
+
+
+def test_conf_defaults_follow_the_app(tmp_path):
+    p = Paths(tmp_path)
+    p.conf_file.parent.mkdir(parents=True)
+    p.conf_file.write_text("app = clawvisor\n")
+    c = load_conf(p)
+    assert (c.dashboard_port, c.repo, c.min_release, c.backup_exclude) == (
+        25297, "https://github.com/clawvisor/clawvisor", "v0.9.9", ())
+    assert c.data_dir == tmp_path / "clawvisor-data"
+
+
+def test_hermes_repo_alias_sets_repo(tmp_path):
+    p = Paths(tmp_path)
+    p.conf_file.parent.mkdir(parents=True)
+    p.conf_file.write_text("hermes_repo = https://example/alias\n")
+    c = load_conf(p)
+    assert c.repo == c.hermes_repo == "https://example/alias"
+
+
+def test_hermes_repo_is_read_only(tmp_path):
+    c = load_conf(Paths(tmp_path))
+    with pytest.raises(AttributeError):
+        c.hermes_repo = "nope"

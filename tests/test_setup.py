@@ -118,6 +118,19 @@ def test_plan_changes_nothing(monkeypatch, tmp_path, capsys):
     assert "PLAN:" in capsys.readouterr().out
 
 
+def test_plan_names_the_app_passed_in(monkeypatch, tmp_path, capsys):
+    """operator_phase has no ctx (the service user's talaria.conf does not exist yet), so
+    the app it describes in the PLAN text is an explicit parameter; it defaults to hermes
+    for every other test in this file."""
+    sh, _, _ = op_env(monkeypatch, tmp_path)
+    rc = setup.operator_phase(sh, args(user="hermes", plan=True),
+                              getpwnam=lambda n: PW, operator="admin", app="clawvisor")
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert ("then: detect Clawvisor (fresh or adopt), secrets, Telegram bot token and "
+            "pairing, units, start Clawvisor, verify") in out
+
+
 # ---- service phase ----
 
 class PairAPI:

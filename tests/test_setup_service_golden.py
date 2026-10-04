@@ -206,10 +206,41 @@ def test_fresh_image_clawvisor_oversized_asset_stops_without_traceback(tmp_path,
     out = capsys.readouterr().out
     assert ok is False
     assert out == ("STOP: v0.9.10: checksums.txt exceeds the 1048576-byte download limit "
-                   "(https://github.com/NousResearch/hermes-agent/releases/download/v0.9.10/"
+                   "(https://github.com/clawvisor/clawvisor/releases/download/v0.9.10/"
                    "checksums.txt is larger than 1048576 bytes)\n")
     assert ctx.sh.called("podman", "build") == []
     assert state.load(ctx.paths)["current"] is None
+
+
+def test_clawvisor_plan_text_uses_secrets_not_dashboard_password(tmp_path, capsys):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    rc = setup.service_phase(ctx, args(as_service=True, plan=True))
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert out == ("OK: no existing Clawvisor found: fresh install\n"
+                   "PLAN: secrets, Telegram token and pairing, install units, start "
+                   "Clawvisor, verify\n")
+
+
+def test_clawvisor_setup_never_calls_stopped_quadlets(tmp_path, monkeypatch, capsys):
+    """Clawvisor only supports fresh installs (can_adopt = False): service_phase must not
+    even look for a foreign Quadlet to adopt."""
+    ctx = make_test_ctx(tmp_path, app="clawvisor", telegram_token="1:" + "a" * 35)
+    ctx.sh.on("systemctl").on("systemctl", "--user", "is-active", out="inactive\n")
+    ctx.sh.on("podman", "tag")
+    monkeypatch.setattr(ctx.app, "releases", lambda c: {"v0.9.10": "c"})
+    monkeypatch.setattr(ctx.app, "published", lambda c, tags: {"v0.9.10"})
+    monkeypatch.setattr(ctx.app, "fetch",
+                        lambda c, t, commit: {"tag": t, "id": "sha256:n", "ref": "r", "digest": "d"})
+    monkeypatch.setattr(setup.service, "post_start_check", lambda c: None)
+    monkeypatch.setattr(setup.telegram, "pair",
+                        lambda c, api, code, timeout_s=900, announce=lambda: None: (
+                            announce(), {"id": 42, "first_name": "Ann", "username": "ann"})[1])
+    monkeypatch.setattr(setup.telegram, "TelegramAPI", lambda base, token: object())
+    monkeypatch.setattr(setup.adopt, "stopped_quadlets",
+                        lambda c, found: pytest.fail("stopped_quadlets called for Clawvisor"))
+    rc = setup.service_phase(ctx, args(as_service=True))
+    assert rc == 0
 
 
 def test_adopt_unknown_exact(s, capsys):

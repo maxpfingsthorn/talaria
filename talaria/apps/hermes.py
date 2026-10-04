@@ -64,6 +64,9 @@ class Hermes(App):
     min_release = "v2026.6.5"
     backup_exclude = (".cache", ".npm", "home/.cache", "home/.npm", "backups")
     can_adopt = True
+    fetch_error = "pull failed"
+    before_start_error = "migration could not run"
+    prepare_summary = "dashboard password"
 
     def is_release(self, tag: str) -> bool:
         return tags.is_release(tag)
@@ -72,7 +75,7 @@ class Hermes(App):
         return tags.key(tag)
 
     def releases(self, ctx) -> dict:
-        return git_release_tags(ctx.sh, ctx.conf.hermes_repo)
+        return git_release_tags(ctx.sh, ctx.conf.repo)
 
     def published(self, ctx, tags) -> set:
         return registry_tags(ctx.sh, ctx.conf.image, ctx.conf.registry_tls_verify)
@@ -181,7 +184,7 @@ class Hermes(App):
                 f"{ctx.conf.dashboard_port} (user admin, password in {ctx.paths.app_env})")
 
     def initial_conf(self, ctx) -> str:
-        return "# Talaria settings; see README.\ndata_dir = ~/hermes-data\n"
+        return f"# Talaria settings; see README.\ndata_dir = {self.default_data_dir}\n"
 
 
 APP = Hermes()

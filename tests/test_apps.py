@@ -15,6 +15,20 @@ def test_base_class_defaults():
     assert app.after_start(None, {}) is None
     assert app.quadlet_vars(None) == {}
     assert app.before_start(None, {}) == (None, [])
+    assert (app.fetch_error, app.before_start_error, app.prepare_summary) == (
+        "fetch failed", "before_start failed", "secrets")
+
+
+def test_hermes_overrides_the_core_wording_texts():
+    h = apps.get("hermes")
+    assert (h.fetch_error, h.before_start_error, h.prepare_summary) == (
+        "pull failed", "migration could not run", "dashboard password")
+
+
+def test_clawvisor_uses_the_neutral_core_wording_texts():
+    c = apps.get("clawvisor")
+    assert (c.fetch_error, c.before_start_error, c.prepare_summary) == (
+        "fetch failed", "before_start failed", "secrets")
 
 
 def test_registry():
@@ -49,7 +63,7 @@ def test_hermes_releases_published_fetch(tmp_path, monkeypatch):
     from talaria.apps import hermes as h
     from tests.fakes import make_test_ctx
     ctx = make_test_ctx(tmp_path)
-    ctx.conf.hermes_repo = "https://example/repo"
+    ctx.conf.repo = "https://example/repo"
     ctx.conf.image = "img:tag"
     ctx.conf.registry_tls_verify = False
     calls = {}

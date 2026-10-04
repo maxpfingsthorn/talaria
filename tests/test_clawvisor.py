@@ -202,8 +202,65 @@ def test_migrations_missing_file_and_missing_table(tmp_path):
     assert migrations(db) == []
 
 
+def test_before_start_and_quadlet_vars_are_the_base_no_ops(tmp_path):
+    """Clawvisor has nothing to run before the container starts and no extra quadlet
+    variables, so it relies on App's defaults rather than redefining them."""
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    assert ctx.app.before_start(ctx, {}) == (None, [])
+    assert ctx.app.quadlet_vars(ctx) == {}
+
+
 def test_report_lines_with_no_new_migrations(tmp_path):
     ctx = make_test_ctx(tmp_path, app="clawvisor")
     lines, blocks = ctx.app.report_lines(ctx, {"before": 3, "after": 3, "new": []})
     assert lines == ["Database migrations: 3 → 3"]
     assert blocks == []
+
+
+def test_prepare_generates_secrets_once(tmp_path):
+    from talaria.conf import parse_kv
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    out = ctx.app.prepare(ctx)
+    env = parse_kv(ctx.paths.app_env.read_text())
+    key = (ctx.conf.data_dir / "vault.key").read_text()
+    assert len(env["JWT_SECRET"]) == 64 and len(key.strip()) == 44
+    assert oct(ctx.paths.app_env.stat().st_mode & 0o777) == "0o600"
+    assert oct((ctx.conf.data_dir / "vault.key").stat().st_mode & 0o777) == "0o600"
+    assert oct(ctx.conf.data_dir.stat().st_mode & 0o777) == "0o700"
+    assert out and all("secret" not in l.lower() or "generated" in l for l in out)
+    assert ctx.app.prepare(ctx) == []                       # second run: nothing new
+    assert parse_kv(ctx.paths.app_env.read_text())["JWT_SECRET"] == env["JWT_SECRET"]
+    assert (ctx.conf.data_dir / "vault.key").read_text() == key
+
+
+def test_prepare_refuses_existing_db_without_vault_key(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    make_db(ctx.conf.data_dir / "clawvisor.db", ["001_init.sql"])
+    with pytest.raises(ValueError, match="vault.key is missing"):
+        ctx.app.prepare(ctx)
+
+
+def test_health_and_after_start(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.conf.dashboard_bind, ctx.conf.tailscale_ip = "tailscale", "100.64.0.1"
+    ctx.http_get = lambda url, t: (200, b'{"db":"ok","status":"ok","vault":"ok"}') \
+        if url == "http://100.64.0.1:25297/ready" else (0, b"")
+    assert ctx.app.health(ctx) is None
+    ctx.http_get = lambda url, t: (200, b'{"db":"ok","status":"ok","vault":"locked"}')
+    assert ctx.app.health(ctx) == "/ready reports vault locked"
+    make_db(ctx.conf.data_dir / "clawvisor.db", ["001_init.sql", "002_x.sql"])
+    assert ctx.app.after_start(ctx, {"migrations_after": 2}) is None
+    assert ctx.app.after_start(ctx, {"migrations_after": 3}) == (
+        "the database has 2 migrations, the rehearsal expected 3")
+
+
+def test_quadlet(tmp_path):
+    from talaria import units
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.conf.dashboard_bind, ctx.conf.tailscale_ip = "tailscale", "100.64.0.1"
+    q = units.render_quadlet(ctx)
+    for line in ("Image=localhost/clawvisor:current", "ReadOnly=true",
+                 "UserNS=keep-id:uid=65532,gid=65532", f"Volume={ctx.conf.data_dir}:/data:Z",
+                 "PublishPort=100.64.0.1:25297:25297", "Environment=CLAWVISOR_AUTO_UPDATE_ENABLED=false",
+                 f"EnvironmentFile={ctx.paths.app_env}"):
+        assert f"\n{line}\n" in q

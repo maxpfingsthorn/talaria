@@ -185,7 +185,7 @@ def test_candidate_message_exact(happy):
 
 
 def test_candidate_message_variants(happy):
-    happy.conf.hermes_repo = "https://git.example/hermes"
+    happy.conf.repo = "https://git.example/hermes"
     report = {"tag": "v2", "cfg_before": 1, "cfg_after": 2,
               "db": {"before": 30, "after": 30, "schema_version": 30},
               "messages": ["a", "b"], "diff": {"changed": [], "added": [["k", 1]], "removed": [["r", 2]]},

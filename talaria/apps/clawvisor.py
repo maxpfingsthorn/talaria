@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
+import os
 import re
+import secrets as _secrets
 import shutil
 import sqlite3
 import subprocess
 from string import Template
 
 from talaria.apps.base import App
-from talaria.conf import parse_kv
+from talaria.conf import parse_kv, write_env_value
 from talaria.images import RevisionMismatch
 from talaria.shell import CommandError
 from talaria.state import ensure_dir
@@ -102,7 +106,7 @@ class Clawvisor(App):
         return tuple(int(x) for x in m.groups())
 
     def releases(self, ctx) -> dict[str, str]:
-        return {t: c for t, c in _ls_remote(ctx.sh, ctx.conf.hermes_repo).items()
+        return {t: c for t, c in _ls_remote(ctx.sh, ctx.conf.repo).items()
                 if self.is_release(t)}
 
     def published(self, ctx, tags) -> set[str]:
@@ -115,7 +119,7 @@ class Clawvisor(App):
         from talaria.rehearse import Transient
         arch = ARCH[ctx.sh.run(["uname", "-m"]).stdout.strip()]
         asset = f"clawvisor-server-linux-{arch}"
-        base = f"{ctx.conf.hermes_repo}/releases/download/{tag}"
+        base = f"{ctx.conf.repo}/releases/download/{tag}"
         work = ctx.paths.staging / f"build-{tag}"
         shutil.rmtree(work, ignore_errors=True)
         ensure_dir(ctx.paths.staging)
@@ -198,6 +202,57 @@ class Clawvisor(App):
 
     def pending_extra(self, report: dict) -> dict:
         return {"migrations_after": report["after"]}
+
+    def health(self, ctx) -> str | None:
+        code, body = ctx.http_get(f"http://{ctx.conf.bind_ip}:{ctx.conf.dashboard_port}/ready", 5.0)
+        if code != 200:
+            return f"/ready answered {code or 'nothing'}"
+        try:
+            r = json.loads(body)
+        except ValueError:
+            return "/ready did not answer JSON"
+        bad = [f"{k} {r.get(k)}" for k in ("status", "db", "vault") if r.get(k) != "ok"]
+        return f"/ready reports {', '.join(bad)}" if bad else None
+
+    def after_start(self, ctx, pending: dict) -> str | None:
+        n = len(migrations(ctx.conf.data_dir / "clawvisor.db"))
+        want = pending.get("migrations_after")
+        if want is not None and n != want:
+            return f"the database has {n} migrations, the rehearsal expected {want}"
+        return None
+
+    @staticmethod
+    def data_version(data_dir):
+        names = migrations(data_dir / "clawvisor.db")
+        return names[-1] if names else None
+
+    def prepare(self, ctx) -> list[str]:
+        out = []
+        data = ctx.conf.data_dir
+        data.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(data, 0o700)
+        env = parse_kv(ctx.paths.app_env.read_text()) if ctx.paths.app_env.exists() else {}
+        if "JWT_SECRET" not in env:
+            write_env_value(ctx.paths.app_env, "JWT_SECRET", _secrets.token_hex(32))
+            out.append(f"JWT secret generated in {ctx.paths.app_env}")
+        key = data / "vault.key"
+        if not key.exists():
+            if (data / "clawvisor.db").exists():
+                raise ValueError(f"{key} is missing but a database exists; restore the key "
+                                 "from a backup instead of generating a new one")
+            fd = os.open(key, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(base64.b64encode(_secrets.token_bytes(32)).decode() + "\n")
+            out.append(f"vault key generated in {key}")
+        return out
+
+    def ready_text(self, ctx) -> str:
+        return (f"Clawvisor is running at http://{ctx.conf.bind_ip}:{ctx.conf.dashboard_port}. "
+                f"First login: run `{ctx.paths.bin_link} login-link` in your own terminal")
+
+    def initial_conf(self, ctx) -> str:
+        return (f"# Talaria settings; see README.\napp = clawvisor\n"
+                f"data_dir = {self.default_data_dir}\n")
 
 
 APP = Clawvisor()
