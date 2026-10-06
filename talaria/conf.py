@@ -40,6 +40,7 @@ class Conf:
     min_release: str = "v2026.6.5"
     settle_seconds: int = 60
     telegram_api: str = "https://api.telegram.org"
+    release_allow: tuple = ()
     # from .env
     telegram_token: str = field(default="", repr=False)
     telegram_user_id: int = 0
@@ -64,6 +65,7 @@ _KEYS = {
     "check.time": ("check_time", str), "registry_tls_verify": ("registry_tls_verify", "bool"),
     "min_release": ("min_release", str), "settle_seconds": ("settle_seconds", int),
     "telegram_api": ("telegram_api", str),
+    "release_allow": ("release_allow", "list"),
 }
 
 

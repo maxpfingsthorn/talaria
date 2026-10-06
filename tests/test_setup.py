@@ -1,4 +1,5 @@
 import argparse
+import copy
 import os
 import io
 from types import SimpleNamespace
@@ -257,6 +258,17 @@ def test_rerun_is_idempotent(svc, capsys):
     assert setup.service_phase(svc, args(as_service=True)) == 0
     assert svc.paths.hermes_env.read_text() == pw1
     assert len(svc.sh.called("systemctl", "--user", "start", "hermes.service")) == starts
+
+
+def test_fresh_image_respects_release_allow(svc, monkeypatch):
+    monkeypatch.setattr(svc.app, "releases", lambda c: {"v2026.8.3": "a", "v2026.9.24": "b"})
+    monkeypatch.setattr(svc.app, "published", lambda c, tags: set(tags))
+    monkeypatch.setattr(svc.app, "fetch",
+                        lambda c, t, commit: {"tag": t, "id": "sha256:n", "ref": "r", "digest": "d"})
+    svc.conf.release_allow = ("v2026.8.3",)   # v2026.9.24 would otherwise be picked
+    st = copy.deepcopy(state.DEFAULT)
+    assert setup._fresh_image(svc, st) is True
+    assert st["current"]["tag"] == "v2026.8.3"
 
 
 def test_several_installs_stop(svc, monkeypatch, capsys):

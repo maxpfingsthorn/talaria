@@ -14,7 +14,7 @@ from talaria.conf import load_conf, write_env_value
 from talaria.disk import NOT_RENAMABLE, renamable
 from talaria.notify import ApiError, TelegramAPI
 from talaria.state import ensure_dir
-from talaria.tags import pick_candidate
+from talaria.tags import pick_candidate, releases
 
 REPO = Path(__file__).resolve().parent.parent
 TOKEN_RE = re.compile(r"^\d{3,}:[A-Za-z0-9_-]{30,}$")
@@ -156,7 +156,7 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
 
 
 def _fresh_image(ctx, st) -> bool:
-    git = ctx.app.releases(ctx)
+    git = releases(ctx)
     reg = ctx.app.published(ctx, list(git))
     tag = pick_candidate(ctx.app, git, reg, None, set(), ctx.conf.min_release)
     if not tag:

@@ -232,6 +232,28 @@ def test_check_skips_while_a_change_is_interrupted(cctx):
     assert ctx.rehearsed == [] and ctx.history == [(True, "daily")]
 
 
+def test_release_allow_filters_candidates(cctx):
+    ctx, st = cctx
+    ctx.conf.release_allow = ("v2026.8.3",)   # excludes v2026.9.24, the only candidate
+    check.check(ctx, st)
+    assert ctx.rehearsed == []
+
+
+def test_release_allow_permits_an_explicitly_listed_candidate(cctx):
+    ctx, st = cctx
+    ctx.conf.release_allow = ("v2026.8.3", "v2026.9.24")
+    check.check(ctx, st)
+    assert ctx.rehearsed == [("v2026.9.24", "b")]
+
+
+def test_rehearse_tag_ignores_release_allow(cctx):
+    # rehearse_tag (an explicit tag) stays unfiltered even when release_allow excludes it
+    ctx, st = cctx
+    ctx.conf.release_allow = ("v2026.8.3",)
+    check.rehearse_tag(ctx, st, "v2026.9.24")
+    assert ctx.rehearsed == [("v2026.9.24", "b")]
+
+
 def test_rehearse_tag_refused_while_marker_exists(cctx):
     from talaria import marker
     ctx, st = cctx

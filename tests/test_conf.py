@@ -20,6 +20,7 @@ def test_defaults_without_files(tmp_path):
     assert c.min_release == "v2026.6.5"
     assert c.settle_seconds == 60
     assert c.registry_tls_verify is True
+    assert c.release_allow == ()
 
 
 def test_conf_file_and_env(tmp_path):
@@ -31,7 +32,8 @@ def test_conf_file_and_env(tmp_path):
         "tailscale_ip = 100.64.0.9\n"
         "backup.keep = 3\n"
         "backup.exclude = .cache backups\n"
-        "registry_tls_verify = false\n")
+        "registry_tls_verify = false\n"
+        "release_allow = v0.9.9 v0.9.10\n")
     p.env_file.write_text("TALARIA_TELEGRAM_TOKEN=abc\nTALARIA_TELEGRAM_USER_ID=42\n")
     c = load_conf(p)
     assert c.data_dir == tmp_path / "data"
@@ -39,6 +41,7 @@ def test_conf_file_and_env(tmp_path):
     assert c.backup_keep == 3
     assert c.backup_exclude == (".cache", "backups")
     assert c.registry_tls_verify is False
+    assert c.release_allow == ("v0.9.9", "v0.9.10")
     assert (c.telegram_token, c.telegram_user_id) == ("abc", 42)
 
 

@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from talaria import apps, tags, upstream
@@ -110,3 +112,24 @@ def test_latest_semver():
     sh = FakeShell().on("git", "ls-remote", out="a\trefs/tags/v0.1.0\nb\trefs/tags/v0.2.0\n"
                                                 "c\trefs/tags/v0.10.0-rc1\n")
     assert upstream.latest_semver(sh, "r") == "v0.2.0"
+
+
+def _ctx(git, release_allow=()):
+    app = SimpleNamespace(releases=lambda c: (c is ctx) and git)
+    ctx = SimpleNamespace(app=app, conf=SimpleNamespace(release_allow=release_allow))
+    return ctx
+
+
+def test_releases_unfiltered_without_release_allow():
+    ctx = _ctx({"v1": "a", "v2": "b"})
+    assert tags.releases(ctx) == {"v1": "a", "v2": "b"}
+
+
+def test_releases_filters_with_release_allow():
+    ctx = _ctx({"v1": "a", "v2": "b", "v3": "c"}, release_allow=("v1", "v3"))
+    assert tags.releases(ctx) == {"v1": "a", "v3": "c"}
+
+
+def test_releases_allow_entry_not_in_git_is_ignored():
+    ctx = _ctx({"v1": "a"}, release_allow=("v1", "v9"))
+    assert tags.releases(ctx) == {"v1": "a"}

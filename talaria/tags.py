@@ -20,6 +20,16 @@ def key(t: str) -> tuple[int, int, int, int]:
     return int(y), int(mo), int(d), int(s or 0)
 
 
+def releases(ctx) -> dict[str, str]:
+    """ctx.app.releases(ctx), narrowed to ctx.conf.release_allow when that test-only key
+    is set (spec §10). Used by check.check and setup._fresh_image; rehearse_tag (an
+    explicit tag) stays unfiltered."""
+    git = ctx.app.releases(ctx)
+    if ctx.conf.release_allow:
+        git = {t: c for t, c in git.items() if t in ctx.conf.release_allow}
+    return git
+
+
 def pick_candidate(app, git_tags: Iterable[str], published: set[str], current: str | None,
                    excluded: set[str], floor: str) -> str | None:
     ok = [t for t in git_tags
