@@ -126,7 +126,8 @@ def test_plan_names_the_app_passed_in(monkeypatch, tmp_path, capsys):
     for every other test in this file."""
     sh, _, _ = op_env(monkeypatch, tmp_path)
     rc = setup.operator_phase(sh, args(user="hermes", plan=True),
-                              getpwnam=lambda n: PW, operator="admin", app="clawvisor")
+                              getpwnam=lambda n: PW, operator="admin", app="clawvisor",
+                              linger_dir=tmp_path / "linger")
     assert rc == 0
     out = capsys.readouterr().out
     assert ("then: detect Clawvisor (fresh or adopt), secrets, Telegram bot token and "
