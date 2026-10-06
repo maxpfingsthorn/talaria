@@ -71,6 +71,19 @@ def test_login_link_prints_the_link_with_the_bind_ip(tmp_path, monkeypatch, caps
                          "--no-open")
 
 
+def test_login_link_rewrites_the_published_port_too(tmp_path, monkeypatch, capsys):
+    """Guards M1: Clawvisor always prints its container-internal port (25297), which the
+    Quadlet republishes under dashboard.port; a changed dashboard.port must be rewritten
+    too, not just the host."""
+    import sys
+    ctx = make_test_ctx(tmp_path, app="clawvisor", dashboard_port=8443)
+    ctx.sh.on("podman", "exec", out="Open this link: http://localhost:25297/login?token=abc\n")
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    rc = cli.main(["login-link"], make=lambda: ctx)
+    assert rc == 0
+    assert capsys.readouterr().out == "Open this link: http://127.0.0.1:8443/login?token=abc\n"
+
+
 def test_login_link_refuses_on_a_failed_podman_exec_without_echoing_stdout(tmp_path, monkeypatch,
                                                                            capsys):
     import sys

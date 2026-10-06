@@ -13,6 +13,7 @@ from string import Template
 
 from talaria.apps.base import App
 from talaria.conf import parse_kv, write_env_value
+from talaria.ctx import TooLarge
 from talaria.images import RevisionMismatch
 from talaria.shell import CommandError
 from talaria.state import ensure_dir
@@ -91,7 +92,7 @@ def _get(ctx, url: str, dest, max_bytes: int, tag: str, label: str) -> int:
     retrying tomorrow would just re-download the same oversized file and crash again."""
     try:
         return ctx.download(url, dest, max_bytes)
-    except OSError as e:
+    except TooLarge as e:
         raise RevisionMismatch(
             f"{tag}: {label} exceeds the {max_bytes}-byte download limit ({e})") from None
 
@@ -134,7 +135,11 @@ class Clawvisor(App):
 
     def fetch(self, ctx, tag: str, commit: str) -> dict:
         from talaria.rehearse import Transient
-        arch = ARCH[ctx.sh.run(["uname", "-m"]).stdout.strip()]
+        machine = ctx.sh.run(["uname", "-m"]).stdout.strip()
+        try:
+            arch = ARCH[machine]
+        except KeyError:
+            raise RevisionMismatch(f"unsupported architecture: {machine}") from None
         asset = f"clawvisor-server-linux-{arch}"
         base = f"{ctx.conf.repo}/releases/download/{tag}"
         work = ctx.paths.staging / f"build-{tag}"
@@ -155,7 +160,7 @@ class Clawvisor(App):
             (work / "Containerfile").write_text(Template(
                 (ctx.paths.templates_dir / "clawvisor.Containerfile").read_text()
             ).substitute(base=BASE))
-            iid = ctx.sh.run(["podman", "build", "-q", "--pull=missing",
+            iid = ctx.sh.run(["podman", "build", "-q", "--pull=missing", "--timestamp", "0",
                               "--label", f"org.opencontainers.image.revision={commit}",
                               "--label", f"org.opencontainers.image.version={tag}",
                               "-t", f"{self.local_image}:{tag}", str(work)],
@@ -190,7 +195,7 @@ class Clawvisor(App):
                 raise Transient(_redact(
                     ctx, copy, f"could not start {image['tag']} for the rehearsal: {e}")) from None
             ready, waited = False, 0
-            while waited < max(ctx.conf.settle_seconds, 10):
+            while waited < max(ctx.conf.settle_seconds, 120):
                 if ctx.sh.run(["podman", "exec", NAME, "/clawvisor-server", "healthcheck"],
                               check=False, timeout=30).returncode == 0:
                     ready = True

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import time
 import urllib.error
 import urllib.request
@@ -72,6 +73,13 @@ def http_get(url: str, timeout: float = 5.0) -> tuple[int, bytes]:
         return 0, b""
 
 
+class TooLarge(OSError):
+    """Raised by download() only when the response exceeds max_bytes. Every other
+    failure while streaming the body (a mid-stream reset, a TLS error, disk full,
+    an incomplete/chunked-encoding error) is swallowed into a 0 return instead, the
+    same as a non-200 response: those are transient, not a bad publish."""
+
+
 def download(url: str, dest: Path, max_bytes: int) -> int:
     try:
         with urllib.request.urlopen(url, timeout=60) as r, open(dest, "wb") as f:
@@ -79,12 +87,14 @@ def download(url: str, dest: Path, max_bytes: int) -> int:
             while chunk := r.read(1 << 20):
                 n += len(chunk)
                 if n > max_bytes:
-                    raise OSError(f"{url} is larger than {max_bytes} bytes")
+                    raise TooLarge(f"{url} is larger than {max_bytes} bytes")
                 f.write(chunk)
             return r.status
     except urllib.error.HTTPError as e:
         return e.code
-    except (urllib.error.URLError, TimeoutError):
+    except TooLarge:
+        raise
+    except (urllib.error.URLError, http.client.HTTPException, OSError):
         return 0
 
 

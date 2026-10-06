@@ -48,6 +48,31 @@ def test_fetch_verifies_checksum_and_builds(tmp_path):
     assert "localhost/clawvisor:v0.9.10" in build
 
 
+def test_reacquire_rebuilds_the_same_tag_reproducibly(tmp_path):
+    """Guards I1: reacquire must re-run fetch() for the record's own tag/commit, and the
+    build must be reproducible (--timestamp 0) so the same verified binary and pinned
+    base yield the same image ID as the original build -- otherwise images.ensure()'s
+    post-reacquire existence check would always fail."""
+    ctx = cctx(tmp_path, {"checksums.txt": f"{SUM}  clawvisor-server-linux-amd64\n".encode(),
+                          "clawvisor-server-linux-amd64": BIN})
+    ctx.app.reacquire(ctx, {"tag": "v0.9.10", "commit": "abc", "id": "sha256:gone"})
+    build = ctx.sh.called("podman", "build")[0]
+    assert "org.opencontainers.image.revision=abc" in build
+    assert "org.opencontainers.image.version=v0.9.10" in build
+    assert "localhost/clawvisor:v0.9.10" in build
+    assert "--timestamp" in build and build[build.index("--timestamp") + 1] == "0"
+
+
+def test_unsupported_architecture_is_permanent_not_a_keyerror(tmp_path):
+    """Guards M4: an unrecognized `uname -m` (e.g. armv7l) must not escape as a raw
+    KeyError -- that surfaces to Telegram as 'failed unexpectedly' every day."""
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.sh.on("uname", "-m", out="armv7l\n")
+    with pytest.raises(RevisionMismatch, match="unsupported architecture: armv7l"):
+        ctx.app.fetch(ctx, "v0.9.10", "abc")
+    assert ctx.sh.called("podman", "build") == []
+
+
 def test_checksum_mismatch_is_permanent(tmp_path):
     ctx = cctx(tmp_path, {"checksums.txt": f"{'0' * 64}  clawvisor-server-linux-amd64\n".encode(),
                           "clawvisor-server-linux-amd64": BIN})
@@ -71,16 +96,39 @@ def test_binary_version_must_match_the_tag(tmp_path):
 
 
 def test_oversized_asset_is_permanent_not_a_traceback(tmp_path):
+    from talaria.ctx import TooLarge
     ctx = make_test_ctx(tmp_path, app="clawvisor")
     ctx.sh.on("uname", "-m", out="x86_64\n")
 
     def download(url, dest, max_bytes):
-        raise OSError(f"{url} is larger than {max_bytes} bytes")
+        raise TooLarge(f"{url} is larger than {max_bytes} bytes")
     ctx.download = download
     with pytest.raises(RevisionMismatch, match="checksums.txt exceeds the 1048576-byte"
                                                 " download limit"):
         ctx.app.fetch(ctx, "v0.9.10", "abc")
     assert ctx.sh.called("podman", "build") == []
+
+
+def test_get_only_treats_toolarge_as_permanent(tmp_path):
+    """_get must narrow on the dedicated TooLarge, not any OSError: a mid-stream reset,
+    disk-full or TLS failure from ctx.download must not be mistaken for the
+    oversized-asset case and turned into a misleading Permanent/"exceeds the limit"."""
+    from talaria.apps import clawvisor as cv
+    from talaria.ctx import TooLarge
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    dest = tmp_path / "f"
+
+    def too_large(url, dest, max_bytes):
+        raise TooLarge(f"{url} is larger than {max_bytes} bytes")
+    ctx.download = too_large
+    with pytest.raises(RevisionMismatch, match="exceeds the 10-byte download limit"):
+        cv._get(ctx, "http://x/y", dest, 10, "v0.9.10", "asset")
+
+    def reset(url, dest, max_bytes):
+        raise ConnectionResetError("connection reset by peer")
+    ctx.download = reset
+    with pytest.raises(ConnectionResetError):
+        cv._get(ctx, "http://x/y", dest, 10, "v0.9.10", "asset")
 
 
 def test_network_error_during_download_is_still_transient(tmp_path):
@@ -128,6 +176,28 @@ def test_rehearse_reports_new_migrations(tmp_path):
     lines, blocks = ctx.app.report_lines(ctx, rep)
     assert "Database migrations: 2 → 3" in lines
     assert blocks == [("Migrations that will run (1)", "055_y.sql")]
+
+
+def test_rehearse_waits_at_least_120s_even_with_a_low_settle_seconds(tmp_path):
+    """Guards M3: Clawvisor runs migrations at startup and its log tables are never
+    pruned, so a slow migration can exceed the usual settle window. The rehearsal must
+    wait at least 120s for readiness regardless of a lower settle_seconds."""
+    from talaria.shell import Result
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    copy, stage = tmp_path / "copy", tmp_path / "stage"
+    copy.mkdir(); stage.mkdir()
+    make_db(copy / "clawvisor.db", ["001_init.sql"])
+    ctx.conf.settle_seconds = 10   # lower than the 120s floor
+    calls = []
+
+    def exec_fn(argv, input):
+        calls.append(argv)
+        return Result(0 if len(calls) >= 55 else 1, "", "")   # ready only after ~110s
+    ctx.sh.on("podman", "rm").on("podman", "run", out="cid\n").on("podman", "stop")
+    ctx.sh.on("podman", "exec", fn=exec_fn)
+    rep = ctx.app.rehearse(ctx, {}, {"tag": "v0.9.10", "id": "sha256:i"}, copy, stage)
+    assert rep["tag"] == "v0.9.10"
+    assert len(calls) == 55
 
 
 def test_rehearse_not_ready_is_permanent_with_log_tail(tmp_path):

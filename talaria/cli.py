@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import traceback
@@ -91,7 +92,11 @@ def login_link(ctx) -> int:
     if r.returncode != 0:
         print("STOP: could not get a login link from Clawvisor", file=sys.stderr)
         return 1
-    print(r.stdout.strip().replace("http://localhost:", f"http://{ctx.conf.bind_ip}:"))
+    # Clawvisor prints its own container-internal port (25297); the Quadlet publishes
+    # that on ctx.conf.dashboard_port, which can differ -- rewrite both host and port.
+    link = re.sub(r"http://localhost:\d+", f"http://{ctx.conf.bind_ip}:{ctx.conf.dashboard_port}",
+                 r.stdout.strip())
+    print(link)
     return 0
 
 

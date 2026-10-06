@@ -154,6 +154,50 @@ def test_setup_dispatch_rejects_an_unknown_app_as_service_too(capsys):
         "STOP: unknown app: 'bogus'; choose one of hermes, clawvisor\n")
 
 
+def _captured_dispatch(monkeypatch, a):
+    """Run setup.setup(args(**a)) with operator_phase stubbed out; return the
+    (app, explicit_app) kwargs it was called with."""
+    seen = {}
+    monkeypatch.setattr(setup, "operator_phase",
+                        lambda sh, args_, **kw: seen.update(kw) or 0)
+    setup.setup(args(**a))
+    return seen["app"], seen["explicit_app"]
+
+
+def test_app_flag_wins_and_is_forwarded(monkeypatch):
+    """Rule 1: --app, whatever --user says, decides the app and is forwarded."""
+    app, explicit = _captured_dispatch(monkeypatch, dict(app="clawvisor", user="anything"))
+    assert (app, explicit) == ("clawvisor", True)
+
+
+def test_user_named_clawvisor_without_app_selects_and_forwards_clawvisor(monkeypatch):
+    """Rule 2, the I3 fix: --user clawvisor alone must install Clawvisor, not silently
+    default to Hermes for the clawvisor account."""
+    app, explicit = _captured_dispatch(monkeypatch, dict(user="clawvisor"))
+    assert (app, explicit) == ("clawvisor", True)
+
+
+def test_user_hermes_without_app_selects_and_forwards_hermes(monkeypatch):
+    """Rule 2 also covers the ordinary Hermes flow (--user hermes, no --app): this must
+    keep forwarding --app hermes, matching the v0.3.0 golden handoff byte-for-byte."""
+    app, explicit = _captured_dispatch(monkeypatch, dict(user="hermes"))
+    assert (app, explicit) == ("hermes", True)
+
+
+def test_no_app_no_user_falls_back_to_hermes_without_forwarding(monkeypatch):
+    """Rule 3: neither flag given. Still installs hermes (today's default), but does not
+    forward --app, so the service phase can fall back to an existing conf instead of a
+    bare default overriding it."""
+    app, explicit = _captured_dispatch(monkeypatch, dict())
+    assert (app, explicit) == ("hermes", False)
+
+
+def test_user_not_an_app_name_falls_back_to_hermes_without_forwarding(monkeypatch):
+    """Rule 3: --user names an account that isn't an app name either."""
+    app, explicit = _captured_dispatch(monkeypatch, dict(user="bob"))
+    assert (app, explicit) == ("hermes", False)
+
+
 def test_clawvisor_default_account_name_and_plan_text(monkeypatch, tmp_path, capsys):
     """With no --user, the account to create/use follows the chosen app."""
     monkeypatch.setattr(setup, "which", lambda t: f"/usr/bin/{t}")

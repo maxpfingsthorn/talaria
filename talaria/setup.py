@@ -78,7 +78,8 @@ def install_url(url: str) -> str | None:
 
 
 def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subprocess.call,
-                   linger_dir=Path("/var/lib/systemd/linger"), app="hermes") -> int:
+                   linger_dir=Path("/var/lib/systemd/linger"), app="hermes",
+                   explicit_app=True) -> int:
     if app not in apps.NAMES:
         say("STOP", f"unknown app: {app!r}; choose one of {', '.join(apps.NAMES)}")
         return 1
@@ -149,7 +150,8 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
     sh.run(sudo + ["mkdir", "-p", f"{home}/.local/bin"])
     sh.run(sudo + ["ln", "-sfn", f"{install}/bin/talaria", f"{home}/.local/bin/talaria"])
     say("OK", f"Talaria {ref} installed for {user}")
-    rest = ["--app", app] + (["--adopt", args.adopt] if args.adopt else [])
+    rest = (["--app", app] if explicit_app else []) + \
+        (["--adopt", args.adopt] if args.adopt else [])
     return call(sudo + [f"XDG_RUNTIME_DIR=/run/user/{pw.pw_uid}",
                         f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{pw.pw_uid}/bus",
                         f"{home}/.local/bin/talaria", "setup", "--as-service", *rest])
@@ -328,4 +330,13 @@ def setup(args) -> int:
     if args.as_service:
         return service_phase(make_ctx(app=requested), args)
     os.chdir("/")  # commands run as the service user, which may not enter the caller's cwd
-    return operator_phase(Shell(), args, app=requested or "hermes")
+    # The app to install, in order: --app; else --user, if that names a known app;
+    # else hermes. Only the first two are forwarded to the service phase with --app --
+    # a bare hermes default must not override an existing conf's app on a later run.
+    if requested is not None:
+        app, explicit = requested, True
+    elif args.user in apps.NAMES:
+        app, explicit = args.user, True
+    else:
+        app, explicit = "hermes", False
+    return operator_phase(Shell(), args, app=app, explicit_app=explicit)

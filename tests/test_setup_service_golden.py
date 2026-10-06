@@ -198,8 +198,10 @@ def test_fresh_image_clawvisor_oversized_asset_stops_without_traceback(tmp_path,
     monkeypatch.setattr(ctx.app, "published", lambda c, tags: set(tags))
     ctx.sh.on("uname", "-m", out="x86_64\n")
 
+    from talaria.ctx import TooLarge
+
     def oversized_download(url, dest, max_bytes):
-        raise OSError(f"{url} is larger than {max_bytes} bytes")
+        raise TooLarge(f"{url} is larger than {max_bytes} bytes")
     ctx.download = oversized_download
     st = state.load(ctx.paths)
     ok = setup._fresh_image(ctx, st)

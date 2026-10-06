@@ -1,12 +1,39 @@
+import http.client
 import threading
 from datetime import timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+import pytest
+
 from talaria import apps
 from talaria import ctx as ctxmod
 from talaria.notify import TelegramNotifier
 from talaria.shell import Shell
+
+
+class _FakeResp:
+    """A urlopen() context manager whose read() yields scripted chunks (bytes) or raises
+    a scripted exception, so download()'s mid-stream error handling can be tested without
+    a real flaky socket close."""
+
+    def __init__(self, status, chunks):
+        self.status = status
+        self._chunks = list(chunks)
+
+    def read(self, n=-1):
+        if not self._chunks:
+            return b""
+        item = self._chunks.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
 
 
 def serve(code, body):
@@ -45,6 +72,55 @@ def test_http_get_unreachable():
     srv.shutdown()
     srv.server_close()
     assert ctxmod.http_get(url, 1.0) == (0, b"")
+
+
+def test_download_success_writes_file_and_returns_status(tmp_path, monkeypatch):
+    monkeypatch.setattr(ctxmod.urllib.request, "urlopen",
+                        lambda url, timeout=60: _FakeResp(200, [b"hello", b""]))
+    dest = tmp_path / "out.bin"
+    assert ctxmod.download("http://x/y", dest, 1 << 20) == 200
+    assert dest.read_bytes() == b"hello"
+
+
+def test_download_oversized_raises_toolarge(tmp_path, monkeypatch):
+    monkeypatch.setattr(ctxmod.urllib.request, "urlopen",
+                        lambda url, timeout=60: _FakeResp(200, [b"x" * 10, b""]))
+    dest = tmp_path / "out.bin"
+    with pytest.raises(ctxmod.TooLarge):
+        ctxmod.download("http://x/y", dest, 5)
+
+
+def test_download_mid_stream_reset_returns_0(tmp_path, monkeypatch):
+    """A ConnectionResetError (an OSError) while reading the body must be swallowed into
+    a 0 return, not propagate: it's a transient network failure, not an oversized asset."""
+    monkeypatch.setattr(ctxmod.urllib.request, "urlopen",
+                        lambda url, timeout=60: _FakeResp(
+                            200, [b"abc", ConnectionResetError("reset")]))
+    dest = tmp_path / "out.bin"
+    assert ctxmod.download("http://x/y", dest, 1 << 20) == 0
+
+
+def test_download_incomplete_read_returns_0(tmp_path, monkeypatch):
+    """http.client.IncompleteRead is not an OSError; download() must still swallow it."""
+    monkeypatch.setattr(ctxmod.urllib.request, "urlopen",
+                        lambda url, timeout=60: _FakeResp(
+                            200, [b"abc", http.client.IncompleteRead(b"abc")]))
+    dest = tmp_path / "out.bin"
+    assert ctxmod.download("http://x/y", dest, 1 << 20) == 0
+
+
+def test_download_disk_full_returns_0(tmp_path, monkeypatch):
+    """ENOSPC from the write side is an OSError too and must be swallowed the same way."""
+    class _FullFile:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def write(self, chunk): raise OSError("No space left on device")
+
+    monkeypatch.setattr(ctxmod.urllib.request, "urlopen",
+                        lambda url, timeout=60: _FakeResp(200, [b"abc", b""]))
+    monkeypatch.setattr("builtins.open", lambda *a, **k: _FullFile())
+    dest = tmp_path / "out.bin"
+    assert ctxmod.download("http://x/y", dest, 1 << 20) == 0
 
 
 def test_utcnow_is_aware():

@@ -3,7 +3,20 @@ import json
 import pytest
 
 from talaria import images
+from talaria.shell import Result
 from tests.fakes import make_test_ctx
+
+
+def _exists_then(*results):
+    """A stateful `podman image exists` fake: rc for the Nth call is results[N-1]
+    (clamped to the last entry), modelling the image appearing after reacquire."""
+    calls = []
+
+    def fn(argv, input):
+        calls.append(argv)
+        rc = results[min(len(calls), len(results)) - 1]
+        return Result(rc, "", "")
+    return fn
 
 
 def inspect_json(rev="c0ffee", digest="sha256:d1", iid="sha256:i1", size=100):
@@ -37,7 +50,8 @@ def test_pull_verify_tls_flag(tmp_path):
 
 def test_ensure_repulls_missing_by_digest(tmp_path):
     ctx = make_test_ctx(tmp_path)
-    ctx.sh.on("podman", "image", "exists", rc=1).on("podman", "pull")
+    # missing before reacquire, present after (the re-pull fetched it by digest)
+    ctx.sh.on("podman", "image", "exists", fn=_exists_then(1, 0)).on("podman", "pull")
     images.ensure(ctx, {"id": "sha256:i1", "ref": "x/h@sha256:d1"})
     assert ctx.sh.called("podman", "pull")[0][-1] == "x/h@sha256:d1"
 
@@ -47,6 +61,16 @@ def test_ensure_missing_local_image_raises(tmp_path):
     ctx.sh.on("podman", "image", "exists", rc=1)
     with pytest.raises(images.ImageMissing):
         images.ensure(ctx, {"id": "sha256:i1", "ref": None})
+
+
+def test_ensure_still_missing_after_reacquire_raises_without_stopping_anything(tmp_path):
+    """Guards I1: if reacquire runs (e.g. Clawvisor rebuilds under a new image ID) but the
+    expected id still isn't there afterwards, ensure() must refuse rather than let a
+    caller proceed to stop the app on a missing image."""
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("podman", "image", "exists", rc=1).on("podman", "pull")   # stays missing
+    with pytest.raises(images.ImageMissing, match="still missing after reacquire"):
+        images.ensure(ctx, {"id": "sha256:i1", "ref": "x/h@sha256:d1"})
 
 
 def test_retag(tmp_path):
@@ -138,7 +162,7 @@ def test_ensure_present_does_nothing(tmp_path):
 
 def test_ensure_exact_pull_and_tls(tmp_path):
     ctx = make_test_ctx(tmp_path, registry_tls_verify=False)
-    ctx.sh.on("podman", "image", "exists", rc=1).on("podman", "pull")
+    ctx.sh.on("podman", "image", "exists", fn=_exists_then(1, 0)).on("podman", "pull")
     images.ensure(ctx, {"id": "a", "ref": "x@d"})
     assert list(zip(ctx.sh.calls, ctx.sh.timeouts))[1] == (
         ["podman", "pull", "-q", "--tls-verify=false", "x@d"], 3600)

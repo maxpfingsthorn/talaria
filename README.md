@@ -179,7 +179,11 @@ paste it into a chat, a ticket, an agent's context, or anywhere it could be
 logged.** If an agent is driving setup, have it stop here and let the person at
 the keyboard run this step and use the link themselves.
 
-If Hermes needs to reach Clawvisor directly, add a line like
+For Hermes (or you) to reach it at all, Clawvisor must publish on Tailscale, not just
+loopback: in **Clawvisor's own** `talaria.conf`, set `dashboard.bind = tailscale` and
+`tailscale_ip = <ip>` (the host's Tailscale address), then run Clawvisor's setup again.
+
+Then, if Hermes needs to reach Clawvisor directly, add a line like
 `add_hosts = clawvisor:<tailscale ip>` to **Hermes's** `talaria.conf` and run
 Hermes's setup again. Hermes's Quadlet then resolves `http://clawvisor:25297` to
 Clawvisor's Tailscale address — without the two service users ever sharing a

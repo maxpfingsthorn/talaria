@@ -46,6 +46,9 @@ def exists(ctx, rec: dict) -> bool:
 def ensure(ctx, rec: dict) -> None:
     if not exists(ctx, rec):
         ctx.app.reacquire(ctx, rec)
+        if not exists(ctx, rec):
+            raise ImageMissing(
+                f"{rec['id'][:19]} is still missing after reacquire; refusing to continue")
 
 
 def retag(ctx, name: str, rec: dict) -> None:
