@@ -62,12 +62,16 @@ def _redact(ctx, copy, text: str) -> str:
     """Replace secret values with '***' before they can reach Permanent.details, which
     check.py forwards unchanged to Telegram: the real app_env (mounted into the rehearsal
     via --env-file, so it carries JWT_SECRET and friends) and the copy's vault.key, in
-    case the app ever echoes its environment or a decrypted secret on a failed boot."""
+    case the app ever echoes its environment or a decrypted secret on a failed boot.
+    Values shorter than 4 chars are skipped (too short to usefully redact, and would
+    shred ordinary log text) except JWT_SECRET and the vault key, which are always
+    redacted regardless of length."""
     values = []
     try:
-        values += [v for v in parse_kv(ctx.paths.app_env.read_text()).values() if v]
-    except (FileNotFoundError, OSError):
-        pass
+        env = parse_kv(ctx.paths.app_env.read_text())
+    except (FileNotFoundError, OSError, UnicodeDecodeError):
+        env = {}
+    values += [v for k, v in env.items() if v and (k == "JWT_SECRET" or len(v) >= 4)]
     vault = copy / "vault.key"
     if vault.is_file() and not vault.is_symlink():
         try:
@@ -183,8 +187,8 @@ class Clawvisor(App):
                             "--env-file", str(ctx.paths.app_env), *envs, image["id"]],
                            timeout=300)
             except (CommandError, subprocess.TimeoutExpired) as e:
-                raise Transient(
-                    f"could not start {image['tag']} for the rehearsal: {e}") from None
+                raise Transient(_redact(
+                    ctx, copy, f"could not start {image['tag']} for the rehearsal: {e}")) from None
             ready, waited = False, 0
             while waited < max(ctx.conf.settle_seconds, 10):
                 if ctx.sh.run(["podman", "exec", NAME, "/clawvisor-server", "healthcheck"],

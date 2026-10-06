@@ -77,7 +77,10 @@ def load_conf(paths) -> Conf:
     conf = Conf(data_dir=paths.home / "hermes-data", app=paths.app)
     seen = set()
     if paths.conf_file.exists():
-        for k, v in parse_kv(paths.conf_file.read_text()).items():
+        kv = parse_kv(paths.conf_file.read_text())
+        if "repo" in kv and "hermes_repo" in kv:
+            raise ValueError(f"set only one of repo / hermes_repo in {paths.conf_file}")
+        for k, v in kv.items():
             if k not in _KEYS:
                 raise ValueError(f"unknown key in {paths.conf_file}: {k}")
             attr, kind = _KEYS[k]

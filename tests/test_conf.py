@@ -104,3 +104,12 @@ def test_hermes_repo_is_read_only(tmp_path):
     c = load_conf(Paths(tmp_path))
     with pytest.raises(AttributeError):
         c.hermes_repo = "nope"
+
+
+def test_repo_and_hermes_repo_together_is_an_error(tmp_path):
+    p = Paths(tmp_path)
+    p.conf_file.parent.mkdir(parents=True)
+    p.conf_file.write_text(
+        "repo = https://example/one\nhermes_repo = https://example/two\n")
+    with pytest.raises(ValueError, match="set only one of repo / hermes_repo"):
+        load_conf(p)

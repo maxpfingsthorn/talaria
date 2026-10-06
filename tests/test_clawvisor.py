@@ -158,6 +158,21 @@ def test_rehearse_run_failure_is_transient_and_cleans_up(tmp_path):
     assert ctx.sh.called("podman", "exec") == []   # never reached the readiness poll
 
 
+def test_rehearse_run_failure_message_is_redacted(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    copy, stage = tmp_path / "copy", tmp_path / "stage"
+    copy.mkdir(); stage.mkdir()
+    make_db(copy / "clawvisor.db", ["001_init.sql"])
+    write_env_value(ctx.paths.app_env, "JWT_SECRET", "sekrit-token-value")
+    ctx.sh.on("podman", "rm").on("podman", "run", rc=1,
+                                  err="boom: sekrit-token-value leaked\n")
+    ctx.sh.on("podman", "stop")
+    with pytest.raises(rehearse.Transient) as e:
+        ctx.app.rehearse(ctx, {}, {"tag": "v0.9.10", "id": "sha256:i"}, copy, stage)
+    assert "sekrit-token-value" not in str(e.value)
+    assert "***" in str(e.value)
+
+
 def test_rehearse_run_timeout_is_transient_and_cleans_up(tmp_path):
     ctx = make_test_ctx(tmp_path, app="clawvisor")
     copy, stage = tmp_path / "copy", tmp_path / "stage"
@@ -192,6 +207,39 @@ def test_log_tail_redacts_env_secrets_and_vault_key(tmp_path):
     assert "sekrit-token-value" not in tail
     assert "vault-key-bytes-xyz" not in tail
     assert "***" in tail
+
+
+def test_redact_survives_undecodable_app_env(tmp_path):
+    """A corrupt/binary app_env must not crash redaction: redact what it can (the vault
+    key) and leave the rest of the text alone rather than raising UnicodeDecodeError."""
+    from talaria.apps import clawvisor as cv
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.paths.app_env.parent.mkdir(parents=True, exist_ok=True)
+    ctx.paths.app_env.write_bytes(b"\xff\xfe not valid utf-8\n")
+    copy = tmp_path / "copy"
+    copy.mkdir()
+    (copy / "vault.key").write_text("vault-key-bytes-xyz\n")
+    text = cv._redact(ctx, copy, "boot failed, dump: vault=vault-key-bytes-xyz")
+    assert "vault-key-bytes-xyz" not in text
+    assert "***" in text
+
+
+def test_redact_skips_short_values_but_keeps_jwt_secret_and_vault_key(tmp_path):
+    """Values under 4 chars would shred ordinary log text if redacted, so they're left
+    alone -- except JWT_SECRET and the vault key, which are always redacted even when
+    short, since those two are secrets by construction regardless of length."""
+    from talaria.apps import clawvisor as cv
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    write_env_value(ctx.paths.app_env, "JWT_SECRET", "abc")
+    write_env_value(ctx.paths.app_env, "TINY", "xyz")
+    copy = tmp_path / "copy"
+    copy.mkdir()
+    (copy / "vault.key").write_text("qrs\n")
+    text = cv._redact(ctx, copy, "dump: TINY=xyz JWT_SECRET=abc vault=qrs")
+    assert "abc" not in text   # JWT_SECRET: always redacted, even though short
+    assert "qrs" not in text   # vault key: always redacted, even though short
+    assert "xyz" in text       # an ordinary value under 4 chars is left alone
+    assert "***" in text
 
 
 def test_migrations_missing_file_and_missing_table(tmp_path):
