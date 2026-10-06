@@ -146,8 +146,56 @@ Hermes's; a Clawvisor install (`app = clawvisor`) gets its own defaults for `dat
 | `backup.exclude` | `.cache .npm home/.cache home/.npm backups` (`backups/config` is always kept) |
 | `disk.floor_gb` | `6` |
 | `check.time` | `04:30` |
+| `add_hosts` | (none; space-separated `name:ip` pairs, e.g. `clawvisor:<tailscale ip>`) |
 
 Run setup again after changing it.
+
+## Clawvisor
+
+Talaria can also manage [Clawvisor](https://github.com/clawvisor/clawvisor) the same
+way it manages Hermes: release detection, a rehearsal on a copy, Telegram approval,
+backup, deploy, verify, and rollback of image and data together.
+
+One Talaria install manages one app. To run both Hermes and Clawvisor on the same
+host, set Clawvisor up as its own service user, separate from Hermes's:
+
+```bash
+bin/talaria setup --plan --app clawvisor --user clawvisor
+bin/talaria setup --app clawvisor --user clawvisor
+```
+
+Clawvisor's README warns that an agent sharing an environment with it can read its
+database, so it never shares a user, a podman network or a data dir with Hermes.
+
+**Clawvisor gets its own, second Telegram bot.** Pair it exactly like Hermes's bot
+(`set-token` as the `clawvisor` service user, then `/pair CODE` in a chat with that
+bot) — just with a different bot token. One bot managing several installs is a
+later wish, not supported today.
+
+Clawvisor has no dashboard password; its first login is a single-use, short-lived
+link. As the `clawvisor` service user, **in your own terminal** (never through a
+coding agent): `talaria login-link`. Treat its output like a password — **never
+paste it into a chat, a ticket, an agent's context, or anywhere it could be
+logged.** If an agent is driving setup, have it stop here and let the person at
+the keyboard run this step and use the link themselves.
+
+If Hermes needs to reach Clawvisor directly, add a line like
+`add_hosts = clawvisor:<tailscale ip>` to **Hermes's** `talaria.conf` and run
+Hermes's setup again. Hermes's Quadlet then resolves `http://clawvisor:25297` to
+Clawvisor's Tailscale address — without the two service users ever sharing a
+podman network.
+
+Clawvisor keeps everything in SQLite (WAL mode, one connection); it publishes no
+container image, so Talaria downloads each release's binary, checks its SHA-256
+against the published checksums, and builds a local image from a pinned distroless
+base. Its log tables (`audit_log`, `gateway_request_log`, `runtime_events`) are
+never pruned upstream and grow without bound — `/status` reports the data
+directory's size so you notice before disk space runs out; Talaria itself does
+not prune them.
+
+Google OAuth login (it needs an https redirect) is out of scope; use the one-time
+login link instead. Adopting an existing Clawvisor install is also out of scope —
+only a fresh install is supported.
 
 ## Security
 
