@@ -84,6 +84,15 @@ def test_make_ctx_sets_app_and_paths_app_from_conf(tmp_path, monkeypatch):
     assert c.app is sentinel
 
 
+def test_make_ctx_seeds_app_only_without_conf(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    assert ctxmod.make_ctx(app="clawvisor").conf.app == "clawvisor"
+    (tmp_path / ".config/talaria").mkdir(parents=True)
+    (tmp_path / ".config/talaria/talaria.conf").write_text("backup.keep = 2\n")
+    # an existing Hermes conf has no app key; --app clawvisor must not reinterpret it
+    assert ctxmod.make_ctx(app="clawvisor").conf.app == "hermes"
+
+
 def test_paths_layout(tmp_path):
     p = ctxmod.Paths(tmp_path)
     assert {k: str(getattr(p, k)).replace(str(tmp_path), "~") for k in (
