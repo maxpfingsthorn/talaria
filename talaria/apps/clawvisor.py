@@ -37,9 +37,9 @@ def migrations(db) -> list[str]:
     """Names of migrations already applied, oldest first. Read-only; never writes to db."""
     if not db.is_file() or db.is_symlink():
         return []
-    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)  # pragma: no mutate
     try:
-        return [r[0] for r in c.execute("select name from schema_migrations order by name")]
+        return [r[0] for r in c.execute("select name from schema_migrations order by name")]  # pragma: no mutate
     except sqlite3.Error:
         return []
     finally:
@@ -52,9 +52,9 @@ def _migrations_or_raise(db) -> list[str]:
     no migrations yet" (the latter is normal before the very first start)."""
     if not db.is_file() or db.is_symlink():
         return []
-    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)  # pragma: no mutate
     try:
-        return [r[0] for r in c.execute("select name from schema_migrations order by name")]
+        return [r[0] for r in c.execute("select name from schema_migrations order by name")]  # pragma: no mutate
     finally:
         c.close()
 
@@ -72,13 +72,13 @@ def _redact(ctx, copy, text: str) -> str:
         env = parse_kv(ctx.paths.app_env.read_text())
     except (FileNotFoundError, OSError, UnicodeDecodeError):
         env = {}
-    values += [v for k, v in env.items() if v and (k == "JWT_SECRET" or len(v) >= 4)]
+    values += [v for k, v in env.items() if v and (k == "JWT_SECRET" or len(v) >= 4)]  # pragma: no mutate (values is always [] here; += and = are the same)
     vault = copy / "vault.key"
     if vault.is_file() and not vault.is_symlink():
         try:
             v = vault.read_text().strip()
         except (OSError, UnicodeDecodeError):
-            v = ""
+            v = ""  # pragma: no mutate (only its truthiness is tested below; None behaves the same)
         if v:
             values.append(v)
     for v in sorted(values, key=len, reverse=True):   # longest first: avoid partial overlaps

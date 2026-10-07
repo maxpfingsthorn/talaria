@@ -32,9 +32,20 @@ def cctx(tmp_path, files):
 def test_releases_are_plain_semver_tags(tmp_path, monkeypatch):
     from talaria.apps import clawvisor as cv
     ctx = make_test_ctx(tmp_path, app="clawvisor")
-    monkeypatch.setattr(cv, "_ls_remote", lambda sh, repo: {
-        "v0.9.10": "a", "v0.9.11-rc1": "b", "latest": "c", "v0.9.9": "d"})
+    seen = {}
+
+    def ls_remote(sh, repo):
+        seen["sh"], seen["repo"] = sh, repo
+        return {"v0.9.10": "a", "v0.9.11-rc1": "b", "latest": "c", "v0.9.9": "d"}
+    monkeypatch.setattr(cv, "_ls_remote", ls_remote)
     assert ctx.app.releases(ctx) == {"v0.9.10": "a", "v0.9.9": "d"}
+    assert seen == {"sh": ctx.sh, "repo": ctx.conf.repo}
+
+
+def test_tag_key_rejects_a_non_release_tag_by_name(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    with pytest.raises(ValueError, match="not a release tag: 'latest'"):
+        ctx.app.tag_key("latest")
 
 
 def test_fetch_verifies_checksum_and_builds(tmp_path):
@@ -46,6 +57,122 @@ def test_fetch_verifies_checksum_and_builds(tmp_path):
     build = ctx.sh.called("podman", "build")[0]
     assert "--label" in build and "org.opencontainers.image.revision=abc" in build
     assert "localhost/clawvisor:v0.9.10" in build
+
+
+def test_fetch_removes_a_leftover_staging_dir_first(tmp_path):
+    """A crashed previous fetch can leave build-<tag> behind; it must be cleared before
+    work.mkdir(mode=0o700), which has no exist_ok and would otherwise raise."""
+    ctx = cctx(tmp_path, {"checksums.txt": f"{SUM}  clawvisor-server-linux-amd64\n".encode(),
+                          "clawvisor-server-linux-amd64": BIN})
+    work = ctx.paths.staging / "build-v0.9.10"
+    work.mkdir(parents=True)
+    (work / "leftover.txt").write_text("stale")
+    ctx.app.fetch(ctx, "v0.9.10", "abc")
+
+
+def test_fetch_exact_build_and_version_check_mechanics(tmp_path):
+    """Pins every literal in the build and version-check commands, the build context
+    directory's mode, the Containerfile's exact name and templated content, and that the
+    staging directory is gone afterwards -- the details a loose substring check lets
+    drift."""
+    from talaria.apps.clawvisor import BASE
+    ctx = cctx(tmp_path, {"checksums.txt": f"{SUM}  clawvisor-server-linux-amd64\n".encode(),
+                          "clawvisor-server-linux-amd64": BIN})
+    work = ctx.paths.staging / "build-v0.9.10"
+    seen = {}
+
+    def build_fn(argv, input):
+        from talaria.shell import Result
+        seen["build_argv"] = argv
+        seen["mode"] = work.stat().st_mode & 0o777
+        seen["containerfile"] = (work / "Containerfile").read_text()
+        return Result(0, "sha256:built\n", "")
+    ctx.sh.on("podman", "build", fn=build_fn)
+    rec = ctx.app.fetch(ctx, "v0.9.10", "abc")
+    assert seen["build_argv"] == [
+        "podman", "build", "-q", "--pull=missing", "--timestamp", "0",
+        "--label", "org.opencontainers.image.revision=abc",
+        "--label", "org.opencontainers.image.version=v0.9.10",
+        "-t", "localhost/clawvisor:v0.9.10", str(work)]
+    assert seen["mode"] == 0o700
+    assert seen["containerfile"] == (
+        f"FROM {BASE}\nCOPY --chmod=0755 clawvisor-server /clawvisor-server\n"
+        "EXPOSE 25297\nUSER 65532:65532\nENTRYPOINT [\"/clawvisor-server\"]\nCMD [\"server\"]\n")
+    assert not work.exists()   # the finally block's cleanup used the real path
+    run = ctx.sh.called("podman", "run", "--rm")[0]
+    assert run == ["podman", "run", "--rm", "--network=none", "sha256:built", "--version"]
+    assert ctx.sh.timeouts[ctx.sh.calls.index(run)] == 120
+    assert ctx.sh.timeouts[ctx.sh.calls.index(seen["build_argv"])] == 1800
+    assert rec == {"tag": "v0.9.10", "id": "sha256:built", "digest": f"sha256:{SUM}",
+                   "ref": "build:v0.9.10", "commit": "abc"}
+
+
+def test_fetch_passes_the_right_byte_caps_to_each_download(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.sh.on("uname", "-m", out="x86_64\n")
+    ctx.sh.on("podman", "build", out="sha256:built\n")
+    ctx.sh.on("podman", "run", out="clawvisor-server 0.9.10\n")
+    seen = {}
+
+    def download(url, dest, max_bytes):
+        name = url.rsplit("/", 1)[1]
+        seen[name] = max_bytes
+        dest.write_bytes(f"{SUM}  clawvisor-server-linux-amd64\n".encode()
+                         if name == "checksums.txt" else BIN)
+        return 200
+    ctx.download = download
+    ctx.app.fetch(ctx, "v0.9.10", "abc")
+    from talaria.apps.clawvisor import MAX_BINARY
+    assert seen == {"checksums.txt": 1 << 20, "clawvisor-server-linux-amd64": MAX_BINARY}
+
+
+def test_oversized_binary_asset_message_names_the_right_asset_and_tag(tmp_path):
+    """Guards the second _get() call's own tag/label: the checksums.txt download always
+    succeeds here, so only the binary asset's cap is hit, and the message must name that
+    asset and the real tag, not whatever the checksums call happened to use."""
+    from talaria.ctx import TooLarge
+    from talaria.apps.clawvisor import MAX_BINARY
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.sh.on("uname", "-m", out="x86_64\n")
+
+    def download(url, dest, max_bytes):
+        if url.endswith("checksums.txt"):
+            dest.write_bytes(f"{SUM}  clawvisor-server-linux-amd64\n".encode())
+            return 200
+        raise TooLarge(f"{url} is larger than {max_bytes} bytes")
+    ctx.download = download
+    with pytest.raises(RevisionMismatch,
+                       match=rf"v0\.9\.10: clawvisor-server-linux-amd64 exceeds the "
+                             rf"{MAX_BINARY}-byte download limit"):
+        ctx.app.fetch(ctx, "v0.9.10", "abc")
+
+
+def test_binary_version_check_uses_the_last_token_not_a_fixed_index(tmp_path):
+    """The version-check output can plausibly carry more than two tokens (e.g. build
+    metadata before the version); only the very last token is the version."""
+    ctx = cctx(tmp_path, {"checksums.txt": f"{SUM}  clawvisor-server-linux-amd64\n".encode(),
+                          "clawvisor-server-linux-amd64": BIN})
+    ctx.sh.on("podman", "run", out="clawvisor-server build 2026 0.9.10\n")
+    rec = ctx.app.fetch(ctx, "v0.9.10", "abc")
+    assert rec["tag"] == "v0.9.10"
+
+
+def test_binary_version_mismatch_message_reports_the_last_token(tmp_path):
+    ctx = cctx(tmp_path, {"checksums.txt": f"{SUM}  clawvisor-server-linux-amd64\n".encode(),
+                          "clawvisor-server-linux-amd64": BIN})
+    ctx.sh.on("podman", "run", out="clawvisor-server build 2026 0.9.9\n")
+    with pytest.raises(RevisionMismatch, match=r"reports version 0\.9\.9$"):
+        ctx.app.fetch(ctx, "v0.9.10", "abc")
+
+
+def test_binary_version_check_with_empty_output_reports_a_question_mark(tmp_path):
+    """An empty podman run --version output must report '?', not crash with an
+    IndexError while formatting the message."""
+    ctx = cctx(tmp_path, {"checksums.txt": f"{SUM}  clawvisor-server-linux-amd64\n".encode(),
+                          "clawvisor-server-linux-amd64": BIN})
+    ctx.sh.on("podman", "run", out="")
+    with pytest.raises(RevisionMismatch, match=r"reports version \?$"):
+        ctx.app.fetch(ctx, "v0.9.10", "abc")
 
 
 def test_reacquire_rebuilds_the_same_tag_reproducibly(tmp_path):
@@ -165,17 +292,38 @@ def test_rehearse_reports_new_migrations(tmp_path):
     rep = ctx.app.rehearse(ctx, {}, {"tag": "v0.9.10", "id": "sha256:i", "digest": "d"},
                            copy, stage)
     assert (rep["before"], rep["after"], rep["new"]) == (2, 3, ["055_y.sql"])
-    run = ctx.sh.called("podman", "run")[0]
-    assert "--network=none" in run and f"{copy}:/data:Z" in " ".join(run)
-    assert "--userns=keep-id:uid=65532,gid=65532" in run
-    assert "--env-file" in run and str(ctx.paths.app_env) in run
-    assert ctx.sh.called("podman", "rm", "-f", "talaria-rehearse")   # leftover removed first
-    # cleanup also runs after a *successful* rehearsal, not just on failure
-    assert ctx.sh.called("podman", "stop", "-t", "30", "talaria-rehearse")
-    assert len(ctx.sh.called("podman", "rm", "-f", "talaria-rehearse")) == 2
+    assert (rep["tag"], rep["digest"], rep["latest"]) == ("v0.9.10", "d", "055_y.sql")
+    # every argv and timeout, in order: leftover cleanup, start, one healthcheck poll,
+    # then best-effort stop + rm in the finally block
+    envs = [a for e in cv.ENV for a in ("-e", e)]
+    run_argv = ["podman", "run", "-d", "--name", cv.NAME, "--network=none",
+               "--userns=keep-id:uid=65532,gid=65532", "-v", f"{copy}:/data:Z",
+               "--env-file", str(ctx.paths.app_env), *envs, "sha256:i"]
+    assert ctx.sh.calls == [
+        ["podman", "rm", "-f", cv.NAME],
+        run_argv,
+        ["podman", "exec", cv.NAME, "/clawvisor-server", "healthcheck"],
+        ["podman", "stop", "-t", "30", cv.NAME],
+        ["podman", "rm", "-f", cv.NAME],
+    ]
+    assert ctx.sh.timeouts == [120, 300, 30, 120, 120]
     lines, blocks = ctx.app.report_lines(ctx, rep)
     assert "Database migrations: 2 → 3" in lines
     assert blocks == [("Migrations that will run (1)", "055_y.sql")]
+
+
+def test_rehearse_cleanup_tolerates_failed_stop_and_rm(tmp_path):
+    """The leading leftover-cleanup and the finally block's stop/rm are all best-effort
+    (check=False): a rehearsal that otherwise succeeds must not be derailed by podman
+    reporting a nonzero exit from any of them (e.g. 'no such container')."""
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    copy, stage = tmp_path / "copy", tmp_path / "stage"
+    copy.mkdir(); stage.mkdir()
+    make_db(copy / "clawvisor.db", ["001_init.sql"])
+    ctx.sh.on("podman", "rm", rc=1).on("podman", "run", out="cid\n")
+    ctx.sh.on("podman", "exec").on("podman", "stop", rc=1)
+    rep = ctx.app.rehearse(ctx, {}, {"tag": "v0.9.10", "id": "sha256:i"}, copy, stage)
+    assert rep["tag"] == "v0.9.10"
 
 
 def test_rehearse_waits_at_least_120s_even_with_a_low_settle_seconds(tmp_path):
@@ -211,6 +359,40 @@ def test_rehearse_not_ready_is_permanent_with_log_tail(tmp_path):
     with pytest.raises(rehearse.Permanent, match="did not become ready") as e:
         ctx.app.rehearse(ctx, {}, {"tag": "v0.9.10", "id": "sha256:i"}, copy, stage)
     assert e.value.details == [("Log (last lines)", "boom: migration 055 failed")]
+    # the 120s floor applies even though settle_seconds = 10: exactly 60 polls, 2s apart
+    assert len(ctx.sh.called("podman", "exec")) == 60
+    assert ctx.clock.slept == 120
+    logs = ctx.sh.called("podman", "logs")[0]
+    assert logs == ["podman", "logs", "--tail", "20", "talaria-rehearse"]
+    assert ctx.sh.timeouts[ctx.sh.calls.index(logs)] == 60
+
+
+def test_rehearse_tolerates_a_failed_log_tail(tmp_path):
+    """The log-tail fetch after a failed readiness poll is check=False too: podman
+    itself refusing to show logs must not crash out with CommandError instead of the
+    expected Permanent."""
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    copy, stage = tmp_path / "copy", tmp_path / "stage"
+    copy.mkdir(); stage.mkdir()
+    make_db(copy / "clawvisor.db", ["001_init.sql"])
+    ctx.sh.on("podman", "rm").on("podman", "run", out="cid\n").on("podman", "stop")
+    ctx.sh.on("podman", "exec", rc=1).on("podman", "logs", rc=1, err="no such container\n")
+    ctx.conf.settle_seconds = 10
+    with pytest.raises(rehearse.Permanent, match="did not become ready"):
+        ctx.app.rehearse(ctx, {}, {"tag": "v0.9.10", "id": "sha256:i"}, copy, stage)
+
+
+def test_rehearse_with_no_migrations_reports_latest_as_none(tmp_path):
+    """An empty schema_migrations (nothing applied yet) must report latest=None, not
+    crash trying to index the last element of an empty list."""
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    copy, stage = tmp_path / "copy", tmp_path / "stage"
+    copy.mkdir(); stage.mkdir()
+    make_db(copy / "clawvisor.db", [])
+    ctx.sh.on("podman", "rm").on("podman", "run", out="cid\n").on("podman", "exec")
+    ctx.sh.on("podman", "stop")
+    rep = ctx.app.rehearse(ctx, {}, {"tag": "v0.9.10", "id": "sha256:i"}, copy, stage)
+    assert (rep["before"], rep["after"], rep["latest"]) == (0, 0, None)
 
 
 def test_rehearse_run_failure_is_transient_and_cleans_up(tmp_path):
@@ -312,6 +494,57 @@ def test_redact_skips_short_values_but_keeps_jwt_secret_and_vault_key(tmp_path):
     assert "***" in text
 
 
+def test_redact_keeps_the_four_char_boundary_value(tmp_path):
+    """len(v) >= 4 means exactly 4 chars must still be redacted, not just 5+."""
+    from talaria.apps import clawvisor as cv
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    write_env_value(ctx.paths.app_env, "TOKEN", "abcd")
+    text = cv._redact(ctx, tmp_path, "dump: abcd")
+    assert text == "dump: ***"
+
+
+def test_redact_replaces_longest_value_first_to_avoid_partial_leaks(tmp_path):
+    """If one secret's value is a substring of another's (here, the vault key's bytes
+    happen to contain the JWT secret), the longer one must be masked whole -- masking
+    the shorter one first would leave the rest of the longer secret exposed in the
+    clear. This also pins the exact '***' replacement text."""
+    from talaria.apps import clawvisor as cv
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    write_env_value(ctx.paths.app_env, "JWT_SECRET", "bbbb")
+    copy = tmp_path / "copy"
+    copy.mkdir()
+    (copy / "vault.key").write_text("aaaabbbbaaaa\n")
+    text = cv._redact(ctx, copy, "start aaaabbbbaaaa end bbbb tail")
+    assert text == "start *** end *** tail"
+
+
+def test_redact_refuses_a_symlinked_vault_key(tmp_path):
+    """Talaria never follows symlinks in the data dir (see README Security): a vault.key
+    that is a symlink must not be read, even if it resolves to a real file."""
+    from talaria.apps import clawvisor as cv
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    copy = tmp_path / "copy"
+    copy.mkdir()
+    target = tmp_path / "outside-secret.txt"
+    target.write_text("totally-secret-value\n")
+    (copy / "vault.key").symlink_to(target)
+    text = cv._redact(ctx, copy, "dump: totally-secret-value")
+    assert "totally-secret-value" in text   # never followed, so never added to the mask list
+
+
+def test_redact_vault_key_read_failure_adds_no_spurious_value(tmp_path):
+    """A vault.key that can't be decoded must fail safe to '' (skipped, since empty
+    values are never added) rather than to some non-empty placeholder that would then
+    get redacted out of unrelated log text."""
+    from talaria.apps import clawvisor as cv
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    copy = tmp_path / "copy"
+    copy.mkdir()
+    (copy / "vault.key").write_bytes(b"\xff\xfe not valid utf-8")
+    text = cv._redact(ctx, copy, "dump: XXXX should not be touched")
+    assert text == "dump: XXXX should not be touched"
+
+
 def test_migrations_missing_file_and_missing_table(tmp_path):
     from talaria.apps.clawvisor import migrations
     assert migrations(tmp_path / "nope.db") == []
@@ -335,13 +568,24 @@ def test_report_lines_with_no_new_migrations(tmp_path):
     assert blocks == []
 
 
+def test_report_lines_joins_multiple_new_migrations_with_newlines(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    lines, blocks = ctx.app.report_lines(
+        ctx, {"before": 3, "after": 5, "new": ["055_a.sql", "056_b.sql"]})
+    assert blocks == [("Migrations that will run (2)", "055_a.sql\n056_b.sql")]
+
+
 def test_prepare_generates_secrets_once(tmp_path):
+    import base64
     from talaria.conf import parse_kv
     ctx = make_test_ctx(tmp_path, app="clawvisor")
     out = ctx.app.prepare(ctx)
     env = parse_kv(ctx.paths.app_env.read_text())
     key = (ctx.conf.data_dir / "vault.key").read_text()
     assert len(env["JWT_SECRET"]) == 64 and len(key.strip()) == 44
+    assert len(base64.b64decode(key.strip())) == 32   # the real byte count, not just the
+                                                       # base64 text length (32 and 33
+                                                       # bytes both encode to 44 chars)
     assert oct(ctx.paths.app_env.stat().st_mode & 0o777) == "0o600"
     assert oct((ctx.conf.data_dir / "vault.key").stat().st_mode & 0o777) == "0o600"
     assert oct(ctx.conf.data_dir.stat().st_mode & 0o777) == "0o700"
@@ -404,6 +648,38 @@ def test_health_rejects_non_object_json(tmp_path):
     for body in (b"[]", b"null", b'"ok"', b"42"):
         ctx.http_get = lambda url, t, body=body: (200, body)
         assert ctx.app.health(ctx) == "/ready did not answer a JSON object"
+
+
+def test_health_calls_http_get_with_the_exact_url_and_a_5s_timeout(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    seen = {}
+
+    def http_get(url, timeout):
+        seen["url"], seen["timeout"] = url, timeout
+        return 200, b'{"db":"ok","status":"ok","vault":"ok"}'
+    ctx.http_get = http_get
+    assert ctx.app.health(ctx) is None
+    assert seen == {"url": "http://127.0.0.1:25297/ready", "timeout": 5.0}
+
+
+def test_health_bad_status_code_reports_exact_fallback_text(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.http_get = lambda url, t: (500, b"")
+    assert ctx.app.health(ctx) == "/ready answered 500"
+    ctx.http_get = lambda url, t: (0, b"")   # unreachable: no status code at all
+    assert ctx.app.health(ctx) == "/ready answered nothing"
+
+
+def test_health_invalid_json_reports_exact_text(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.http_get = lambda url, t: (200, b"not json")
+    assert ctx.app.health(ctx) == "/ready did not answer JSON"
+
+
+def test_health_joins_multiple_bad_fields_with_comma_space(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.http_get = lambda url, t: (200, b'{"db":"down","status":"ok","vault":"locked"}')
+    assert ctx.app.health(ctx) == "/ready reports db down, vault locked"
 
 
 def test_after_start_distinguishes_unreadable_db_from_empty(tmp_path):
