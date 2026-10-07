@@ -1,24 +1,11 @@
 from __future__ import annotations
 
-from talaria import __version__, history
+from talaria import history
 from talaria.notify import Message
 from talaria.rehearse import Permanent, Transient, rehearse
 from talaria.rollback import interrupted
 from talaria.shell import CommandError
-from talaria.tags import pick_candidate, releases, semver_newer
-from talaria.upstream import latest_semver
-
-
-def _talaria_reminder(ctx, st) -> None:
-    try:
-        latest = latest_semver(ctx.sh, ctx.conf.talaria_repo)
-    except CommandError:
-        return
-    if latest and semver_newer(latest, f"v{__version__}") and st["talaria_notified"] != latest:
-        ctx.notify.send(Message(
-            f"Talaria {latest} is available (installed v{__version__}). "
-            f"Update when convenient: talaria self-update {latest}"))
-        st["talaria_notified"] = latest
+from talaria.tags import pick_candidate, releases
 
 
 def _run_rehearsal(ctx, st, tag: str, commit: str) -> None:
@@ -40,7 +27,6 @@ def _run_rehearsal(ctx, st, tag: str, commit: str) -> None:
 
 def check(ctx, st: dict) -> None:
     history.commit(ctx, st, "daily")
-    _talaria_reminder(ctx, st)
     if interrupted(ctx, st):     # /status and the bot's startup notice report it
         return
     try:

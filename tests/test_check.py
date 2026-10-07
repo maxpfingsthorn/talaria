@@ -2,7 +2,7 @@ import copy
 
 import pytest
 
-from talaria import __version__, check, state
+from talaria import check, state
 from talaria.rehearse import Permanent, Transient
 from talaria.shell import CommandError, Result
 from tests.fakes import make_test_ctx
@@ -15,13 +15,10 @@ def cctx(tmp_path, monkeypatch):
     st["current"] = {"tag": "v2026.8.3", "id": "sha256:c"}
     ctx.git = {"v2026.8.3": "a", "v2026.9.24": "b"}
     ctx.reg = {"v2026.8.3", "v2026.9.24"}
-    ctx.talaria_latest = f"v{__version__}"
     ctx.rehearsed = []
     ctx.rehearse_exc = None
     monkeypatch.setattr(ctx.app, "releases", lambda c: (c is ctx) and ctx.git)
     monkeypatch.setattr(ctx.app, "published", lambda c, tags: (c is ctx) and ctx.reg)
-    monkeypatch.setattr(check, "latest_semver",
-                        lambda sh, repo: (sh is ctx.sh and repo == ctx.conf.talaria_repo) and ctx.talaria_latest)
     ctx.history = []
     monkeypatch.setattr(check.history, "commit", lambda c, st, msg: ctx.history.append((c is ctx, msg)))
 
@@ -91,16 +88,6 @@ def test_unreachable_upstream_reported_after_three_days(cctx, monkeypatch):
     assert len(ctx.notify.sent) == 1 and "3 days" in ctx.notify.sent[0].text
 
 
-def test_talaria_update_reminder_once(cctx):
-    ctx, st = cctx
-    ctx.talaria_latest = "v99.0.0"
-    check.check(ctx, st)
-    check.check(ctx, st)
-    texts = [m.text for m in ctx.notify.sent]
-    assert sum("Talaria v99.0.0" in t for t in texts) == 1
-    assert st["talaria_notified"] == "v99.0.0"
-
-
 def test_rehearse_tag_retries_failed(cctx):
     ctx, st = cctx
     st["failed"] = ["v2026.9.24"]
@@ -162,30 +149,6 @@ def test_permanent_text_exact(cctx):
     m = ctx.notify.sent[-1]
     assert (m.text, m.untrusted) == ("Hermes v2026.9.24 failed the rehearsal: boom. "
                                      "Production was not touched.", ["d"])
-
-
-def test_reminder_text_exact(cctx):
-    ctx, st = cctx
-    ctx.talaria_latest = "v99.0.0"
-    check.check(ctx, st)
-    assert ctx.notify.sent[0].text == (f"Talaria v99.0.0 is available (installed v{__version__}). "
-                                       "Update when convenient: talaria self-update v99.0.0")
-
-
-def test_reminder_offline_is_silent(cctx, monkeypatch):
-    ctx, st = cctx
-    monkeypatch.setattr(check, "latest_semver",
-                        lambda sh, repo: (_ for _ in ()).throw(CommandError(["git"], Result(1))))
-    check.check(ctx, st)
-    assert ctx.notify.sent == [] and ctx.rehearsed == [("v2026.9.24", "b")]
-
-
-def test_reminder_no_release_or_same(cctx):
-    ctx, st = cctx
-    for latest in (None, f"v{__version__}", "v0.0.1"):
-        ctx.talaria_latest = latest
-        check.check(ctx, st)
-    assert ctx.notify.sent == [] and st["talaria_notified"] is None
 
 
 def test_first_install_without_current(cctx):
@@ -262,3 +225,9 @@ def test_rehearse_tag_refused_while_marker_exists(cctx):
     assert ctx.rehearsed == []
     assert ctx.notify.sent[-1].text == ("Not rehearsing v2026.9.24: an interrupted deploy must "
                                         "be recovered first: send /rollback CONFIRM.")
+
+
+def test_check_never_looks_up_talaria_releases(cctx):
+    ctx, st = cctx
+    check.check(ctx, st)         # FakeShell has no rules: any git call would fail the test
+    assert ctx.sh.calls == [] and not hasattr(check, "latest_semver")

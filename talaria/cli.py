@@ -138,7 +138,31 @@ def _locked(ctx, args) -> None:
         _manual_backup(ctx)
 
 
+def run_locked(ctx, args) -> int:
+    """Run a state-changing command under the op lock; report Busy and crashes."""
+    try:
+        with lock.op_lock(ctx.paths):
+            _locked(ctx, args)
+    except lock.Busy:
+        if args.cmd == "check" and args.timer:
+            return 0
+        ctx.notify.send(Message("Busy: another operation is running. Try again in a minute."))
+        return EXIT_BUSY
+    except Exception as e:
+        traceback.print_exc(file=sys.stderr)
+        ctx.notify.send(Message(f"talaria {args.cmd} failed unexpectedly: {e}"))
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None, make=make_ctx) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["op"]:
+        # sudo may keep the hub's environment: talk to this account's own user bus
+        os.environ["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
+        os.environ.pop("DBUS_SESSION_BUS_ADDRESS", None)
+        from talaria import op
+        return op.main(argv[1:])
     args = build_parser().parse_args(argv)
     # `sudo -u hermes talaria …` has no XDG_RUNTIME_DIR, which systemctl --user needs
     os.environ.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
@@ -178,16 +202,4 @@ def main(argv: list[str] | None = None, make=make_ctx) -> int:
     if args.cmd == "restore" and not args.confirm:
         print(rollback.describe_restore(ctx, args.id))
         return 0
-    try:
-        with lock.op_lock(ctx.paths):
-            _locked(ctx, args)
-    except lock.Busy:
-        if args.cmd == "check" and args.timer:
-            return 0
-        ctx.notify.send(Message("Busy: another operation is running. Try again in a minute."))
-        return EXIT_BUSY
-    except Exception as e:
-        traceback.print_exc(file=sys.stderr)
-        ctx.notify.send(Message(f"talaria {args.cmd} failed unexpectedly: {e}"))
-        return 1
-    return 0
+    return run_locked(ctx, args)
