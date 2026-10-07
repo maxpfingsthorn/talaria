@@ -191,7 +191,7 @@ def service_phase(ctx, args, api=None) -> int:
     ensure_dir(p.state_dir)
     if not p.conf_file.exists():
         p.conf_file.write_text(ctx.app.initial_conf(ctx))
-    if ctx.conf.dashboard_bind == "tailscale" and not ctx.conf.tailscale_ip:
+    if "tailscale" in ctx.conf.dashboard_bind.split() and not ctx.conf.tailscale_ip:
         ip = ctx.sh.run(["tailscale", "ip", "-4"]).stdout.split()[0]
         with open(p.conf_file, "a") as f:
             f.write(f"tailscale_ip = {ip}\n")
@@ -270,9 +270,9 @@ def service_phase(ctx, args, api=None) -> int:
         ctx.conf.telegram_user_id = who["id"]
         say("OK", f"paired with {who.get('first_name', '')} (@{who.get('username', '-')})")
 
-    if ctx.conf.dashboard_bind == "loopback" and which("tailscale"):
-        say("OK", "Tailscale found: set dashboard.bind = tailscale in talaria.conf and run "
-                  "setup again to reach the dashboard over your tailnet")
+    if ctx.conf.dashboard_bind.split() == ["loopback"] and which("tailscale"):
+        say("OK", "Tailscale found: optionally set dashboard.bind = tailscale in talaria.conf "
+                  "and run setup again to reach the dashboard over your tailnet")
 
     try:
         with lock.op_lock(p):

@@ -137,6 +137,32 @@ def test_quadlet_literal_ip_publishes_and_waits(tmp_path):
     q = units.render_quadlet(ctx)
     assert "PublishPort=10.254.254.1:9119:9119" in q
     assert "ExecStartPre=/usr/bin/timeout 120 /bin/sh -c" in q and '" 10.254.254.1/"' in q
+    assert ("ExecStartPre=/usr/bin/timeout 120 /bin/sh -c 'until ip -4 -o addr show | "
+            "grep -qF \" 10.254.254.1/\"; do sleep 1; done'\n") in q
+
+
+def test_quadlet_clawvisor_literal_ip(tmp_path):
+    q = units.render_quadlet(_fixed_ctx("clawvisor", dashboard_bind="10.254.254.1"))
+    assert "PublishPort=10.254.254.1:25297:25297\n" in q
+    assert 'grep -qF " 10.254.254.1/"' in q
+
+
+@pytest.mark.parametrize("app,cport", [("hermes", 9119), ("clawvisor", 25297)])
+def test_quadlet_multi_address(app, cport):
+    q = units.render_quadlet(_fixed_ctx(app, dashboard_bind="10.254.254.1 tailscale loopback",
+                                        tailscale_ip="100.83.1.1"))
+    assert (f"PublishPort=10.254.254.1:{cport}:{cport}\n"
+            f"PublishPort=100.83.1.1:{cport}:{cport}\n"
+            f"PublishPort=127.0.0.1:{cport}:{cport}\n") in q
+    assert q.count("ExecStartPre=") == 1
+    assert ("until ip -4 -o addr show | grep -qF \" 10.254.254.1/\" && ip -4 -o addr show | "
+            "grep -qF \" 100.83.1.1/\"; do") in q
+    assert "127.0.0.1/" not in q
+
+
+def test_quadlet_multi_address_refuses_unknown_tailscale_ip():
+    with pytest.raises(ValueError, match="no address is known"):
+        units.render_quadlet(_fixed_ctx(dashboard_bind="10.254.254.1 tailscale"))
 
 
 @pytest.mark.parametrize("app", ["hermes", "clawvisor"])

@@ -48,12 +48,15 @@ class Conf:
     telegram_user_id: int = 0
 
     @property
+    def bind_ips(self) -> list[str]:
+        """Every published address, in order; "" for a tailscale entry with no known address."""
+        return [_resolve(e, self.tailscale_ip) for e in self.dashboard_bind.split()]
+
+    @property
     def bind_ip(self) -> str:
-        if self.dashboard_bind == "tailscale":
-            return self.tailscale_ip
-        if self.dashboard_bind == "loopback":
-            return "127.0.0.1"
-        return self.dashboard_bind  # a literal IPv4 address, checked at load
+        """The primary (first) address; health checks and status use it."""
+        ips = self.bind_ips
+        return ips[0] if ips else ""
 
     @property
     def hermes_repo(self) -> str:
@@ -76,17 +79,37 @@ _KEYS = {
 }
 
 
-def check_bind(value: str, where) -> None:
-    """dashboard.bind: loopback, tailscale, or one literal IPv4 address (never 0.0.0.0)."""
-    if value in ("loopback", "tailscale"):
-        return
-    try:
-        ip = ipaddress.IPv4Address(value)
-    except ValueError:
+def _resolve(entry: str, tailscale_ip: str) -> str:
+    if entry == "tailscale":
+        return tailscale_ip
+    if entry == "loopback":
+        return "127.0.0.1"
+    return entry  # a literal IPv4 address, checked at load
+
+
+def check_bind(value: str, where, tailscale_ip: str = "") -> None:
+    """dashboard.bind: 1-3 of loopback, tailscale or a private literal IPv4 address."""
+    entries = value.split()
+    if not 1 <= len(entries) <= 3:
+        raise ValueError(f"dashboard.bind needs 1 to 3 entries, got {value!r} in {where}")
+    seen = []
+    for e in entries:
         ip = None
-    if ip is None or ip.is_unspecified:
-        raise ValueError(f"dashboard.bind must be loopback, tailscale or a specific IPv4 "
-                         f"address (not 0.0.0.0), got {value!r} in {where}")
+        if e not in ("loopback", "tailscale"):
+            try:
+                ip = ipaddress.IPv4Address(e)
+            except ValueError:
+                pass
+            if ip is None or ip.is_unspecified or ip.is_global or ip.is_multicast:
+                raise ValueError(f"dashboard.bind entries must be loopback, tailscale or a "
+                                 f"private, non-public IPv4 address (not 0.0.0.0), got {e!r} "
+                                 f"in {where}")
+            if ip.is_loopback and e != "127.0.0.1":
+                raise ValueError(f"dashboard.bind: use loopback instead of {e!r} in {where}")
+        r = _resolve(e, tailscale_ip)
+        if r and r in seen:
+            raise ValueError(f"dashboard.bind lists {r} twice in {where}")
+        seen.append(r)
 
 
 def _as_path(paths, v: str) -> Path:
@@ -116,7 +139,7 @@ def load_conf(paths) -> Conf:
             seen.add(attr)
     from talaria import apps
     app = apps.get(conf.app)
-    check_bind(conf.dashboard_bind, paths.conf_file)
+    check_bind(conf.dashboard_bind, paths.conf_file, conf.tailscale_ip)
     if paths.conf_file.exists() and conf.backup_keep < 1:
         # retention would delete the undo backup it just made
         raise ValueError(f"backup.keep must be at least 1 in {paths.conf_file}")

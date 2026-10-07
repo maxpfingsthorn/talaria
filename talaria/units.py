@@ -26,20 +26,24 @@ def _tpl(ctx, name: str) -> Template:
 
 def render_quadlet(ctx) -> str:
     c = ctx.conf
-    if not c.bind_ip:   # an empty address would publish the dashboard on every interface
+    ips = c.bind_ips
+    if not ips or "" in ips:   # an empty address would publish on every interface
         raise ValueError(f"dashboard.bind = {c.dashboard_bind} but no address is known")
+    late = [i for i in ips if i != "127.0.0.1"]   # tailscale or literal: may appear late
     wait = ""
-    if c.dashboard_bind != "loopback":   # tailscale or a literal address that may appear late
-        wait = ("ExecStartPre=/usr/bin/timeout 120 /bin/sh -c "
-                f"'until ip -4 -o addr show | grep -qF \" {c.bind_ip}/\"; do sleep 1; done'")
+    if late:
+        cond = " && ".join(f"ip -4 -o addr show | grep -qF \" {i}/\"" for i in late)
+        wait = f"ExecStartPre=/usr/bin/timeout 120 /bin/sh -c 'until {cond}; do sleep 1; done'"
+    publish = "".join(f"PublishPort={i}:{c.dashboard_port}:{ctx.app.container_port}\n"
+                      for i in ips)
     for h in c.add_hosts:
         if not _valid_add_host(h):
             raise ValueError(f"bad add_hosts entry: {h!r}")
     add_hosts = "".join(f"AddHost={h}\n" for h in c.add_hosts)
     host_net = "Network=slirp4netns:allow_host_loopback=true\n" if c.host_loopback else ""
     return _tpl(ctx, ctx.app.quadlet_file).substitute(
-        data_dir=c.data_dir, app_env=ctx.paths.app_env, bind_ip=c.bind_ip,
-        port=c.dashboard_port, marker=ctx.paths.marker, wait_addr=wait, host_net=host_net,
+        data_dir=c.data_dir, app_env=ctx.paths.app_env, publish_ports=publish,
+        marker=ctx.paths.marker, wait_addr=wait, host_net=host_net,
         add_hosts=add_hosts, title=ctx.app.title, **ctx.app.quadlet_vars(ctx))
 
 

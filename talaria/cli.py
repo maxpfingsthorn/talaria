@@ -94,9 +94,14 @@ def login_link(ctx) -> int:
         return 1
     # Clawvisor prints its own container-internal port (25297); the Quadlet publishes
     # that on ctx.conf.dashboard_port, which can differ -- rewrite both host and port.
-    link = re.sub(r"http://localhost:\d+", f"http://{ctx.conf.bind_ip}:{ctx.conf.dashboard_port}",
-                 r.stdout.strip())
-    print(link)
+    # One line per published address; the token appears only in these lines.
+    port = ctx.conf.dashboard_port
+    for ip in ctx.conf.bind_ips:
+        print(re.sub(r"http://localhost:\d+", f"http://{ip}:{port}", r.stdout.strip()))
+    ts = ctx.conf.tailscale_ip if "tailscale" in ctx.conf.dashboard_bind.split() else None
+    if any(ip != ts for ip in ctx.conf.bind_ips):
+        print(f"Through an SSH tunnel, open it as http://127.0.0.1:{port}/... instead "
+              "(rest of the link unchanged).")
     return 0
 
 

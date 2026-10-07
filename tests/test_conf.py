@@ -127,7 +127,10 @@ def test_literal_ip_bind(tmp_path):
     assert c.bind_ip == "10.254.254.1"
 
 
-@pytest.mark.parametrize("bad", ["tailscle", "0.0.0.0", "", "10.0.0", "::1", "10.0.0.1/32"])
+@pytest.mark.parametrize("bad", ["tailscle", "0.0.0.0", "", "10.0.0", "::1", "10.0.0.1/32", "8.8.8.8", "224.0.0.1",
+                                "127.0.0.2", "loopback loopback", "127.0.0.1 loopback",
+                                "10.0.0.1 10.0.0.1", "10.0.0.1 10.0.0.2 10.0.0.3 10.0.0.4",
+                                "10.0.0.1 0.0.0.0"])
 def test_bad_bind_is_a_config_error(tmp_path, bad):
     with pytest.raises(ValueError, match="dashboard.bind"):
         load_conf(_conf_with(tmp_path, f"dashboard.bind = {bad}\n"))
@@ -137,3 +140,21 @@ def test_host_loopback_default_and_parse(tmp_path):
     assert load_conf(Paths(tmp_path)).host_loopback is False
     c = load_conf(_conf_with(tmp_path, "host_loopback = true\n"))
     assert c.host_loopback is True
+
+
+def test_bind_list_primary_is_first_and_bind_ips_ordered(tmp_path):
+    c = load_conf(_conf_with(tmp_path, "tailscale_ip = 100.64.0.9\n"
+                                       "dashboard.bind = 10.254.254.1 tailscale loopback\n"))
+    assert c.bind_ip == "10.254.254.1"
+    assert c.bind_ips == ["10.254.254.1", "100.64.0.9", "127.0.0.1"]
+
+
+def test_tailscale_without_known_ip_still_loads(tmp_path):
+    c = load_conf(_conf_with(tmp_path, "dashboard.bind = 10.254.254.1 tailscale\n"))
+    assert c.bind_ips == ["10.254.254.1", ""]
+
+
+def test_duplicate_after_resolving_tailscale_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="twice"):
+        load_conf(_conf_with(tmp_path, "tailscale_ip = 100.64.0.9\n"
+                                       "dashboard.bind = tailscale 100.64.0.9\n"))

@@ -65,7 +65,7 @@ def test_tailscale_available_hint(s, monkeypatch, capsys):
     monkeypatch.setattr(setup, "which", lambda t: f"/usr/bin/{t}")
     rc, out, cmds = run(s, capsys)
     assert out == (NEW + PW + PAIR + PAIRED +
-                   "OK: Tailscale found: set dashboard.bind = tailscale in talaria.conf and run "
+                   "OK: Tailscale found: optionally set dashboard.bind = tailscale in talaria.conf and run "
                    "setup again to reach the dashboard over your tailnet\n" + PULLED + RUNNING)
 
 

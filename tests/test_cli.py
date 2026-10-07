@@ -66,7 +66,9 @@ def test_login_link_prints_the_link_with_the_bind_ip(tmp_path, monkeypatch, caps
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     rc = cli.main(["login-link"], make=lambda: ctx)
     assert rc == 0
-    assert capsys.readouterr().out == "Open this link: http://127.0.0.1:25297/login?token=abc\n"
+    assert capsys.readouterr().out == (
+        "Open this link: http://127.0.0.1:25297/login?token=abc\n"
+                                      "Through an SSH tunnel, open it as http://127.0.0.1:25297/... instead (rest of the link unchanged).\n")
     assert ctx.sh.called("podman", "exec", "clawvisor", "/clawvisor-server", "dashboard",
                          "--no-open")
 
@@ -81,7 +83,9 @@ def test_login_link_rewrites_the_published_port_too(tmp_path, monkeypatch, capsy
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     rc = cli.main(["login-link"], make=lambda: ctx)
     assert rc == 0
-    assert capsys.readouterr().out == "Open this link: http://127.0.0.1:8443/login?token=abc\n"
+    assert capsys.readouterr().out == (
+        "Open this link: http://127.0.0.1:8443/login?token=abc\n"
+                                      "Through an SSH tunnel, open it as http://127.0.0.1:8443/... instead (rest of the link unchanged).\n")
 
 
 def test_login_link_refuses_on_a_failed_podman_exec_without_echoing_stdout(tmp_path, monkeypatch,
@@ -119,3 +123,26 @@ def test_bin_wrapper_ignores_callers_cwd(tmp_path):
     out = subprocess.run([str(ROOT / "bin/talaria"), "version"], cwd=tmp_path,
                          capture_output=True, text=True, check=True)
     assert out.stdout.strip() == talaria.__version__
+
+
+def _link(tmp_path, monkeypatch, capsys, **kw):
+    import sys
+    ctx = make_test_ctx(tmp_path, app="clawvisor", **kw)
+    ctx.sh.on("podman", "exec", out="Open this link: http://localhost:25297/login?token=abc\n")
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    assert cli.main(["login-link"], make=lambda: ctx) == 0
+    return capsys.readouterr().out.splitlines()
+
+
+def test_login_link_one_line_per_address_and_tunnel_hint(tmp_path, monkeypatch, capsys):
+    out = _link(tmp_path, monkeypatch, capsys, dashboard_bind="10.254.254.1 tailscale",
+                tailscale_ip="100.64.0.7")
+    assert out[:2] == ["Open this link: http://10.254.254.1:25297/login?token=abc",
+                       "Open this link: http://100.64.0.7:25297/login?token=abc"]
+    assert len(out) == 3 and "http://127.0.0.1:25297/" in out[2] and "token" not in out[2]
+
+
+def test_login_link_tailscale_only_has_no_tunnel_hint(tmp_path, monkeypatch, capsys):
+    out = _link(tmp_path, monkeypatch, capsys, dashboard_bind="tailscale",
+                tailscale_ip="100.64.0.7")
+    assert out == ["Open this link: http://100.64.0.7:25297/login?token=abc"]
