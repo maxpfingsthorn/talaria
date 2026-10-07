@@ -113,3 +113,27 @@ def test_repo_and_hermes_repo_together_is_an_error(tmp_path):
         "repo = https://example/one\nhermes_repo = https://example/two\n")
     with pytest.raises(ValueError, match="set only one of repo / hermes_repo"):
         load_conf(p)
+
+
+def _conf_with(tmp_path, text):
+    p = Paths(tmp_path)
+    p.conf_dir.mkdir(parents=True)
+    p.conf_file.write_text(text)
+    return p
+
+
+def test_literal_ip_bind(tmp_path):
+    c = load_conf(_conf_with(tmp_path, "dashboard.bind = 10.254.254.1\n"))
+    assert c.bind_ip == "10.254.254.1"
+
+
+@pytest.mark.parametrize("bad", ["tailscle", "0.0.0.0", "", "10.0.0", "::1", "10.0.0.1/32"])
+def test_bad_bind_is_a_config_error(tmp_path, bad):
+    with pytest.raises(ValueError, match="dashboard.bind"):
+        load_conf(_conf_with(tmp_path, f"dashboard.bind = {bad}\n"))
+
+
+def test_host_loopback_default_and_parse(tmp_path):
+    assert load_conf(Paths(tmp_path)).host_loopback is False
+    c = load_conf(_conf_with(tmp_path, "host_loopback = true\n"))
+    assert c.host_loopback is True

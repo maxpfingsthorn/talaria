@@ -17,11 +17,11 @@ Environment=CLAWVISOR_RELAY_KEY_FILE=/data/daemon-ed25519.key CLAWVISOR_RELAY_E2
 Environment=CLAWVISOR_DAEMON_DATA_DIR=/data CLAWVISOR_CONTAINER=1 MAX_USERS=1
 Environment=CLAWVISOR_AUTO_UPDATE_ENABLED=false
 EnvironmentFile=${app_env}
-PublishPort=${bind_ip}:${port}:25297
+${host_net}PublishPort=${bind_ip}:${port}:25297
 ${add_hosts}
 [Service]
 ExecCondition=/bin/sh -c 'test ! -e "${marker}"'
-${wait_tailscale}
+${wait_addr}
 Restart=on-failure
 RestartSec=30
 TimeoutStartSec=300

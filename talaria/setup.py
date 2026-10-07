@@ -183,6 +183,10 @@ def service_phase(ctx, args, api=None) -> int:
                     "contradicts it; omit --app to keep the existing app, or edit "
                     "talaria.conf by hand")
         return 1
+    if ctx.conf.host_loopback and which("slirp4netns") is None:
+        say("STOP", "host_loopback = true needs slirp4netns; install the slirp4netns package "
+                    "(apt install slirp4netns) and run setup again")
+        return 1
     ensure_dir(p.conf_dir)
     ensure_dir(p.state_dir)
     if not p.conf_file.exists():

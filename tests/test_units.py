@@ -130,3 +130,20 @@ def test_tailscale_quadlet_and_units_match_main_byte_for_byte():
     rendered = units.render_units(ctx)
     for name in units.TALARIA_UNITS:
         assert rendered[name] == (GOLDEN / f"tailscale.{name}").read_text()
+
+
+def test_quadlet_literal_ip_publishes_and_waits(tmp_path):
+    ctx = make_test_ctx(tmp_path, dashboard_bind="10.254.254.1")
+    q = units.render_quadlet(ctx)
+    assert "PublishPort=10.254.254.1:9119:9119" in q
+    assert "ExecStartPre=/usr/bin/timeout 120 /bin/sh -c" in q and '" 10.254.254.1/"' in q
+
+
+@pytest.mark.parametrize("app", ["hermes", "clawvisor"])
+def test_quadlet_host_loopback(app):
+    on = units.render_quadlet(_fixed_ctx(app, host_loopback=True))
+    off = units.render_quadlet(_fixed_ctx(app))
+    line = "Network=slirp4netns:allow_host_loopback=true\n"
+    assert line in on and line not in off and "${" not in on
+    assert on.replace(line, "") == off
+    assert on.index("[Container]") < on.index(line) < on.index("[Service]")

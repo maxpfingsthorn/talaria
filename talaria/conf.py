@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +31,7 @@ class Conf:
     dashboard_bind: str = "loopback"
     dashboard_port: int = 9119
     tailscale_ip: str = ""
+    host_loopback: bool = False
     backup_keep: int = 5
     backup_exclude: tuple = (".cache", ".npm", "home/.cache", "home/.npm", "backups")
     add_hosts: tuple = ()
@@ -47,7 +49,11 @@ class Conf:
 
     @property
     def bind_ip(self) -> str:
-        return self.tailscale_ip if self.dashboard_bind == "tailscale" else "127.0.0.1"
+        if self.dashboard_bind == "tailscale":
+            return self.tailscale_ip
+        if self.dashboard_bind == "loopback":
+            return "127.0.0.1"
+        return self.dashboard_bind  # a literal IPv4 address, checked at load
 
     @property
     def hermes_repo(self) -> str:
@@ -59,7 +65,8 @@ _KEYS = {
     "data_dir": ("data_dir", "path"), "app": ("app", str), "image": ("image", str),
     "repo": ("repo", str), "hermes_repo": ("repo", str), "talaria_repo": ("talaria_repo", str),
     "dashboard.bind": ("dashboard_bind", str), "dashboard.port": ("dashboard_port", int),
-    "tailscale_ip": ("tailscale_ip", str), "backup.keep": ("backup_keep", int),
+    "tailscale_ip": ("tailscale_ip", str), "host_loopback": ("host_loopback", "bool"),
+    "backup.keep": ("backup_keep", int),
     "backup.exclude": ("backup_exclude", "list"), "add_hosts": ("add_hosts", "list"),
     "disk.floor_gb": ("disk_floor_gb", float),
     "check.time": ("check_time", str), "registry_tls_verify": ("registry_tls_verify", "bool"),
@@ -67,6 +74,19 @@ _KEYS = {
     "telegram_api": ("telegram_api", str),
     "release_allow": ("release_allow", "list"),
 }
+
+
+def check_bind(value: str, where) -> None:
+    """dashboard.bind: loopback, tailscale, or one literal IPv4 address (never 0.0.0.0)."""
+    if value in ("loopback", "tailscale"):
+        return
+    try:
+        ip = ipaddress.IPv4Address(value)
+    except ValueError:
+        ip = None
+    if ip is None or ip.is_unspecified:
+        raise ValueError(f"dashboard.bind must be loopback, tailscale or a specific IPv4 "
+                         f"address (not 0.0.0.0), got {value!r} in {where}")
 
 
 def _as_path(paths, v: str) -> Path:
@@ -96,6 +116,7 @@ def load_conf(paths) -> Conf:
             seen.add(attr)
     from talaria import apps
     app = apps.get(conf.app)
+    check_bind(conf.dashboard_bind, paths.conf_file)
     if paths.conf_file.exists() and conf.backup_keep < 1:
         # retention would delete the undo backup it just made
         raise ValueError(f"backup.keep must be at least 1 in {paths.conf_file}")

@@ -447,3 +447,19 @@ def test_prepare_never_overwrites_the_dashboard_password(tmp_path):
     write_env_value(ctx.paths.app_env, "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", "keep")
     assert ctx.app.prepare(ctx) == []
     assert parse_kv(ctx.paths.app_env.read_text())["HERMES_DASHBOARD_BASIC_AUTH_PASSWORD"] == "keep"
+
+
+def test_host_loopback_without_slirp4netns_stops(svc, monkeypatch, capsys):
+    svc.conf.host_loopback = True
+    monkeypatch.setattr(setup, "which", lambda t: None)
+    assert setup.service_phase(svc, args(as_service=True)) == 1
+    out = capsys.readouterr().out
+    assert out.startswith("STOP:") and "slirp4netns" in out
+    assert not svc.paths.quadlet.exists()
+
+
+def test_host_loopback_with_slirp4netns_proceeds(svc, monkeypatch, capsys):
+    svc.conf.host_loopback = True
+    monkeypatch.setattr(setup, "which", lambda t: "/usr/bin/" + t)
+    assert setup.service_phase(svc, args(as_service=True)) == 0
+    assert "allow_host_loopback=true" in svc.paths.quadlet.read_text()
