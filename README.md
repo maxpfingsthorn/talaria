@@ -123,7 +123,10 @@ The dashboard always requires a login: user `admin`, password in
 - Tailscale: set `dashboard.bind = tailscale` in `talaria.conf` and run setup again.
   The dashboard is then reachable on the host's Tailscale address only.
 
-It is never published on a public interface.
+It is never published on a public interface (public IPv4 addresses are rejected).
+
+After editing `talaria.conf`, run setup again: it validates the file (a bad value would stop
+the bot at its next start).
 
 Clawvisor has no dashboard password: its first login is a one-time link. As the service
 user, in your own terminal (never through an agent): `talaria login-link`.
@@ -140,7 +143,7 @@ Hermes's; a Clawvisor install (`app = clawvisor`) gets its own defaults for `dat
 | `image` | `docker.io/nousresearch/hermes-agent` |
 | `repo` (`hermes_repo` also accepted) | `https://github.com/NousResearch/hermes-agent` |
 | `talaria_repo` | this repository |
-| `dashboard.bind` | `loopback` (or `tailscale`, or one specific IPv4 address; never `0.0.0.0`) |
+| `dashboard.bind` | `loopback`; or a space-separated list of 1-3 of `loopback`, `tailscale` and private IPv4 addresses (never `0.0.0.0`, public or other `127.x` addresses). The first is the primary address (health checks); each is published |
 | `dashboard.port` | `9119` |
 | `backup.keep` | `5` |
 | `backup.exclude` | `.cache .npm home/.cache home/.npm backups` (`backups/config` is always kept) |
@@ -184,9 +187,15 @@ Hermes and Clawvisor run as two rootless podman users, so no podman network join
 To let Hermes reach Clawvisor (`http://clawvisor:25297`), pick one option. Each time,
 re-run setup for the app whose `talaria.conf` you changed. Clawvisor's own dashboard,
 on a dummy NIC or loopback, is reached from your laptop through an SSH tunnel
-(`ssh -L 25297:<address>:25297 <host>`).
+(`ssh -L 25297:<address>:25297 <host>`, then open the login link with the address replaced
+by `127.0.0.1`; `login-link` prints that hint). To also reach it from your browser without a
+tunnel, list a second address: `dashboard.bind = 10.254.254.1 tailscale` publishes it on the
+dummy NIC (for Hermes) and on your Tailscale address (for your browser); `login-link` then
+prints one link per address.
 
-**1. Dummy NIC (recommended).** Only services bound to its address are exposed. As root,
+**1. Dummy NIC (recommended).** Only services bound to its address are exposed, but that
+holds for the host only: a neighbour on your LAN that routes `10.254.254.1` via your server,
+or rootful containers on the same host, can still reach it. As root,
 once (the address is arbitrary private space; pick one unused on your networks):
 
 ```bash
@@ -199,10 +208,21 @@ cat >/etc/systemd/network/10-talaria0.network <<'EOF2'
 [Match]
 Name=talaria0
 
+[Link]
+RequiredForOnline=no
+
 [Network]
 Address=10.254.254.1/32
 EOF2
 networkctl reload    # needs systemd-networkd running (default on Ubuntu Server)
+```
+
+Optional: drop traffic to that address unless it arrives on `lo` (rootless podman and host
+processes reach it through `lo`, so nothing intended breaks). Not persistent; persist it via
+your distribution's `nftables.conf`:
+
+```bash
+nft add table inet talaria; nft add chain inet talaria in '{ type filter hook input priority 0; }'; nft add rule inet talaria in ip daddr 10.254.254.1 iifname != "lo" drop
 ```
 
 - Clawvisor's `talaria.conf`: `dashboard.bind = 10.254.254.1`

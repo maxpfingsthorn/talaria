@@ -37,8 +37,13 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
 11. For a Clawvisor install that Hermes must reach, ask the person which networking
     option from the README's Clawvisor section to use: dummy NIC (recommended; needs
     root, so the person runs that snippet), Tailscale, or host loopback (no root, but
-    exposes all host-loopback services to the Hermes container). Then edit the two
-    `talaria.conf` files as that section says and re-run setup for each.
+    exposes all host-loopback services to the Hermes container). Edit only the
+    `talaria.conf` of the user you run as; for the other app, tell the person which line
+    to add and that they re-run that app's setup as that user. Also ask whether the person
+    wants browser access to Clawvisor on a second address (Tailscale if they use it, else
+    a LAN address, else an SSH tunnel). With Tailscale, recommend
+    `dashboard.bind = 10.254.254.1 tailscale` (dummy NIC for Hermes, Tailscale for the
+    browser).
 12. **Never run `deploy`, `rollback` or `restore`.** Those are the person's decisions, made
     in Telegram.
 
