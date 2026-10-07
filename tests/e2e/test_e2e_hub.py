@@ -79,5 +79,6 @@ def test_03_moves_the_bot_of_a_v04_install_to_a_new_hub(env):
     assert as_user("systemctl", "--user", "show", "hermes.service", "-p",
                    "ActiveEnterTimestamp", user=user).stdout == started  # not restarted
     wait_for(lambda: unit_active("talaria-telegram.service", hub))
+    tg.wait_polling()      # a freshly started bot drops what was injected before it polled
     tg.inject("/status")
     tg.wait_sent("Hermes")
