@@ -59,6 +59,12 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("backup", "backups", "status", "history", "bot", "login-link"):
         sub.add_parser(name)
     sub.add_parser("self-update").add_argument("tag", type=_semver)
+    r = sub.add_parser("relay")                  # hub only: run a long op, send its messages
+    r.add_argument("app")
+    r.add_argument("op", nargs=argparse.REMAINDER)
+    u = sub.add_parser("update")                 # hub only
+    u.add_argument("tag", type=_semver)
+    u.add_argument("--offer", action="store_true")
     return p
 
 
@@ -155,7 +161,34 @@ def run_locked(ctx, args) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None, make=make_ctx) -> int:
+HUB_CMDS = ("set-token", "bot", "relay", "check", "status", "self-update", "update")
+TRANSITIONAL_CMDS = ("bot", "relay", "check", "self-update", "update")
+
+
+def _hub_main(hub, args) -> int:
+    cmd = args.cmd
+    if cmd == "set-token":
+        from talaria import setup
+        return setup.set_token(hub.ctx)
+    if cmd == "bot":
+        from talaria import telegram
+        return telegram.run(hub)
+    if cmd in ("relay", "status"):
+        from talaria import relay
+        if cmd == "relay":
+            return relay.main(hub, args.app, args.op)
+        print(relay.status_all(hub))
+        return 0
+    if cmd == "check":
+        from talaria import hubcheck
+        return hubcheck.check(hub, timer=args.timer)
+    from talaria import hubupdate
+    if cmd == "self-update":
+        return hubupdate.self_update(hub, args.tag)
+    return hubupdate.offer(hub, args.tag) if args.offer else hubupdate.start_update(hub, args.tag)
+
+
+def main(argv: list[str] | None = None, make=make_ctx, make_hub=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["op"]:
         # sudo may keep the hub's environment: talk to this account's own user bus
@@ -172,6 +205,20 @@ def main(argv: list[str] | None = None, make=make_ctx) -> int:
     if args.cmd == "setup":
         from talaria import setup
         return setup.setup(args)
+    if make_hub is None:     # a caller that injects an app ctx (tests) is an app install
+        from talaria import hubexec
+        make_hub = hubexec.load_hub if make is make_ctx else (lambda: None)
+    hub = make_hub()
+    if hub is not None:
+        if args.cmd in (TRANSITIONAL_CMDS if hub.transitional else HUB_CMDS):
+            return _hub_main(hub, args)
+        if not hub.transitional:
+            print(f"talaria {args.cmd}: this account is the Talaria hub; app commands run as "
+                  "the app's account or through the bot", file=sys.stderr)
+            return 2
+    if args.cmd in ("relay", "update"):
+        print(f"talaria {args.cmd}: this account is not a Talaria hub", file=sys.stderr)
+        return 2
     ctx = make()
     if args.cmd in ("deploy", "rehearse", "reject") and not ctx.app.is_release(args.tag):
         print(f"{args.tag} is not a {ctx.app.title} release tag", file=sys.stderr)

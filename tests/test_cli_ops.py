@@ -116,13 +116,18 @@ def test_parser_setup_flags():
     (["set-token"], {"cmd": "set-token"}), (["backup"], {"cmd": "backup"}),
     (["backups"], {"cmd": "backups"}), (["status"], {"cmd": "status"}),
     (["history"], {"cmd": "history"}), (["bot"], {"cmd": "bot"}), (["version"], {"cmd": "version"}),
+    (["relay", "hermes", "check", "--timer"], {"cmd": "relay", "app": "hermes",
+                                               "op": ["check", "--timer"]}),
+    (["update", "v0.6.0"], {"cmd": "update", "tag": "v0.6.0", "offer": False}),
+    (["update", "v0.6.0", "--offer"], {"cmd": "update", "tag": "v0.6.0", "offer": True}),
 ])
 def test_parser_commands(argv, expected):
     assert parse(*argv) == expected
 
 
 @pytest.mark.parametrize("argv", [["rehearse", "x"], ["reject", "latest"], ["self-update", "v1.2"],
-                                  ["self-update", "main"], ["restore", "nope"], []])
+                                  ["self-update", "main"], ["restore", "nope"], [],
+                                  ["update", "main"], ["update"]])
 def test_parser_rejects(argv):
     with pytest.raises(SystemExit):
         parse(*argv)
