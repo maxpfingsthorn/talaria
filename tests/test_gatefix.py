@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from talaria import hubcheck, hubupdate, lock, op, relay, selfupdate, setup, telegram
+from talaria import __version__, hubcheck, hubupdate, lock, op, relay, selfupdate, setup, telegram
 from talaria.hubexec import AppEntry
 from talaria.shell import Result
 from tests.fakes import make_test_ctx
@@ -80,9 +80,9 @@ def test_stale_update_button_is_refused(tmp_path):
 
 def test_update_command_needs_a_newer_tag(tmp_path):
     ctx, api, b = _bot(tmp_path, ("hermes",))
-    b.handle(upd(1, "/update v0.4.2"))
+    b.handle(upd(1, f"/update v{__version__}"))
     assert spawned(ctx) == []
-    assert "not newer than the installed v0.4.2" in api.sent()[0]
+    assert f"not newer than the installed v{__version__}" in api.sent()[0]
 
 
 @pytest.mark.parametrize("tag", ["v0.4.2", "v0.4.99", "v0.1.0"])

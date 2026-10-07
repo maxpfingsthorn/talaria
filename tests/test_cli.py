@@ -146,3 +146,10 @@ def test_login_link_tailscale_only_has_no_tunnel_hint(tmp_path, monkeypatch, cap
     out = _link(tmp_path, monkeypatch, capsys, dashboard_bind="tailscale",
                 tailscale_ip="100.64.0.7")
     assert out == ["Open this link: http://100.64.0.7:25297/login?token=abc"]
+
+
+def test_versions_agree():
+    import re
+    py = re.search(r'^version = "([^"]+)"', (ROOT / "pyproject.toml").read_text(), re.M)[1]
+    lock = re.search(r'name = "talaria"\nversion = "([^"]+)"', (ROOT / "uv.lock").read_text())[1]
+    assert py == lock == talaria.__version__ == "0.5.0"

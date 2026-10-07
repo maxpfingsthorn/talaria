@@ -12,20 +12,25 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
    running anything.** Don't assume: a host can run both, each as its own install.
    Pass `--app clawvisor` for a Clawvisor install; omit it (or pass `--app hermes`)
    for Hermes.
-4. Setup uses a dedicated service user, `hermes` by default (`clawvisor` by default
-   for a Clawvisor install). **Confirm the name with the person first**, then run
-   `bin/talaria setup --plan --app APP --user NAME` and explain the plan in plain
-   words. Pass the same `--app APP --user NAME` on every later run. If setup reports
+4. Setup uses a dedicated service user per app, `hermes` by default (`clawvisor` by default
+   for a Clawvisor install), and one hub account per host, `talaria`, which runs the
+   Telegram bot for every app. **Confirm both names with the person first** (`--hub NAME`
+   picks another hub name), then run `bin/talaria setup --plan --app APP --user NAME` and
+   explain the plan in plain words. Pass the same flags on every later run. If setup reports
    `FOUND: account … exists`, ask whether that account should be used.
 5. `MISSING: <tool>`: work out the install command for this distribution (the hint line
    names the packages for Debian/Ubuntu, Fedora/RHEL and Arch). Ask before running it.
 6. `ACTION REQUIRED`: relay it in plain words. When it prints a `sudo bash … <<'TALARIA'`
    command, show the whole command to the person to paste into their own terminal.
    **Never run it yourself** — it needs the person's sudo password. **Never ask for secrets in the chat.**
-   The person runs `set-token` in their own terminal, against this install's own bot
-   (Clawvisor's install needs its own, second bot — never reuse Hermes's token).
+   The person runs `set-token` in their own terminal as the hub account, once per host
+   (setup prints the exact command). A second app uses the same bot: no new token, no
+   pairing.
    Show the pairing code; the person sends it to the bot.
 7. Re-run `bin/talaria setup` (with the same flags) until it prints `DONE`.
+7a. If setup plans to "move the bot" from an app's account to the hub (an install from
+   v0.4), explain it: the same bot and chat, no new pairing, the app is not restarted.
+   `NOTE:` lines are informational; relay them.
 8. `FOUND` / `STOP`: explain and let the person choose.
 9. Adopting an existing install: show the diff setup printed, say that it restarts the
    agent, and get an explicit yes before running `setup --adopt UNIT`. The diff hides

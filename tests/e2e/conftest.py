@@ -133,15 +133,29 @@ def wait_for(fn, timeout=120, step=1.0):
 
 
 PAIR_CODE_RE = re.compile(r"/pair ([A-Z0-9]{8})")
+HUB = "talaria"
+HUB_CONF = """talaria_repo = /tmp/talaria-e2e/talaria-src
+telegram_api = http://127.0.0.1:8081
+"""
+SET_TOKEN_RE = re.compile(r"sudo -u (\S+) -H (\S+) set-token")
+
+
+def seed_hub_conf(hub=HUB):
+    """The hub's settings must exist before its first setup run: the local Talaria repo
+    for release checks and the fake Telegram API. Kept if already there."""
+    as_user("mkdir", "-p", f"/home/{hub}/.config/talaria", user=hub)
+    as_user("sh", "-c", f"test -e /home/{hub}/.config/talaria/hub.conf || "
+                        f"cat > /home/{hub}/.config/talaria/hub.conf", user=hub, input=HUB_CONF)
+    as_user("git", "config", "--global", "--add", "safe.directory", "*", user=hub)
 
 
 class AppEnv:
-    """A service user Talaria is being set up for in --dev mode, with its own fake
-    Telegram chat. The account already exists and its bus is up by the time a test
-    gets this (see the fixture that builds it)."""
+    """An app's service user, set up in --dev mode under a hub (or, with hub=None, by a
+    v0.4 checkout that knows no hub). The account may not exist yet: the first root paste
+    creates it."""
 
-    def __init__(self, user: str, app: str, src: Path, telegram):
-        self.user, self.app, self.src, self.telegram = user, app, src, telegram
+    def __init__(self, user: str, app: str, src: Path, telegram, hub=HUB):
+        self.user, self.app, self.src, self.telegram, self.hub = user, app, src, telegram, hub
 
     def _conf_file(self) -> str:
         return f"/home/{self.user}/.config/talaria/talaria.conf"
@@ -154,12 +168,12 @@ class AppEnv:
         as_user("sh", "-c", f"cat >> {self._conf_file()}", user=self.user, input=text)
 
     def setup_until_done(self, *extra, timeout=900) -> str:
-        """Run `talaria setup --dev` for this user, handling whatever it asks for next
-        (a root block, set-token, or a /pair code) and re-running, until it exits 0 with
-        output ending in DONE. Returns the concatenated output of every run."""
+        """Run `talaria setup --dev` for this user, handling whatever it asks for next (a
+        root paste, set-token as whichever account it names, a /pair code) and re-running,
+        until it exits 0 with output ending in DONE. Returns all output."""
         out = ""
         argv = [str(self.src / "bin/talaria"), "setup", "--dev", "--app", self.app,
-                "--user", self.user, *extra]
+                "--user", self.user, *(["--hub", self.hub] if self.hub else []), *extra]
         while True:
             p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                  text=True)
@@ -177,23 +191,30 @@ class AppEnv:
             if rc == 10 and "ACTION REQUIRED: paste this into your terminal" in chunk:
                 sh("bash", "-c", root_block(chunk))   # the block calls sudo itself
                 wait_for(lambda: bus_ready(self.user))
+                as_user("git", "config", "--global", "--add", "safe.directory", "*",
+                        user=self.user)
+                if self.hub:
+                    wait_for(lambda: bus_ready(self.hub))
+                    seed_hub_conf(self.hub)
                 continue
-            if rc == 10 and "set-token" in chunk:
-                as_user(f"/home/{self.user}/.local/bin/talaria", "set-token", user=self.user,
-                        input="123456:" + "a" * 35 + "\n")
+            m = SET_TOKEN_RE.search(chunk)
+            if rc == 10 and m:
+                as_user(m[2], "set-token", user=m[1], input="123456:" + "a" * 35 + "\n")
                 continue
             raise AssertionError(f"setup did not finish: {out}")
 
 
 @pytest.fixture(scope="session")
 def cv_env(_base_env):
-    """A second service user, cvtest, running Clawvisor; built directly from the real
-    upstream releases (no registry or dummy image, unlike Hermes's `env`)."""
+    """A second app user, cvtest, running Clawvisor under the same hub; built directly from
+    the real upstream releases (no registry or dummy image, unlike Hermes's `env`)."""
     user = "cvtest"
     r = sh(_base_env["src"] / "bin/talaria", "setup", "--dev", "--app", "clawvisor",
-          "--user", user, check=False)
+           "--user", user, check=False)
     assert r.returncode == 10, r.stdout
     sh("bash", "-c", root_block(r.stdout))
     wait_for(lambda: bus_ready(user))
+    wait_for(lambda: bus_ready(HUB))
+    seed_hub_conf(HUB)
     as_user("git", "config", "--global", "--add", "safe.directory", "*", user=user)
     return AppEnv(user=user, app="clawvisor", src=_base_env["src"], telegram=_base_env["tg"])
