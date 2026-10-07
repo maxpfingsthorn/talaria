@@ -17,6 +17,15 @@ def parse_kv(text: str) -> dict[str, str]:
     return out
 
 
+def read_telegram_env(path: Path) -> tuple[str, int]:
+    """(TALARIA_TELEGRAM_TOKEN, TALARIA_TELEGRAM_USER_ID) from an .env file; ("", 0) if absent."""
+    if not path.exists():
+        return "", 0
+    env = parse_kv(path.read_text())
+    return (env.get("TALARIA_TELEGRAM_TOKEN", ""),
+            int(env.get("TALARIA_TELEGRAM_USER_ID", "0") or 0))
+
+
 def _bool(v: str) -> bool:
     return v.lower() in ("1", "true", "yes", "on")
 
@@ -155,10 +164,7 @@ def load_conf(paths) -> Conf:
         conf.min_release = app.min_release
     if "backup_exclude" not in seen:
         conf.backup_exclude = app.backup_exclude
-    if paths.env_file.exists():
-        env = parse_kv(paths.env_file.read_text())
-        conf.telegram_token = env.get("TALARIA_TELEGRAM_TOKEN", "")
-        conf.telegram_user_id = int(env.get("TALARIA_TELEGRAM_USER_ID", "0") or 0)
+    conf.telegram_token, conf.telegram_user_id = read_telegram_env(paths.env_file)
     return conf
 
 

@@ -26,6 +26,8 @@ class Paths:
     @property
     def env_file(self): return self.conf_dir / ".env"
     @property
+    def hub_conf(self): return self.conf_dir / "hub.conf"
+    @property
     def app_env(self):
         from talaria import apps
         return self.conf_dir / apps.get(self.app).env_file
@@ -35,6 +37,8 @@ class Paths:
     def state_dir(self): return self.home / ".local/state/talaria"
     @property
     def state_file(self): return self.state_dir / "state.json"
+    @property
+    def hub_state(self): return self.state_dir / "hub.json"
     @property
     def lock_file(self): return self.state_dir / "lock"
     @property
@@ -127,3 +131,14 @@ def make_ctx(app: str | None = None) -> Ctx:
     paths = Paths(Path.home(), conf.app)
     return Ctx(paths=paths, conf=conf, sh=Shell(), notify=TelegramNotifier(conf),
                app=apps.get(conf.app))
+
+
+def make_hub_ctx(home: Path | None = None, sh=None) -> Ctx:
+    """The hub account's ctx: hub.conf instead of talaria.conf, no app."""
+    from talaria.hubconf import load_hub_conf
+    from talaria.notify import TelegramNotifier
+    from talaria.shell import Shell
+
+    paths = Paths(Path(home) if home else Path.home())
+    conf = load_hub_conf(paths)
+    return Ctx(paths=paths, conf=conf, sh=sh or Shell(), notify=TelegramNotifier(conf))

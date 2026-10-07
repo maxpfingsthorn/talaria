@@ -12,13 +12,13 @@ from pathlib import Path
 from talaria import adopt, apps, images, lock, rehearse, service, state, telegram, units
 from talaria.conf import check_bind, load_conf, write_env_value
 from talaria.disk import NOT_RENAMABLE, renamable
+from talaria.hubconf import NAME_RE  # noqa: E402  (shared with hub.conf validation)
 from talaria.notify import ApiError, TelegramAPI
 from talaria.state import ensure_dir
 from talaria.tags import pick_candidate, releases
 
 REPO = Path(__file__).resolve().parent.parent
 TOKEN_RE = re.compile(r"^\d{3,}:[A-Za-z0-9_-]{30,}$")
-NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")   # goes into a root shell block
 GITHUB_SSH = re.compile(r"^(?:git@github\.com:|ssh://git@github\.com(?::\d+)?/)(.+?)(?:\.git)?/?$")
 TOOLS = {  # tool: (Debian/Ubuntu, Fedora/RHEL, Arch)
     "podman": ("podman", "podman", "podman"), "git": ("git", "git", "git"),
