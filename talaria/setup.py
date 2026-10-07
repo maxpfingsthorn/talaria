@@ -139,9 +139,77 @@ def install_url(url: str) -> str | None:
     return re.sub(r"^(https?://)[^/@]*@", r"\1", url)   # never copy credentials along
 
 
+OLD_UNITS = ("talaria-telegram.service", "talaria-check.timer", "talaria-check.service")
+TG_LINES = "^TALARIA_TELEGRAM_(TOKEN|USER_ID)="
+
+
+def move_env(read_argv: list[str], write_argv: list[str], popen=subprocess.Popen) -> int:
+    """Pipe one process's stdout straight into another's stdin. Used for the bot token: it
+    never passes through this process, an argv or the terminal."""
+    reader = popen(read_argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    writer = popen(write_argv, stdin=reader.stdout)
+    reader.stdout.close()          # the writer holds the only read end now
+    wrc, rrc = writer.wait(), reader.wait()
+    return 0 if wrc == 0 and rrc == 0 else 1
+
+
+def _v04_bot(sh, user: str, home: str) -> tuple[bool, bool]:
+    """(own bot unit, own bot token): what a v0.4 install has and a v0.5 app must not."""
+    s = sudo_as(user, home)
+    has_units = sh.run(s + ["test", "-e", f"{home}/.config/systemd/user/talaria-telegram.service"],
+                       check=False).returncode == 0
+    has_token = sh.run(s + ["grep", "-qs", "^TALARIA_TELEGRAM_", f"{home}/.config/talaria/.env"],
+                       check=False).returncode == 0
+    return has_units, has_token
+
+
+def _migrate(sh, user: str, pw, hub: str, hub_pw, found, move) -> int:
+    """Spec §7.4, between the app's and the hub's setup: one bot per host. Each step is
+    idempotent, so a re-run after an interruption resumes. The app's Quadlet and service
+    are never touched."""
+    has_units, has_token = found
+    home, s = pw.pw_dir, sudo_as(user, pw.pw_dir)
+    if has_units:
+        sh.run(s + _bus(pw) + ["systemctl", "--user", "disable", "--now",
+                               "talaria-telegram.service", "talaria-check.timer"], check=False)
+        sh.run(s + ["rm", "-f", *(f"{home}/.config/systemd/user/{u}" for u in OLD_UNITS)])
+        sh.run(s + _bus(pw) + ["systemctl", "--user", "daemon-reload"])
+        say("OK", f"stopped {user}'s own bot; the hub {hub} runs the only one")
+    if has_token:
+        env = f"{home}/.config/talaria/.env"
+        rc = move(s + ["grep", "-E", TG_LINES, env],
+                  sudo_as(hub, hub_pw.pw_dir) + [f"{hub_pw.pw_dir}/.local/bin/talaria", "setup",
+                                                 "--as-hub", "--import-telegram"])
+        if rc != 0:
+            say("STOP", f"could not move the bot token from {user} to {hub}; run setup again")
+            return 1
+        sh.run(s + ["sed", "-i", "-E", f"/{TG_LINES}/d", env])
+        say("OK", f"{user} holds no bot token any more")
+    return 0
+
+
+def import_telegram(ctx, stream) -> int:
+    """Spec §7.4 step 2, the hub's end of the pipe: the app's Telegram lines on stdin."""
+    kv = parse_kv(stream.read())
+    token, uid = kv.get("TALARIA_TELEGRAM_TOKEN", ""), kv.get("TALARIA_TELEGRAM_USER_ID", "")
+    if not TOKEN_RE.match(token):
+        say("STOP", "no valid bot token on stdin; nothing changed")
+        return 1
+    if load_hub_conf(ctx.paths).telegram_token:
+        say("OK", "the hub already has a bot; the app's own token is not needed any more")
+        return 0
+    write_env_value(ctx.paths.env_file, "TALARIA_TELEGRAM_TOKEN", token)
+    if uid.isdigit():
+        write_env_value(ctx.paths.env_file, "TALARIA_TELEGRAM_USER_ID", uid)
+        say("OK", "bot token and owner moved to the hub (same bot, no new pairing)")
+    else:
+        say("OK", "bot token moved to the hub; pair it when setup asks")
+    return 0
+
+
 def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subprocess.call,
                    linger_dir=Path("/var/lib/systemd/linger"), app="hermes",
-                   explicit_app=True) -> int:
+                   explicit_app=True, move=None) -> int:
     if app not in apps.NAMES:
         say("STOP", f"unknown app: {app!r}; choose one of {', '.join(apps.NAMES)}")
         return 1
@@ -213,12 +281,16 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         say("STOP", "this checkout's origin needs SSH, but the service user has no key; "
                     "clone Talaria over https")
         return 1
+    found = _v04_bot(sh, user, pw.pw_dir)
     if args.plan:
         say("PLAN", f"install Talaria {ref} for {user} from {url}")
         say("PLAN", f"then: detect {A.title} (fresh or adopt), {A.prepare_summary}, units, "
                     f"start {A.title}, verify")
         say("PLAN", f"then: install the same Talaria for the hub {hub} and register {app} "
                     "with it (Telegram bot token and pairing, once per host)")
+        if any(found):
+            say("PLAN", f"move the bot from {user} to the hub {hub} (same bot, same chat, no "
+                        f"new pairing; {A.title} is not restarted)")
         return 0
     home, hub_home = pw.pw_dir, hub_pw.pw_dir
     _install(sh, user, home, url, ref, installed)
@@ -238,6 +310,10 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
               + [f"{home}/.local/bin/talaria", "setup", "--as-service", *rest])
     if rc != 0:
         return rc
+    if any(found):
+        rc = _migrate(sh, user, pw, hub, hub_pw, found, move or move_env)
+        if rc != 0:
+            return rc
     rc = call(sudo_as(hub, hub_home) + _bus(hub_pw)
               + [f"{hub_home}/.local/bin/talaria", "setup", "--as-hub", "--register",
                  f"{app}:{user}"])
@@ -297,6 +373,8 @@ def hub_phase(ctx, args, api=None) -> int:
     ensure_dir(p.state_dir)
     if not p.hub_conf.exists():
         p.hub_conf.write_text(HUB_CONF_HEAD)
+    if getattr(args, "import_telegram", False):
+        return import_telegram(ctx, sys.stdin)
     added = False
     try:
         if args.register:

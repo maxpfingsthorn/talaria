@@ -83,16 +83,32 @@ def run_case(monkeypatch, tmp_path, capsys, kw, a):
     return rc, capsys.readouterr().out, list(zip(sh.calls, sh.timeouts)), calls
 
 
+MIGCHK = [(SUDO + ["test", "-e", "/home/hermes/.config/systemd/user/talaria-telegram.service"], None),
+          (SUDO + ["grep", "-qs", "^TALARIA_TELEGRAM_", "/home/hermes/.config/talaria/.env"], None)]
+BUS = ["XDG_RUNTIME_DIR=/run/user/1001", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus"]
+UNITDIR = "/home/hermes/.config/systemd/user"
+ENV = "/home/hermes/.config/talaria/.env"
+STOP_BOT = [(SUDO + BUS + ["systemctl", "--user", "disable", "--now", "talaria-telegram.service",
+                          "talaria-check.timer"], None),
+            (SUDO + ["rm", "-f", f"{UNITDIR}/talaria-telegram.service",
+                     f"{UNITDIR}/talaria-check.timer", f"{UNITDIR}/talaria-check.service"], None),
+            (SUDO + BUS + ["systemctl", "--user", "daemon-reload"], None)]
+DROP_TOKEN = [(SUDO + ["sed", "-i", "-E", "/^TALARIA_TELEGRAM_(TOKEN|USER_ID)=/d", ENV], None)]
+MOVE = (SUDO + ["grep", "-E", "^TALARIA_TELEGRAM_(TOKEN|USER_ID)=", ENV],
+        HSUDO + ["/home/talaria/.local/bin/talaria", "setup", "--as-hub", "--import-telegram"])
+BEFORE_HANDOFF = PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + MIGCHK + UPDATE + HUB_UPDATE + PROBE
+
+
 CASES = {
     "install": (dict(), dict(user="hermes", adopt="hermes-gateway.service"), 0,
                 INSTALLED + "DONE\n",
-                PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + CLONE + UPDATE + HUB_UPDATE + PROBE,
+                PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + MIGCHK + CLONE + UPDATE + HUB_UPDATE + PROBE,
                 [HANDOFF + ["--adopt", "hermes-gateway.service"], HUB_HANDOFF]),
     "installed": (dict(installed=True), dict(), 0, INSTALLED + "DONE\n",
-                  PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + UPDATE + HUB_UPDATE + PROBE,
+                  PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + MIGCHK + UPDATE + HUB_UPDATE + PROBE,
                   [HANDOFF, HUB_HANDOFF]),
     "hubfresh": (dict(installed=True, hub_installed=False), dict(), 0, INSTALLED + "DONE\n",
-                 PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + UPDATE + HUB_CLONE + HUB_UPDATE
+                 PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + MIGCHK + UPDATE + HUB_CLONE + HUB_UPDATE
                  + PROBE, [HANDOFF, HUB_HANDOFF]),
     "newuser": (dict(user_exists=False), dict(), 10,
                 ASK + " with --user hermes:\n" + root_cmd(acct("hermes", True) + OPRULE),
@@ -120,14 +136,14 @@ CASES = {
                  PRE + CHECKS + HUB_CHECKS, []),
     "norule": (dict(probe_rc=1, probe_err="sudo: a password is required\n"), dict(user="hermes"),
                10, INSTALLED + ASK + ":\n" + root_cmd(OPRULE),
-               PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + CLONE + UPDATE + HUB_UPDATE + PROBE, []),
+               PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + MIGCHK + CLONE + UPDATE + HUB_UPDATE + PROBE, []),
     "plan": (dict(), dict(user="hermes", plan=True), 0,
              "PLAN: install Talaria v0.1.0 for hermes from https://github.com/o/talaria\n"
              "PLAN: then: detect Hermes (fresh or adopt), dashboard password, units, start "
              "Hermes, verify\n"
              "PLAN: then: install the same Talaria for the hub talaria and register hermes with "
              "it (Telegram bot token and pairing, once per host)\n",
-             PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN, []),
+             PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + MIGCHK, []),
     "planroot": (dict(hub_exists=False), dict(user="hermes", plan=True), 0,
                  "PLAN: accounts, linger and sudo rules for talaria and hermes: setup prints a "
                  "block to run as root\n", PRE + CHECKS, []),
@@ -294,3 +310,46 @@ def test_set_token_format(token, ok, tmp_path, monkeypatch, capsys):
     if not ok:
         assert capsys.readouterr().err == "That does not look like a Telegram bot token.\n"
         assert made == []
+
+
+def test_migration_moves_the_bot_between_the_app_and_the_hub_setup(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, installed=True, v04_units=True, v04_token=True)
+    assert run(args(user="hermes")) == 0
+    cmds = list(zip(sh.calls, sh.timeouts))
+    assert cmds == BEFORE_HANDOFF + STOP_BOT + DROP_TOKEN
+    assert sh.moves == [MOVE]
+    n = len(BEFORE_HANDOFF)
+    assert sh.marks == [("call", n), ("move", n + 3), ("call", n + 4)]
+    assert calls == [HANDOFF, HUB_HANDOFF]
+    assert capsys.readouterr().out == (
+        INSTALLED + "OK: stopped hermes's own bot; the hub talaria runs the only one\n"
+        "OK: hermes holds no bot token any more\nDONE\n")
+    flat = " ".join(a for c, _ in cmds for a in c) + " ".join(a for m in sh.moves for p in m for a in p)
+    assert "hermes.container" not in flat and "hermes.service" not in flat   # the app is untouched
+    assert "TALARIA_TELEGRAM_TOKEN=" not in flat                             # no secret in an argv
+
+
+def test_interrupted_migration_resumes_with_the_token(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, installed=True, v04_token=True)
+    assert run(args(user="hermes")) == 0
+    assert list(zip(sh.calls, sh.timeouts)) == BEFORE_HANDOFF + DROP_TOKEN
+    assert sh.moves == [MOVE]
+    assert capsys.readouterr().out == INSTALLED + "OK: hermes holds no bot token any more\nDONE\n"
+
+
+def test_failed_move_keeps_the_token_and_stops_before_the_hub(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, installed=True, v04_token=True, move_rc=1)
+    assert run(args(user="hermes")) == 1
+    assert list(zip(sh.calls, sh.timeouts)) == BEFORE_HANDOFF
+    assert calls == [HANDOFF]
+    assert capsys.readouterr().out.endswith(
+        "STOP: could not move the bot token from hermes to talaria; run setup again\n")
+
+
+def test_plan_names_the_move(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, installed=True, v04_units=True, v04_token=True)
+    assert run(args(user="hermes", plan=True)) == 0
+    assert capsys.readouterr().out.endswith(
+        "PLAN: move the bot from hermes to the hub talaria (same bot, same chat, no new "
+        "pairing; Hermes is not restarted)\n")
+    assert sh.moves == [] and calls == []

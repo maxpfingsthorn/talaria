@@ -1,4 +1,5 @@
 import argparse
+import io
 
 import pytest
 
@@ -8,7 +9,7 @@ from talaria.ctx import Ctx, Paths
 from talaria.hubconf import load_hub_conf
 from tests.fakes import Clock, FakeNotifier, FakeShell
 
-TOKEN = "1:" + "a" * 35
+TOKEN = "123456:" + "a" * 35
 PAIR = ("ACTION REQUIRED: in a private chat with your bot, send within 15 minutes:\n"
         "  /pair CODE2345\n")
 UNITS = [["systemctl", "--user", "daemon-reload"],
@@ -136,3 +137,43 @@ def test_setup_dispatches_as_hub(monkeypatch):
     from tests.test_setup import args
     assert setup.setup(args(as_hub=True, register="hermes:hermes")) == 0
     assert seen == ["hermes:hermes"]
+
+
+def test_import_moves_token_and_owner(tmp_path, capsys, monkeypatch):
+    ctx = hub_ctx(tmp_path)
+    monkeypatch.setattr("sys.stdin", io.StringIO(
+        f"TALARIA_TELEGRAM_TOKEN={TOKEN}\nTALARIA_TELEGRAM_USER_ID=42\n"))
+    rc, out, cmds = run(ctx, capsys, import_telegram=True)
+    assert rc == 0 and cmds == []
+    assert out == "OK: bot token and owner moved to the hub (same bot, no new pairing)\n"
+    assert parse_kv(ctx.paths.env_file.read_text()) == {"TALARIA_TELEGRAM_TOKEN": TOKEN,
+                                                        "TALARIA_TELEGRAM_USER_ID": "42"}
+    assert (ctx.paths.env_file.stat().st_mode & 0o777) == 0o600
+    assert ctx.paths.hub_conf.read_text() == "# Talaria hub settings; see README.\n"
+
+
+def test_import_without_an_owner_moves_the_token_only(tmp_path, capsys, monkeypatch):
+    ctx = hub_ctx(tmp_path)
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"TALARIA_TELEGRAM_TOKEN={TOKEN}\n"))
+    rc, out, cmds = run(ctx, capsys, import_telegram=True)
+    assert rc == 0 and out == "OK: bot token moved to the hub; pair it when setup asks\n"
+    assert parse_kv(ctx.paths.env_file.read_text()) == {"TALARIA_TELEGRAM_TOKEN": TOKEN}
+
+
+def test_import_keeps_the_hubs_own_bot(tmp_path, capsys, monkeypatch):
+    ctx = hub_ctx(tmp_path, "TALARIA_TELEGRAM_TOKEN=9:" + "b" * 35 + "\nTALARIA_TELEGRAM_USER_ID=7\n")
+    before = ctx.paths.env_file.read_text()
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"TALARIA_TELEGRAM_TOKEN={TOKEN}\n"))
+    rc, out, cmds = run(ctx, capsys, import_telegram=True)
+    assert rc == 0 and out == ("OK: the hub already has a bot; the app's own token is not "
+                               "needed any more\n")
+    assert ctx.paths.env_file.read_text() == before
+
+
+@pytest.mark.parametrize("stdin", ["", "nonsense\n", "TALARIA_TELEGRAM_TOKEN=x\n"])
+def test_import_refuses_anything_but_a_token(tmp_path, capsys, monkeypatch, stdin):
+    ctx = hub_ctx(tmp_path)
+    monkeypatch.setattr("sys.stdin", io.StringIO(stdin))
+    rc, out, cmds = run(ctx, capsys, import_telegram=True)
+    assert rc == 1 and out == "STOP: no valid bot token on stdin; nothing changed\n"
+    assert not ctx.paths.env_file.exists()

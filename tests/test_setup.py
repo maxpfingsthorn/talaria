@@ -25,7 +25,8 @@ HUBPW = SimpleNamespace(pw_name="talaria", pw_uid=1002, pw_gid=1002, pw_dir="/ho
 
 def op_env(monkeypatch, tmp_path, *, user_exists=True, sudo_ok=True, linger=True,
            installed=False, tag="v0.1.0", hub_exists=True, hub_sudo_ok=True, hub_linger=True,
-           hub_installed=True, probe_rc=0, probe_err=""):
+           hub_installed=True, probe_rc=0, probe_err="", v04_units=False, v04_token=False,
+           move_rc=0):
     monkeypatch.setattr(setup, "which", lambda t: f"/usr/bin/{t}")
     sh = FakeShell()
     sh.on("sudo")   # catch-all first: in FakeShell the most recently added rule wins
@@ -38,6 +39,11 @@ def op_env(monkeypatch, tmp_path, *, user_exists=True, sudo_ok=True, linger=True
     sh.on("sudo", "-n", "-u", "talaria", "sudo", rc=probe_rc, err=probe_err)
     sh.on("git", "-C", str(setup.REPO), "describe", out=f"{tag}\n", rc=0 if tag else 128)
     sh.on("git", "-C", str(setup.REPO), "remote", out="https://github.com/o/talaria\n")
+    s = setup.sudo_as("hermes", "/home/hermes")
+    sh.on(*s, "test", "-e", "/home/hermes/.config/systemd/user/talaria-telegram.service",
+          rc=0 if v04_units else 1)
+    sh.on(*s, "grep", "-qs", rc=0 if v04_token else 1)
+    sh.moves, sh.marks = [], []
     ld = tmp_path / "linger"
     ld.mkdir()
     if linger:
@@ -52,9 +58,19 @@ def op_env(monkeypatch, tmp_path, *, user_exists=True, sudo_ok=True, linger=True
         return accounts[name]
 
     calls = []
+
+    def call(argv):
+        calls.append(argv)
+        sh.marks.append(("call", len(sh.calls)))
+        return 0
+
+    def move(read, write):
+        sh.moves.append((read, write))
+        sh.marks.append(("move", len(sh.calls)))
+        return move_rc
+
     run = lambda a: setup.operator_phase(sh, a, getpwnam=getpwnam, operator="admin",
-                                         call=lambda argv: calls.append(argv) or 0,
-                                         linger_dir=ld)
+                                         call=call, linger_dir=ld, move=move)
     return sh, run, calls
 
 
@@ -219,6 +235,8 @@ def test_clawvisor_default_account_name_and_plan_text(monkeypatch, tmp_path, cap
     sh.on("getenforce", out="Permissive\n")
     sh.on("git", "-C", str(setup.REPO), "describe", out="v0.1.0\n")
     sh.on("git", "-C", str(setup.REPO), "remote", out="https://github.com/o/talaria\n")
+    sh.on(*setup.sudo_as("clawvisor", PW.pw_dir), "test", rc=1)
+    sh.on(*setup.sudo_as("clawvisor", PW.pw_dir), "grep", rc=1)
     ld = tmp_path / "linger"
     ld.mkdir()
     (ld / "clawvisor").touch()
@@ -238,6 +256,8 @@ def test_clawvisor_handoff_carries_the_app_flag(monkeypatch, tmp_path):
     sh.on("getenforce", out="Permissive\n")
     sh.on("git", "-C", str(setup.REPO), "describe", out="v0.1.0\n")
     sh.on("git", "-C", str(setup.REPO), "remote", out="https://github.com/o/talaria\n")
+    sh.on(*setup.sudo_as("clawvisor", PW.pw_dir), "test", rc=1)
+    sh.on(*setup.sudo_as("clawvisor", PW.pw_dir), "grep", rc=1)
     ld = tmp_path / "linger"
     ld.mkdir()
     (ld / "clawvisor").touch()
@@ -582,3 +602,21 @@ def test_e2e_extracts_exactly_what_setup_prints(monkeypatch, tmp_path, capsys, k
     block = extract(out)
     assert block.startswith("sudo bash -euo pipefail <<'TALARIA'\n") and block.endswith("\nTALARIA")
     assert out.endswith(block + "\n")
+
+
+def test_move_env_pipes_from_one_process_into_the_other(tmp_path):
+    import sys
+    src, out = tmp_path / "src", tmp_path / "out"
+    secret = "TALARIA_TELEGRAM_TOKEN=1:" + "s" * 35 + "\nTALARIA_TELEGRAM_USER_ID=42\n"
+    src.write_text(secret)
+    writer = [sys.executable, "-c", "import sys; open(sys.argv[1], 'w').write(sys.stdin.read())",
+              str(out)]
+    assert setup.move_env(["cat", str(src)], writer) == 0
+    assert out.read_text() == secret
+
+
+def test_move_env_fails_if_either_side_fails(tmp_path):
+    import sys
+    ok_writer = [sys.executable, "-c", "import sys; sys.stdin.read()"]
+    assert setup.move_env(["false"], ok_writer) == 1
+    assert setup.move_env(["echo", "x"], [sys.executable, "-c", "import sys; sys.exit(3)"]) == 1
