@@ -21,7 +21,7 @@ jobs:
           ! grep -rnE '100\.[0-9]+\.[0-9]+\.[0-9]+|openclaw|@gmail\.com' \
               --include='*.md' --include='*.py' --include='*.container' \
               --include='*.service' --include='*.timer' \
-              README.md AGENTS.md talaria helpers templates docs 2>/dev/null \
+              README.md AGENT_SETUP.md talaria helpers templates docs 2>/dev/null \
             | grep -v 'docs/superpowers/'
   e2e:
     runs-on: ubuntu-24.04

@@ -3,7 +3,7 @@
 Safe, approved updates for self-hosted [Hermes Agent](https://github.com/NousResearch/hermes-agent)
 on rootless podman. Opinionated.
 
-Setting this up with a coding agent? Point it at [`AGENTS.md`](AGENTS.md).
+Setting this up with a coding agent? Point it at [`AGENT_SETUP.md`](AGENT_SETUP.md).
 
 ## What it does
 
@@ -140,13 +140,14 @@ Hermes's; a Clawvisor install (`app = clawvisor`) gets its own defaults for `dat
 | `image` | `docker.io/nousresearch/hermes-agent` |
 | `repo` (`hermes_repo` also accepted) | `https://github.com/NousResearch/hermes-agent` |
 | `talaria_repo` | this repository |
-| `dashboard.bind` | `loopback` (or `tailscale`) |
+| `dashboard.bind` | `loopback` (or `tailscale`, or one specific IPv4 address; never `0.0.0.0`) |
 | `dashboard.port` | `9119` |
 | `backup.keep` | `5` |
 | `backup.exclude` | `.cache .npm home/.cache home/.npm backups` (`backups/config` is always kept) |
 | `disk.floor_gb` | `6` |
 | `check.time` | `04:30` |
-| `add_hosts` | (none; space-separated `name:ip` pairs, e.g. `clawvisor:<tailscale ip>`) |
+| `host_loopback` | `false` (`true`: the container may reach the host's loopback at `10.0.2.2`; needs `slirp4netns`) |
+| `add_hosts` | (none; space-separated `name:ip` pairs, e.g. `clawvisor:10.254.254.1`) |
 
 Run setup again after changing it.
 
@@ -179,15 +180,48 @@ paste it into a chat, a ticket, an agent's context, or anywhere it could be
 logged.** If an agent is driving setup, have it stop here and let the person at
 the keyboard run this step and use the link themselves.
 
-For Hermes (or you) to reach it at all, Clawvisor must publish on Tailscale, not just
-loopback: in **Clawvisor's own** `talaria.conf`, set `dashboard.bind = tailscale` and
-`tailscale_ip = <ip>` (the host's Tailscale address), then run Clawvisor's setup again.
+Hermes and Clawvisor run as two rootless podman users, so no podman network joins them.
+To let Hermes reach Clawvisor (`http://clawvisor:25297`), pick one option. Each time,
+re-run setup for the app whose `talaria.conf` you changed. Clawvisor's own dashboard,
+on a dummy NIC or loopback, is reached from your laptop through an SSH tunnel
+(`ssh -L 25297:<address>:25297 <host>`).
 
-Then, if Hermes needs to reach Clawvisor directly, add a line like
-`add_hosts = clawvisor:<tailscale ip>` to **Hermes's** `talaria.conf` and run
-Hermes's setup again. Hermes's Quadlet then resolves `http://clawvisor:25297` to
-Clawvisor's Tailscale address — without the two service users ever sharing a
-podman network.
+**1. Dummy NIC (recommended).** Only services bound to its address are exposed. As root,
+once (the address is arbitrary private space; pick one unused on your networks):
+
+```bash
+cat >/etc/systemd/network/10-talaria0.netdev <<'EOF2'
+[NetDev]
+Name=talaria0
+Kind=dummy
+EOF2
+cat >/etc/systemd/network/10-talaria0.network <<'EOF2'
+[Match]
+Name=talaria0
+
+[Network]
+Address=10.254.254.1/32
+EOF2
+systemctl restart systemd-networkd
+```
+
+- Clawvisor's `talaria.conf`: `dashboard.bind = 10.254.254.1`
+- Hermes's `talaria.conf`: `add_hosts = clawvisor:10.254.254.1`
+
+**2. Tailscale.** If you already use it (it also gives remote dashboard access).
+
+- Clawvisor's: `dashboard.bind = tailscale` (setup records `tailscale_ip`)
+- Hermes's: `add_hosts = clawvisor:<tailscale ip>`
+
+**3. Host loopback (no root).** Clawvisor stays on `127.0.0.1`. Hermes's container joins
+`slirp4netns:allow_host_loopback=true` and sees the host's loopback at `10.0.2.2`.
+Needs the `slirp4netns` package. **Warning:** the Hermes container can then reach every
+service listening on the host's loopback, not just Clawvisor.
+
+- Clawvisor's: nothing (default `dashboard.bind = loopback`)
+- Hermes's: `host_loopback = true` and `add_hosts = clawvisor:10.0.2.2`
+
+In all three, the two service users never share a podman network.
 
 Clawvisor keeps everything in SQLite (WAL mode, one connection); it publishes no
 container image, so Talaria downloads each release's binary, checks its SHA-256
