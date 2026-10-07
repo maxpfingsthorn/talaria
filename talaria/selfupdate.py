@@ -49,7 +49,7 @@ def dry_run(ctx, tag: str) -> bool:
     ensure_dir(ctx.paths.state_dir)
     wt = Path(tempfile.mkdtemp(prefix="dry-run-", dir=ctx.paths.state_dir))   # one per run
     ctx.sh.run(["git", "-C", d, "fetch", "-q", "--tags", "origin"], timeout=600)
-    shutil.rmtree(wt, ignore_errors=True)
+    shutil.rmtree(wt, ignore_errors=True)  # pragma: no mutate  (the fresh dir is removable; the effect is pinned by test_dry_run_details)
     ctx.sh.run(["git", "-C", d, "worktree", "prune"], check=False)
     ctx.sh.run(["git", "-C", d, "worktree", "add", "-q", "--detach", str(wt), tag], timeout=120)
     try:

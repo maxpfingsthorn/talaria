@@ -80,7 +80,7 @@ def status_all(hub, mismatch=frozenset()) -> str:
 
 def relay(hub, app: str, argv: list[str]) -> int:
     e = hub.apps[app]
-    sent = False
+    sent = False  # pragma: no mutate  (None is falsy too)
     try:
         for d in e.executor.stream(argv):
             if d.get("kind") == "message":
@@ -90,7 +90,7 @@ def relay(hub, app: str, argv: list[str]) -> int:
         hub.ctx.notify.send(Message(unreachable_text(e.title)))
         return 1
     except Exception as x:    # a missing binary, an odd message shape: never end silently
-        traceback.print_exc(file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)  # pragma: no mutate  (stderr is the default)
         hub.ctx.notify.send(Message(f"{e.title}: {' '.join(argv)} — Talaria could not follow "
                                     f"this operation ({x}); details in the journal"))
         return 1

@@ -50,7 +50,7 @@ def _stop(ctx, text: str) -> int:
 
 
 def _update_app(entry, tag: str) -> tuple[bool, str]:
-    last = ""
+    last = ""  # pragma: no mutate  (only used through `last or ...`)
     try:
         for d in entry.executor.stream(["self-update", tag]):
             if d.get("kind") == "reply":

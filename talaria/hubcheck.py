@@ -33,7 +33,7 @@ def check(hub, timer: bool) -> int:
                 continue
             relay.relay(hub, name, ["check", "--timer"] if timer else ["check"])
         except Exception as x:    # one app must not stop the others or the release check
-            traceback.print_exc(file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)  # pragma: no mutate  (stderr is the default)
             hub.ctx.notify.send(Message(f"{e.title}: the check failed unexpectedly ({x})"))
     if hub.transitional and timer:
         (app,) = hub.apps

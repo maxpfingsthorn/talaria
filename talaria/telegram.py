@@ -172,14 +172,14 @@ class Bot:
                     self._send(self.app_command(app, "/restore", [rid]))
                     return self.hub.apps[app].title, None
                 if what in FORMS and not rid:
-                    self._send(self.app_command(app, FORMS[what], []))
+                    self._send(self.app_command(app, FORMS[what], []))  # pragma: no mutate  (None and [] are both "no args")
                     return self.hub.apps[app].title, None
         return "Unknown button", None
 
     def on_button(self, data) -> tuple[str, str | None]:
         """(toast, status). Data is `<app>|<data>`; the app checks the tap against its own
         state (`op button`) and names what to run. `hub|…` buttons are the hub's own."""
-        data = data or ""
+        data = data or ""  # pragma: no mutate  (any other default is also an unknown button)
         if data == "done":
             return "Already handled", None
         app, sep, rest = data.partition("|")
@@ -215,7 +215,7 @@ class Bot:
         try:
             toast, status = self.on_button(q.get("data"))
         except Exception as e:
-            toast, status = f"Error: {e}"[:200], None
+            toast, status = f"Error: {e}"[:200], None  # pragma: no mutate  (the answer below cuts at 200 again)
         # quiet: a late tap gets 400 "query is too old"; that must not stop the rest
         self._try("answerCallbackQuery", callback_query_id=q.get("id"), text=toast[:200])
         if status is None:
@@ -239,7 +239,7 @@ class Bot:
             print(f"[talaria] ignored update {u.get('update_id')}", file=sys.stderr)
             return
         parts = text.split()
-        cmd = parts[0].split("@", 1)[0]
+        cmd = parts[0].split("@", 1)[0]  # pragma: no mutate  (maxsplit does not change element 0; rsplit is pinned by a test)
         try:
             answer = self.dispatch(cmd, parts[1:])
         except Exception as e:

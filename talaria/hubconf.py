@@ -83,7 +83,7 @@ def register_app(paths, app: str, user: str) -> bool:
     if not done:
         lines.append(f"apps = {value}")
     paths.hub_conf.parent.mkdir(parents=True, exist_ok=True)
-    tmp = paths.hub_conf.with_name(paths.hub_conf.name + ".tmp")
+    tmp = paths.hub_conf.with_name(paths.hub_conf.name + ".tmp")  # pragma: no mutate  (name of a file that is renamed away)
     tmp.write_text("\n".join(lines) + "\n")
     os.replace(tmp, paths.hub_conf)
     return True

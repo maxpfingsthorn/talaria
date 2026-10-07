@@ -44,17 +44,17 @@ class JsonNotifier:
 
     def send(self, m: Message) -> None:
         print(f"[talaria] message: {m.text}", file=sys.stderr)
-        emit(self.out, "message", text=m.text,
-             blocks=[list(b) if isinstance(b, tuple) else b for b in m.untrusted],
+        blocks = [list(b) if isinstance(b, tuple) else b for b in m.untrusted]  # pragma: no mutate  (json.dumps writes tuples as lists anyway)
+        emit(self.out, "message", text=m.text, blocks=blocks,
              commands=list(m.commands), buttons=_rows(m.buttons))
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="talaria op", add_help=False, allow_abbrev=False)
-    sub = p.add_subparsers(dest="op", required=True)
+    p = argparse.ArgumentParser(prog="talaria op", add_help=False, allow_abbrev=False)  # pragma: no mutate  (None == False; prog and help=True are pinned by test_hub_survivors)
+    sub = p.add_subparsers(dest="op", required=True)  # pragma: no mutate  (op is always given: main checks OPS first)
 
     def add(name):
-        return sub.add_parser(name, add_help=False, allow_abbrev=False)
+        return sub.add_parser(name, add_help=False, allow_abbrev=False)  # pragma: no mutate  (None == False; help=True and abbreviations are pinned by tests)
 
     for name in ("status", "backups", "hello", "interrupted"):
         add(name)
@@ -78,7 +78,7 @@ def decide_button(ctx, data) -> tuple[str, str | None, list[str] | None]:
     keeps them. Each button names what it acts on and is checked against the current
     state, so an old button never acts on a different target. Rollback and restore
     buttons carry the minute they were sent and expire after an hour."""
-    kind, _, arg = (data or "").partition(":")
+    kind, _, arg = (data or "").partition(":")  # pragma: no mutate  (any other default is also an unknown kind)
     if kind == "done":
         return "Already handled", None, None
     st = state.load(ctx.paths)
@@ -134,7 +134,7 @@ def _self_update(ctx, args, out) -> int:
 def _run(ctx, args, out) -> int:
     o = args.op
     if o in ("deploy", "reject") and not ctx.app.is_release(args.tag):
-        print(f"talaria op: {args.tag} is not a {ctx.app.title} release tag", file=sys.stderr)
+        print(f"talaria op: {args.tag} is not a {ctx.app.title} release tag", file=sys.stderr)  # pragma: no mutate  (main redirects stdout to stderr, so file=None lands there too)
         return 2
     if o == "hello":
         emit(out, "hello", protocol=PROTOCOL, app=ctx.app.name, title=ctx.app.title,

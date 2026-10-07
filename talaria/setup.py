@@ -71,8 +71,8 @@ def _sudoers(rule: str, name: str) -> list[str]:
 def account_lines(user: str, operator: str, create: bool) -> list[str]:
     lines = []
     if create:
-        lines += [f"id {user} >/dev/null 2>&1 || useradd --create-home --shell /bin/bash {user}",
-                  f"grep -q '^{user}:' /etc/subuid || echo 'WARNING: {user} has no subuid range; see README'"]
+        lines = [f"id {user} >/dev/null 2>&1 || useradd --create-home --shell /bin/bash {user}",
+                 f"grep -q '^{user}:' /etc/subuid || echo 'WARNING: {user} has no subuid range; see README'"]
     return lines + [f"loginctl enable-linger {user}",
                     *_sudoers(f"'{operator} ALL=({user}) NOPASSWD: ALL'", f"talaria-{user}")]
 
@@ -209,7 +209,7 @@ def _migrate(sh, user: str, pw, hub: str, hub_pw, found, move) -> int:
 def import_telegram(ctx, stream) -> int:
     """Spec §7.4 step 2, the hub's end of the pipe: the app's Telegram lines on stdin."""
     kv = parse_kv(stream.read())
-    token, uid = kv.get("TALARIA_TELEGRAM_TOKEN", ""), kv.get("TALARIA_TELEGRAM_USER_ID", "")
+    token, uid = kv.get("TALARIA_TELEGRAM_TOKEN", ""), kv.get("TALARIA_TELEGRAM_USER_ID", "")  # pragma: no mutate  (any non-matching default is rejected the same way)
     if not TOKEN_RE.match(token):
         say("STOP", "no valid bot token on stdin; nothing changed")
         return 1
@@ -249,7 +249,7 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         return 1
     lingers = lambda name: (Path(linger_dir) / name).exists()
     pw = _pw(getpwnam, user)
-    app_lines, installed = [], False
+    app_lines, installed = [], False  # pragma: no mutate  (a missing account always ends in the root paste before `installed` is read)
     if pw is None:
         if args.plan:
             say("PLAN", f"create the account {user}: setup prints a block to run as root")
@@ -264,16 +264,16 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
             say("STOP", f"confirm with the person, then re-run with --user {user}")
             return 1
         if not sudo_ok or not lingers(user):
-            app_lines = account_lines(user, operator, create=False)
+            app_lines = account_lines(user, operator, create=False)  # pragma: no mutate  (None == False)
     hub_pw = _pw(getpwnam, hub)
-    hub_lines, hub_installed = [], False
+    hub_lines, hub_installed = [], False  # pragma: no mutate  (a missing hub always ends in the root paste before `hub_installed` is read)
     if hub_pw is None:
         hub_lines = account_lines(hub, operator, create=True)
     else:
         hub_ok = _can_sudo(sh, hub)
         hub_installed = hub_ok and _installed(sh, hub, hub_pw.pw_dir)
         if not hub_ok or not lingers(hub):
-            hub_lines = account_lines(hub, operator, create=False)
+            hub_lines = account_lines(hub, operator, create=False)  # pragma: no mutate  (None == False)
     if hub_pw is None or not hub_installed:       # this run makes the hub: one bot per host
         for other in apps.NAMES:
             opw = _pw(getpwnam, other) if other != user else None
@@ -408,12 +408,12 @@ def hub_phase(ctx, args, api=None) -> int:
     ensure_dir(p.state_dir)
     if not p.hub_conf.exists():
         p.hub_conf.write_text(HUB_CONF_HEAD)
-    if getattr(args, "import_telegram", False):
+    if getattr(args, "import_telegram", False):  # pragma: no mutate  (None == False; a True default is pinned by a test)
         return import_telegram(ctx, sys.stdin)
-    added = False
+    added = False  # pragma: no mutate  (None is falsy too; True as default is pinned by a test)
     try:
         if args.register:
-            app, _, user = args.register.partition(":")
+            app, _, user = args.register.partition(":")  # pragma: no mutate  (rpartition fails the same way: the entry is re-joined and rejected)
             added = register_app(p, app, user)
         ctx.conf = load_hub_conf(p)
     except ValueError as e:
@@ -426,7 +426,7 @@ def hub_phase(ctx, args, api=None) -> int:
     ctx.sh.run(["systemctl", "--user", "enable", "--now", "talaria-check.timer",
                 "talaria-telegram.service"])
     # a new app or new units: the bot must see them (an update restarts it itself, last)
-    if (changed or added) and not getattr(args, "no_restart", False):
+    if (changed or added) and not getattr(args, "no_restart", False):  # pragma: no mutate  (None == False; the flag itself is pinned by test_gatefix)
         ctx.sh.run(["systemctl", "--user", "restart", "talaria-telegram.service"])
     names = ", ".join(a for a, _ in ctx.conf.apps) or "none yet"
     say("OK", f"Talaria hub ready; apps: {names}")

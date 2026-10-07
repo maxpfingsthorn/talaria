@@ -29,7 +29,7 @@ def parse_lines(text: str, app: str) -> list[dict]:
         try:
             d = json.loads(line)
         except ValueError:
-            d = None
+            d = None  # pragma: no mutate  (any non-dict falls to the same branch)
         if isinstance(d, dict) and d.get("v") == 1 and isinstance(d.get("kind"), str):
             out.append(d)
         else:
