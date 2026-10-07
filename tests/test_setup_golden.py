@@ -26,10 +26,22 @@ UPDATE = [
 HANDOFF = SUDO + ["XDG_RUNTIME_DIR=/run/user/1001",
                   "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus",
                   "/home/hermes/.local/bin/talaria", "setup", "--as-service", "--app", "hermes"]
-ROOT_TAIL = ("loginctl enable-linger hermes\n"
-             "echo 'admin ALL=(hermes) NOPASSWD: ALL' > /etc/sudoers.d/talaria-hermes\n"
-             "chmod 440 /etc/sudoers.d/talaria-hermes\n"
-             "visudo -cf /etc/sudoers.d/talaria-hermes\n")
+def root_cmd(create):
+    head = ("sudo bash -euo pipefail <<'TALARIA'\n"
+            "id hermes >/dev/null 2>&1 || useradd --create-home --shell /bin/bash hermes\n"
+            "grep -q '^hermes:' /etc/subuid || echo 'WARNING: hermes has no subuid range;"
+            " see README'\n") if create else "sudo bash -euo pipefail <<'TALARIA'\n"
+    return head + ("loginctl enable-linger hermes\n"
+                   "tmp=$(mktemp)\n"
+                   "echo 'admin ALL=(hermes) NOPASSWD: ALL' > \"$tmp\"\n"
+                   "visudo -cf \"$tmp\"\n"
+                   "install -m 440 -o root -g root \"$tmp\" /etc/sudoers.d/talaria-hermes\n"
+                   "rm -f \"$tmp\"\n"
+                   "echo 'Talaria: root step done'\n"
+                   "TALARIA\n")
+
+
+ASK = "ACTION REQUIRED: paste this into your terminal (sudo asks for your password), then run setup again"
 
 
 def run_case(monkeypatch, tmp_path, capsys, kw, a):
@@ -47,19 +59,16 @@ CASES = {
                   "OK: Talaria v0.1.0 installed for hermes\n",
                   PRE + CHECKS + TAG + ORIGIN + UPDATE, [HANDOFF]),
     "newuser": (dict(user_exists=False), dict(), 10,
-                "ACTION REQUIRED: run this block as root, then run setup again with --user hermes:\n"
-                "useradd --create-home --shell /bin/bash hermes\n"
-                "grep -q '^hermes:' /etc/subuid || echo 'WARNING: hermes has no subuid range;"
-                " see README'\n" + ROOT_TAIL, PRE, []),
+                ASK + " with --user hermes:\n" + root_cmd(True), PRE, []),
     "confirm": (dict(), dict(), 1,
                 "FOUND: account hermes exists but Talaria is not installed for it\n"
                 "STOP: confirm with the person, then re-run with --user hermes\n",
                 PRE + CHECKS, []),
     "sudo": (dict(sudo_ok=False), dict(user="hermes"), 10,
-             "ACTION REQUIRED: run this block as root, then run setup again:\n" + ROOT_TAIL,
+             ASK + ":\n" + root_cmd(False),
              PRE + CHECKS[:1], []),
     "nolinger": (dict(linger=False), dict(user="hermes"), 10,
-                 "ACTION REQUIRED: run this block as root, then run setup again:\n" + ROOT_TAIL,
+                 ASK + ":\n" + root_cmd(False),
                  PRE + CHECKS, []),
     "plan": (dict(), dict(user="hermes", plan=True), 0,
              "PLAN: install Talaria v0.1.0 for hermes from https://github.com/o/talaria\n"

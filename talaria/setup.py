@@ -55,15 +55,20 @@ def selinux_enforcing(sh) -> bool:
 
 
 def root_block(user: str, operator: str, create: bool) -> str:
+    """One command the person pastes whole into their own terminal; sudo asks for the
+    password. The quoted heredoc delimiter keeps their shell from expanding anything."""
     lines = []
     if create:
-        lines += [f"useradd --create-home --shell /bin/bash {user}",
+        lines += [f"id {user} >/dev/null 2>&1 || useradd --create-home --shell /bin/bash {user}",
                   f"grep -q '^{user}:' /etc/subuid || echo 'WARNING: {user} has no subuid range; see README'"]
-    rule = f"/etc/sudoers.d/talaria-{user}"
     lines += [f"loginctl enable-linger {user}",
-              f"echo '{operator} ALL=({user}) NOPASSWD: ALL' > {rule}",
-              f"chmod 440 {rule}", f"visudo -cf {rule}"]
-    return "\n".join(lines)
+              "tmp=$(mktemp)",
+              f"echo '{operator} ALL=({user}) NOPASSWD: ALL' > \"$tmp\"",
+              "visudo -cf \"$tmp\"",   # validate before it can break sudo
+              f"install -m 440 -o root -g root \"$tmp\" /etc/sudoers.d/talaria-{user}",
+              "rm -f \"$tmp\"",
+              "echo 'Talaria: root step done'"]
+    return "\n".join(["sudo bash -euo pipefail <<'TALARIA'", *lines, "TALARIA"])
 
 
 def install_url(url: str) -> str | None:
@@ -102,8 +107,8 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
             say("PLAN", f"create the account {user}: setup prints a block to run as root")
             say("PLAN", f"then run setup again with --user {user} to install Talaria for it")
             return 0
-        say("ACTION REQUIRED", f"run this block as root, then run setup again with "
-            f"--user {user}:\n" + root_block(user, operator, create=True))
+        say("ACTION REQUIRED", f"paste this into your terminal (sudo asks for your password), "
+            f"then run setup again with --user {user}:\n" + root_block(user, operator, create=True))
         return 10
     home, install = pw.pw_dir, f"{pw.pw_dir}/.local/share/talaria"
     # sudo may keep the caller's XDG_* dirs (e.g. on CI runners); podman and git must
@@ -118,7 +123,8 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         say("STOP", f"confirm with the person, then re-run with --user {user}")
         return 1
     if not sudo_ok or not (Path(linger_dir) / user).exists():
-        say("ACTION REQUIRED", f"run this block as root, then run setup again:\n"
+        say("ACTION REQUIRED", f"paste this into your terminal (sudo asks for your password), "
+            f"then run setup again:\n"
             + root_block(user, operator, create=False))
         return 10
     tag = sh.run(["git", "-C", str(REPO), "describe", "--tags", "--exact-match"],

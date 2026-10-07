@@ -75,7 +75,7 @@ def test_new_user_gets_one_root_block(monkeypatch, tmp_path, capsys):
     assert run(args()) == 10
     out = capsys.readouterr().out
     assert out.count("ACTION REQUIRED") == 1
-    assert "useradd --create-home --shell /bin/bash hermes" in out
+    assert "id hermes >/dev/null 2>&1 || useradd --create-home --shell /bin/bash hermes" in out
     assert "admin ALL=(hermes) NOPASSWD: ALL" in out and "loginctl enable-linger hermes" in out
 
 
@@ -463,3 +463,32 @@ def test_host_loopback_with_slirp4netns_proceeds(svc, monkeypatch, capsys):
     monkeypatch.setattr(setup, "which", lambda t: "/usr/bin/" + t)
     assert setup.service_phase(svc, args(as_service=True)) == 0
     assert "allow_host_loopback=true" in svc.paths.quadlet.read_text()
+
+
+def _block(create):
+    return setup.root_block("hermes", "admin", create)
+
+
+@pytest.mark.parametrize("create", [True, False])
+def test_root_block_is_one_quoted_heredoc_paste(create):
+    b = _block(create)
+    lines = b.splitlines()
+    assert lines[0] == "sudo bash -euo pipefail <<'TALARIA'" and lines[-1] == "TALARIA"
+    assert b.count("TALARIA") == 2   # only opener and closer
+    assert ("useradd" in b) is create
+    assert "chmod" not in b
+
+
+def test_root_block_validates_sudoers_before_installing():
+    b = _block(False)
+    assert b.index("visudo -cf") < b.index("install -m 440")
+    assert "> /etc/sudoers.d" not in b   # never written in place
+
+
+@pytest.mark.parametrize("create", [True, False])
+def test_e2e_extracts_exactly_what_setup_prints(monkeypatch, tmp_path, capsys, create):
+    from tests.e2e.conftest import root_block as extract
+    kw = dict(user_exists=False) if create else dict(sudo_ok=False)
+    sh, run, _ = op_env(monkeypatch, tmp_path, **kw)
+    run(args() if create else args(user="hermes"))
+    assert extract(capsys.readouterr().out) == _block(create)

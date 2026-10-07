@@ -41,7 +41,7 @@ def pair(env, *extra, user=USER):
 def test_01_fresh_setup(env):
     r = setup_cmd(env)
     assert r.returncode == 10, r.stdout
-    sh("sudo", "bash", "-euc", root_block(r.stdout))
+    sh("bash", "-c", root_block(r.stdout))
     wait_for(lambda: bus_ready())
     seed_conf()
     r = setup_cmd(env, "--user", USER)

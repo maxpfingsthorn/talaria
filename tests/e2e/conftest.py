@@ -117,7 +117,8 @@ def seed_conf(user=USER):
 
 
 def root_block(out: str) -> str:
-    m = re.search(r"ACTION REQUIRED: run this block as root.*?\n(.*?)(?:\n\S+:|\Z)", out, re.S)
+    m = re.search(r"ACTION REQUIRED: paste this into your terminal.*?:\n"
+                  r"(sudo bash .*?\nTALARIA)(?:\n|\Z)", out, re.S)
     assert m, out
     return m.group(1)
 
@@ -173,8 +174,8 @@ class AppEnv:
             if rc == 0:
                 assert chunk.rstrip().endswith("DONE"), out
                 return out
-            if rc == 10 and "ACTION REQUIRED: run this block as root" in chunk:
-                sh("sudo", "bash", "-euc", root_block(chunk))
+            if rc == 10 and "ACTION REQUIRED: paste this into your terminal" in chunk:
+                sh("bash", "-c", root_block(chunk))   # the block calls sudo itself
                 wait_for(lambda: bus_ready(self.user))
                 continue
             if rc == 10 and "set-token" in chunk:
@@ -192,7 +193,7 @@ def cv_env(_base_env):
     r = sh(_base_env["src"] / "bin/talaria", "setup", "--dev", "--app", "clawvisor",
           "--user", user, check=False)
     assert r.returncode == 10, r.stdout
-    sh("sudo", "bash", "-euc", root_block(r.stdout))
+    sh("bash", "-c", root_block(r.stdout))
     wait_for(lambda: bus_ready(user))
     as_user("git", "config", "--global", "--add", "safe.directory", "*", user=user)
     return AppEnv(user=user, app="clawvisor", src=_base_env["src"], telegram=_base_env["tg"])
