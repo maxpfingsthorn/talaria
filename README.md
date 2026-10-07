@@ -123,7 +123,10 @@ The dashboard always requires a login: user `admin`, password in
 - Tailscale: set `dashboard.bind = tailscale` in `talaria.conf` and run setup again.
   The dashboard is then reachable on the host's Tailscale address only.
 
-It is never published on a public interface (public IPv4 addresses are rejected).
+Public IPv4 addresses are rejected, but a private address is only as private as its network:
+use a "LAN address" only on a network you trust (home or office). On a cloud VM the
+private/VPC address may be reachable from elsewhere (1:1 NAT, provider network), so prefer
+Tailscale or an SSH tunnel there.
 
 After editing `talaria.conf`, run setup again: it validates the file (a bad value would stop
 the bot at its next start).

@@ -79,6 +79,28 @@ def test_tailscale_bind_records_address(s, capsys):
     assert "Tailscale found" not in out
 
 
+def test_tailscale_not_first_entry(s, capsys):
+    s.conf.dashboard_bind = "10.254.254.1 tailscale"
+    s.sh.on("tailscale", "ip", "-4", out="100.64.1.2\n")
+    rc, out, cmds = run(s, capsys)
+    assert rc == 0
+    assert parse_kv(s.paths.conf_file.read_text())["tailscale_ip"] == "100.64.1.2"
+    assert "Tailscale found" not in out
+    q = s.paths.quadlet.read_text()
+    assert "PublishPort=10.254.254.1:9119:9119" in q
+    assert "PublishPort=100.64.1.2:9119:9119" in q
+    assert q.index("10.254.254.1:9119") < q.index("100.64.1.2:9119")
+
+
+def test_tailscale_duplicate_stops_before_quadlet(s, capsys):
+    s.conf.dashboard_bind = "100.64.1.2 tailscale"
+    s.sh.on("tailscale", "ip", "-4", out="100.64.1.2\n")
+    rc, out, cmds = run(s, capsys)
+    assert rc == 1 and "STOP: dashboard.bind lists 100.64.1.2 twice" in out
+    assert not s.paths.quadlet.exists()
+    assert "tailscale_ip" not in s.paths.conf_file.read_text()
+
+
 def test_tailscale_ip_already_known(s, capsys):
     s.conf.dashboard_bind, s.conf.tailscale_ip = "tailscale", "100.64.9.9"
     rc, out, cmds = run(s, capsys)

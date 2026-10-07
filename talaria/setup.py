@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from talaria import adopt, apps, images, lock, rehearse, service, state, telegram, units
-from talaria.conf import load_conf, write_env_value
+from talaria.conf import check_bind, load_conf, write_env_value
 from talaria.disk import NOT_RENAMABLE, renamable
 from talaria.notify import ApiError, TelegramAPI
 from talaria.state import ensure_dir
@@ -193,6 +193,11 @@ def service_phase(ctx, args, api=None) -> int:
         p.conf_file.write_text(ctx.app.initial_conf(ctx))
     if "tailscale" in ctx.conf.dashboard_bind.split() and not ctx.conf.tailscale_ip:
         ip = ctx.sh.run(["tailscale", "ip", "-4"]).stdout.split()[0]
+        try:
+            check_bind(ctx.conf.dashboard_bind, p.conf_file, ip)
+        except ValueError as e:
+            say("STOP", str(e))
+            return 1
         with open(p.conf_file, "a") as f:
             f.write(f"tailscale_ip = {ip}\n")
         ctx.conf.tailscale_ip = ip

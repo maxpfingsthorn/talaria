@@ -41,7 +41,10 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
     `talaria.conf` of the user you run as; for the other app, tell the person which line
     to add and that they re-run that app's setup as that user. Also ask whether the person
     wants browser access to Clawvisor on a second address (Tailscale if they use it, else
-    a LAN address, else an SSH tunnel). With Tailscale, recommend
+    a LAN address, else an SSH tunnel). A "LAN address" means a private address on a
+    network the person trusts (home or office). On a cloud VM the private/VPC address
+    may be reachable from elsewhere (1:1 NAT, provider network): prefer Tailscale or an
+    SSH tunnel there. With Tailscale, recommend
     `dashboard.bind = 10.254.254.1 tailscale` (dummy NIC for Hermes, Tailscale for the
     browser).
 12. **Never run `deploy`, `rollback` or `restore`.** Those are the person's decisions, made
