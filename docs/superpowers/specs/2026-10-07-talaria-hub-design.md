@@ -29,8 +29,8 @@ token lives in exactly one place.
 | | hub (`talaria`) | app (`hermes`, `clawvisor`) |
 |---|---|---|
 | Talaria install | `~/.local/share/talaria` (release tag) | same, same tag |
-| Config | `talaria.conf` with `apps = <app>:<user> …`, `check.time`, `talaria_repo`, `telegram_api` | as v0.4, minus bot/timer use |
-| Secrets | `.env`: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_USER_ID` (mode 600) | none for Telegram |
+| Config | `hub.conf` (not `talaria.conf`) with `apps = <app>:<user> …`, `check.time`, `talaria_repo`, `telegram_api`; its presence makes an install a hub | as v0.4, minus bot/timer use |
+| Secrets | `.env`: `TALARIA_TELEGRAM_TOKEN`, `TALARIA_TELEGRAM_USER_ID` (mode 600; existing key names) | none for Telegram |
 | Units | `talaria-telegram.service`, `talaria-check.service/.timer` | app Quadlet only |
 
 The hub's name defaults to `talaria`; `setup --hub NAME` overrides it. An app may not
@@ -61,6 +61,7 @@ no side effects):
 | `self-update TAG` | as the CLI; must stay accepted by every later version |
 | `self-update TAG --dry-run` | renders units, reports whether the Quadlet would change |
 | `hello` | prints protocol version and app name/title |
+| `interrupted` | the interrupted-operation notice, or nothing (the bot sends it at start) |
 
 Never: `setup`, `set-token`, `login-link`, adopt, `bot`, or anything with a shell.
 
@@ -164,7 +165,7 @@ Setup run by the operator from a v0.5 checkout detects an app user with its own
 root paste, in this order, each step idempotent:
 1. stop and disable the app's `talaria-telegram.service` and `talaria-check.timer`;
    remove those unit files (only one bot ever polls);
-2. move `TELEGRAM_BOT_TOKEN` and `TELEGRAM_USER_ID` from the app's env to the hub's env
+2. move `TALARIA_TELEGRAM_TOKEN` and `TALARIA_TELEGRAM_USER_ID` from the app's env to the hub's env
    by piping (`sudo -u app` read → `sudo -u talaria` write, mode 600); never printed,
    never in argv; then remove them from the app's env;
 3. install and start the hub's units.
