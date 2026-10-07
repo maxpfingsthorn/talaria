@@ -47,7 +47,7 @@ def test_03_moves_the_bot_of_a_v04_install_to_a_new_hub(env):
     as_user("systemctl", "--user", "stop", "talaria-telegram.service", user=HUB)  # one poller
     old = WORK / "talaria-v042"
     sh("git", "clone", "-q", env["src"], old)
-    sh("git", "-C", old, "checkout", "-q", "v0.4.2")
+    sh("git", "-C", old, "checkout", "-q", "ca5e749")   # v0.4.2 code (untagged: released with v0.5.0)
     sh("chmod", "-R", "a+rX", old)
     r = sh(old / "bin/talaria", "setup", "--dev", "--user", user, check=False)
     assert r.returncode == 10, r.stdout
