@@ -33,6 +33,7 @@ def test_01_fresh_setup_at_v099(cv_env):
 
 def test_02_update_offer_lists_migrations_and_deploys(cv_env):
     cv_env.conf_add("release_allow = v0.9.9 v0.9.10\n")
+    cv_env.telegram.wait_polling()   # registering the app restarted the bot, which drops its backlog
     cv_env.telegram.inject("/check clawvisor")
     offer = cv_env.telegram.wait_sent("Clawvisor v0.9.10 is ready to deploy")
     assert "055_task_pending_expansion_envelope.sql" in offer

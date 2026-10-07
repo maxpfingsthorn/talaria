@@ -11,6 +11,7 @@ class State:
         self.updates, self.sent, self.next_id = [], [], 1
         self.cursor = 0  # wait_sent only looks at messages after the last match
         self.buttons = []  # reply_markup per sent message, parallel to sent
+        self.polls = 0  # the bot's own long polls (they name allowed_updates), not its startup drain
 
     def inject(self, text, user=4242, chat_type="private"):
         with self.lock:
@@ -28,6 +29,20 @@ class State:
                 "message": {"message_id": 1, "chat": {"id": user, "type": "private"}}}})
             self.next_id += 1
             self.lock.notify_all()
+
+    def wait_polling(self, timeout=60):
+        """Wait for the hub bot's next regular poll. The bot drops what is pending when it
+        starts (stale commands must never run), so a command injected while it is still
+        starting up is lost. Call this after anything that restarts the bot."""
+        with self.lock:
+            start = self.polls
+        end = time.time() + timeout
+        while time.time() < end:
+            with self.lock:
+                if self.polls > start:
+                    return
+            time.sleep(0.2)
+        raise AssertionError("the bot is not polling")
 
     def wait_sent(self, needle, timeout=240):
         end = time.time() + timeout
@@ -67,11 +82,16 @@ def make_server(port=8081):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass    # the bot was stopped or restarted mid long-poll; nothing to answer
 
         def get_updates(self, p):
             off, timeout = p.get("offset"), min(p.get("timeout", 0), 2)
             with st.lock:
+                if "allowed_updates" in p:
+                    st.polls += 1
                 if off == -1:
                     return st.updates[-1:]
                 if off is not None:
