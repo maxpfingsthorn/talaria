@@ -253,3 +253,50 @@ def test_malformed_buttons(tmp_path, data):
 
 def test_done_button(tmp_path):
     assert op.decide_button(make_test_ctx(tmp_path), "done") == ("Already handled", None, None)
+
+
+# ---- self-update and quadlet (Task 6) ----
+
+def test_quadlet_op_replies_with_the_rendered_quadlet(opx):
+    ctx, run = opx
+    from talaria import units
+    assert run("quadlet") == (0, [{"v": 1, "kind": "reply", "text": units.render_quadlet(ctx),
+                                   "buttons": []}])
+
+
+@pytest.mark.parametrize("restart,word", [(True, "yes"), (False, "no")])
+def test_self_update_dry_run(opx, monkeypatch, restart, word):
+    ctx, run = opx
+    monkeypatch.setattr(op.selfupdate, "dry_run", lambda c, t: (c is ctx and t == "v0.6.0") and restart)
+    assert run("self-update", "v0.6.0", "--dry-run") == (0, [{
+        "v": 1, "kind": "reply", "text": f"would restart: {word}", "buttons": [],
+        "restart": restart}])
+
+
+def test_self_update_dry_run_failure(opx, monkeypatch):
+    ctx, run = opx
+
+    def boom(c, t):
+        raise ValueError("Talaria v0.6.0 did not render a Quadlet")
+    monkeypatch.setattr(op.selfupdate, "dry_run", boom)
+    assert run("self-update", "v0.6.0", "--dry-run") == (1, [{
+        "v": 1, "kind": "reply", "text": "dry run failed: Talaria v0.6.0 did not render a Quadlet",
+        "buttons": []}])
+
+
+@pytest.mark.parametrize("rc,text", [
+    (0, "Talaria v0.6.0 installed."), (75, "busy: an operation is running"),
+    (1, "self-update failed (exit 1); details in the journal")])
+def test_self_update(opx, monkeypatch, rc, text):
+    ctx, run = opx
+    monkeypatch.setattr(op.selfupdate, "self_update", lambda c, t: (c is ctx and t == "v0.6.0") and rc)
+    assert run("self-update", "v0.6.0") == (rc, [{"v": 1, "kind": "reply", "text": text,
+                                                  "buttons": []}])
+
+
+@pytest.mark.parametrize("argv", [["self-update"], ["self-update", "main"],
+                                  ["self-update", "v0.6.0", "--dry"], ["self-update", "v1.2"],
+                                  ["quadlet", "x"], ["self-update", "v0.6.0", "--dry-run", "x"]])
+def test_self_update_and_quadlet_are_strict(argv):
+    out = io.StringIO()
+    assert op.main(argv, make=lambda: pytest.fail("no ctx"), out=out) == 2 and out.getvalue() == ""

@@ -10,13 +10,14 @@ import contextlib
 import json
 import sys
 
-from talaria import __version__, cli, rollback, state, status
+from talaria import __version__, cli, rollback, selfupdate, state, status, units
 from talaria.backup import ID_RE
 from talaria.notify import Message
+from talaria.shell import CommandError
 
 PROTOCOL = 1
 OPS = ("status", "backups", "check", "deploy", "reject", "rollback", "restore", "button",
-       "hello", "interrupted")
+       "hello", "interrupted", "self-update", "quadlet")
 STALE = "Out of date — send /status"
 
 
@@ -59,6 +60,10 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("id", type=cli._backup_id)
     r.add_argument("mode", choices=("describe", "confirm"))
     add("button").add_argument("data")
+    s = add("self-update")              # must stay accepted by every later version (§4.2)
+    s.add_argument("tag", type=cli._semver)
+    s.add_argument("--dry-run", action="store_true")
+    add("quadlet")                      # read-only; used by `self-update --dry-run`
     return p
 
 
@@ -98,6 +103,21 @@ def _reply(out, text: str, buttons=()) -> int:
     return 0
 
 
+def _self_update(ctx, args, out) -> int:
+    if args.dry_run:
+        try:
+            restart = selfupdate.dry_run(ctx, args.tag)
+        except (CommandError, ValueError) as e:
+            return _reply(out, f"dry run failed: {e}") or 1
+        emit(out, "reply", text=f"would restart: {'yes' if restart else 'no'}", buttons=[],
+             restart=restart)
+        return 0
+    rc = selfupdate.self_update(ctx, args.tag)
+    texts = {0: f"Talaria {args.tag} installed.", cli.EXIT_BUSY: "busy: an operation is running"}
+    _reply(out, texts.get(rc, f"self-update failed (exit {rc}); details in the journal"))
+    return rc
+
+
 def _run(ctx, args, out) -> int:
     o = args.op
     if o in ("deploy", "reject") and not ctx.app.is_release(args.tag):
@@ -107,6 +127,10 @@ def _run(ctx, args, out) -> int:
         emit(out, "hello", protocol=PROTOCOL, app=ctx.app.name, title=ctx.app.title,
              version=__version__)
         return 0
+    if o == "quadlet":
+        return _reply(out, units.render_quadlet(ctx))
+    if o == "self-update":
+        return _self_update(ctx, args, out)
     if o == "status":
         return _reply(out, status.status_text(ctx))
     if o == "backups":
