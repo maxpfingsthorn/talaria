@@ -10,16 +10,10 @@ from tests.test_setup import args, svc  # noqa: F401  (fixture)
 H = "~H"
 NEW = "OK: no existing Hermes found: fresh install\n"
 PW = f"OK: dashboard password generated in {H}/.config/talaria/hermes.env (user admin)\n"
-PAIR = ("ACTION REQUIRED: in a private chat with your bot, send within 15 minutes:\n"
-        "  /pair CODE2345\n")
-PAIRED = "OK: paired with Ann (@ann)\n"
 PULLED = "OK: Hermes v2026.9.24 pulled and verified\n"
 RUNNING = (f"OK: Hermes is running. Dashboard: http://127.0.0.1:9119 (user admin, "
-           f"password in {H}/.config/talaria/hermes.env)\nDONE\n")
+           f"password in {H}/.config/talaria/hermes.env)\n")
 UNITS = [(["systemctl", "--user", "daemon-reload"], None),
-         (["systemctl", "--user", "enable", "--now", "talaria-check.timer",
-           "talaria-telegram.service"], None),
-         (["systemctl", "--user", "restart", "talaria-telegram.service"], None),
          (["podman", "tag", "sha256:n", "localhost/hermes-agent:current"], None)]
 RESTART = [(["systemctl", "--user", "stop", "hermes.service"], 600),
            (["systemctl", "--user", "reset-failed", "hermes.service"], 600),
@@ -42,11 +36,11 @@ def run(ctx, capsys, **a):
 
 def test_fresh_exact(s, capsys):
     rc, out, cmds = run(s, capsys)
-    assert out == NEW + PW + PAIR + PAIRED + PULLED + RUNNING
+    assert out == NEW + PW + PULLED + RUNNING
     assert cmds == UNITS + RESTART and rc == 0
     assert s.paths.conf_file.read_text() == ("# Talaria settings; see README.\n"
                                              "data_dir = ~/hermes-data\n")
-    assert s.paths.env_file.read_text() == "TALARIA_TELEGRAM_USER_ID=42\n"
+    assert not s.paths.env_file.exists()
     assert (s.paths.conf_dir.stat().st_mode & 0o777) == 0o700
     assert (s.paths.state_dir.stat().st_mode & 0o777) == 0o700
     assert s.conf.data_dir.is_dir()
@@ -64,7 +58,7 @@ def test_existing_conf_is_kept(s, capsys):
 def test_tailscale_available_hint(s, monkeypatch, capsys):
     monkeypatch.setattr(setup, "which", lambda t: f"/usr/bin/{t}")
     rc, out, cmds = run(s, capsys)
-    assert out == (NEW + PW + PAIR + PAIRED +
+    assert out == (NEW + PW +
                    "OK: Tailscale found: optionally set dashboard.bind = tailscale in talaria.conf and run "
                    "setup again to reach the dashboard over your tailnet\n" + PULLED + RUNNING)
 
@@ -107,51 +101,10 @@ def test_tailscale_ip_already_known(s, capsys):
     assert not s.sh.called("tailscale") and "http://100.64.9.9:9119" in out
 
 
-def test_no_token_exact(s, capsys):
-    s.conf.telegram_token = ""
-    rc, out, cmds = run(s, capsys)
-    assert rc == 10 and cmds == []
-    assert out == NEW + PW + (
-        "ACTION REQUIRED: create a Telegram bot: open @BotFather, send /newbot, copy the token. "
-        "Then, in your own terminal (not through an agent), run:\n"
-        f"  sudo -u hermes -H {H}/.local/bin/talaria set-token\n")
-
-
-def test_pair_fail_exact(s, monkeypatch, capsys):
-    monkeypatch.setattr(setup.telegram, "pair",
-                        lambda c, api, code, timeout_s=900, announce=lambda: None: (announce(), None)[1])
-    rc, out, cmds = run(s, capsys)
-    assert rc == 10 and cmds == []
-    assert out == NEW + PW + PAIR + "STOP: no /pair message arrived; run setup again for a new code\n"
-    assert not s.paths.env_file.exists()
-
-
-def test_pair_uses_configured_api(s, monkeypatch, capsys):
-    seen = []
-    monkeypatch.setattr(setup.telegram, "TelegramAPI", lambda base, token: seen.append((base, token)))
-    run(s, capsys)
-    assert seen == [(s.conf.telegram_api, s.conf.telegram_token)]
-
-
-def test_paired_user_without_username(s, monkeypatch, capsys):
-    monkeypatch.setattr(setup.telegram, "pair",
-                        lambda c, api, code, timeout_s=900, announce=lambda: None: {"id": 7})
-    rc, out, cmds = run(s, capsys)
-    assert "OK: paired with  (@-)\n" in out
-
-
-def test_already_paired_skips_pairing(s, monkeypatch, capsys):
-    s.conf.telegram_user_id = 42
-    monkeypatch.setattr(setup.telegram, "pair", lambda *a, **k: pytest.fail("paired again"))
-    rc, out, cmds = run(s, capsys)
-    assert rc == 0 and "/pair" not in out
-
-
 def test_plan_exact(s, capsys):
     rc, out, cmds = run(s, capsys, plan=True)
     assert rc == 0 and cmds == []
-    assert out == NEW + ("PLAN: dashboard password, Telegram token and pairing, install units, "
-                         "start Hermes, verify\n")
+    assert out == NEW + ("PLAN: dashboard password, install units, start Hermes, verify\n")
     assert not s.paths.hermes_env.exists()
 
 
@@ -159,7 +112,7 @@ def test_check_fail_exact(s, monkeypatch, capsys):
     monkeypatch.setattr(setup.service, "post_start_check", lambda c: "hermes.service restarted")
     rc, out, cmds = run(s, capsys)
     assert rc == 1 and cmds == UNITS + RESTART
-    assert out == NEW + PW + PAIR + PAIRED + PULLED + (
+    assert out == NEW + PW + PULLED + (
         "STOP: Hermes did not come up: hermes.service restarted\n")
 
 
@@ -167,7 +120,7 @@ def test_no_release_exact(s, monkeypatch, capsys):
     monkeypatch.setattr(s.app, "published", lambda c, tags: set())
     rc, out, cmds = run(s, capsys)
     assert rc == 1 and cmds == []
-    assert out == NEW + PW + PAIR + PAIRED + "STOP: no Hermes release image found\n"
+    assert out == NEW + PW + "STOP: no Hermes release image found\n"
 
 
 def test_fresh_image_respects_floor_and_tls(s, monkeypatch, capsys):
@@ -205,7 +158,7 @@ def test_fresh_image_transient_fetch_failure_stops_cleanly(s, monkeypatch, capsy
     monkeypatch.setattr(s.app, "fetch", fetch)
     rc, out, cmds = run(s, capsys)
     assert rc == 1
-    assert out == NEW + PW + PAIR + PAIRED + \
+    assert out == NEW + PW + \
         "STOP: release assets of v2026.9.24 are not published yet\n"
 
 
@@ -242,8 +195,7 @@ def test_clawvisor_plan_text_uses_secrets_not_dashboard_password(tmp_path, capsy
     out = capsys.readouterr().out
     assert rc == 0
     assert out == ("OK: no existing Clawvisor found: fresh install\n"
-                   "PLAN: secrets, Telegram token and pairing, install units, start "
-                   "Clawvisor, verify\n")
+                   "PLAN: secrets, install units, start Clawvisor, verify\n")
 
 
 def test_clawvisor_fresh_install_writes_app_into_conf(tmp_path):
@@ -319,7 +271,7 @@ def test_fresh_and_adopt_texts_name_the_app(s, monkeypatch, capsys):
     monkeypatch.setattr(type(s.app), "title", "Demo")
     monkeypatch.setattr(s.app, "published", lambda c, tags: set())
     rc, out, cmds = run(s, capsys)
-    assert rc == 1 and out == NEW.replace("Hermes", "Demo") + PW + PAIR + PAIRED + \
+    assert rc == 1 and out == NEW.replace("Hermes", "Demo") + PW + \
         "STOP: no Demo release image found\n"
 
 
@@ -352,7 +304,6 @@ def test_rerun_with_changed_quadlet_restarts(s, capsys):
 
 
 def test_busy_lock_stops(s, capsys):
-    s.conf.telegram_user_id = 42
     with lock.op_lock(s.paths):
         rc, out, cmds = run(s, capsys)
     assert rc == 1 and out.endswith("STOP: a Talaria operation is running; run setup again in a minute\n")

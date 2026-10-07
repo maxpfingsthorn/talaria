@@ -9,36 +9,69 @@ from tests.test_setup import args, op_env
 
 R = str(setup.REPO)
 INSTALL = "/home/hermes/.local/share/talaria"
-SUDO = ["sudo", "-n", "-u", "hermes", "-H", "env", "-u", "XDG_CONFIG_HOME", "-u",
-        "XDG_DATA_HOME", "-u", "XDG_STATE_HOME", "-u", "XDG_CACHE_HOME", "HOME=/home/hermes"]
+HUBINSTALL = "/home/talaria/.local/share/talaria"
+ENVU = ["env", "-u", "XDG_CONFIG_HOME", "-u", "XDG_DATA_HOME", "-u", "XDG_STATE_HOME", "-u",
+        "XDG_CACHE_HOME"]
+SUDO = ["sudo", "-n", "-u", "hermes", "-H", *ENVU, "HOME=/home/hermes"]
+HSUDO = ["sudo", "-n", "-u", "talaria", "-H", *ENVU, "HOME=/home/talaria"]
 PRE = [(["podman", "--version"], None), (["getenforce"], None)]
 CHECKS = [(["sudo", "-n", "-u", "hermes", "true"], None),
           (["sudo", "-n", "-u", "hermes", "test", "-e", INSTALL], None)]
+HUB_CHECKS = [(["sudo", "-n", "-u", "talaria", "true"], None),
+              (["sudo", "-n", "-u", "talaria", "test", "-e", HUBINSTALL], None)]
 TAG = [(["git", "-C", R, "describe", "--tags", "--exact-match"], None)]
 ORIGIN = [(["git", "-C", R, "remote", "get-url", "origin"], None)]
-CLONE = [(SUDO + ["git", "clone", "-q", "https://github.com/o/talaria", INSTALL], 600)]
-UPDATE = [
-    (SUDO + ["git", "-C", INSTALL, "fetch", "-q", "--tags", "origin"], 600),
-    (SUDO + ["git", "-C", INSTALL, "checkout", "-q", "v0.1.0"], None),
-    (SUDO + ["mkdir", "-p", "/home/hermes/.local/bin"], None),
-    (SUDO + ["ln", "-sfn", f"{INSTALL}/bin/talaria", "/home/hermes/.local/bin/talaria"], None),
-]
+
+
+def install_cmds(sudo, user, install, clone):
+    out = [(sudo + ["git", "clone", "-q", "https://github.com/o/talaria", install], 600)] if clone else []
+    return out + [
+        (sudo + ["git", "-C", install, "fetch", "-q", "--tags", "origin"], 600),
+        (sudo + ["git", "-C", install, "checkout", "-q", "v0.1.0"], None),
+        (sudo + ["mkdir", "-p", f"/home/{user}/.local/bin"], None),
+        (sudo + ["ln", "-sfn", f"{install}/bin/talaria", f"/home/{user}/.local/bin/talaria"], None)]
+
+
+CLONE = install_cmds(SUDO, "hermes", INSTALL, True)[:1]
+UPDATE = install_cmds(SUDO, "hermes", INSTALL, False)
+HUB_CLONE = install_cmds(HSUDO, "talaria", HUBINSTALL, True)[:1]
+HUB_UPDATE = install_cmds(HSUDO, "talaria", HUBINSTALL, False)
+PROBE = [(["sudo", "-n", "-u", "talaria", "sudo", "-n", "-H", "-u", "hermes",
+           "/home/hermes/.local/bin/talaria", "op", "hello"], None)]
 HANDOFF = SUDO + ["XDG_RUNTIME_DIR=/run/user/1001",
                   "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus",
                   "/home/hermes/.local/bin/talaria", "setup", "--as-service", "--app", "hermes"]
-def root_cmd(create):
-    head = ("sudo bash -euo pipefail <<'TALARIA'\n"
-            "id hermes >/dev/null 2>&1 || useradd --create-home --shell /bin/bash hermes\n"
-            "grep -q '^hermes:' /etc/subuid || echo 'WARNING: hermes has no subuid range;"
-            " see README'\n") if create else "sudo bash -euo pipefail <<'TALARIA'\n"
-    return head + ("loginctl enable-linger hermes\n"
+HUB_HANDOFF = HSUDO + ["XDG_RUNTIME_DIR=/run/user/1002",
+                       "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1002/bus",
+                       "/home/talaria/.local/bin/talaria", "setup", "--as-hub", "--register",
+                       "hermes:hermes"]
+INSTALLED = "OK: Talaria v0.1.0 installed for hermes\nOK: Talaria v0.1.0 installed for talaria\n"
+
+
+def acct(user, create):
+    head = (f"id {user} >/dev/null 2>&1 || useradd --create-home --shell /bin/bash {user}\n"
+            f"grep -q '^{user}:' /etc/subuid || echo 'WARNING: {user} has no subuid range;"
+            " see README'\n") if create else ""
+    return head + (f"loginctl enable-linger {user}\n"
                    "tmp=$(mktemp)\n"
-                   "echo 'admin ALL=(hermes) NOPASSWD: ALL' > \"$tmp\"\n"
+                   f"echo 'admin ALL=({user}) NOPASSWD: ALL' > \"$tmp\"\n"
                    "visudo -cf \"$tmp\"\n"
-                   "install -m 440 -o root -g root \"$tmp\" /etc/sudoers.d/talaria-hermes\n"
-                   "rm -f \"$tmp\"\n"
-                   "echo 'Talaria: root step done'\n"
-                   "TALARIA\n")
+                   f"install -m 440 -o root -g root \"$tmp\" /etc/sudoers.d/talaria-{user}\n"
+                   "rm -f \"$tmp\"\n")
+
+
+OPRULE = ("home=$(getent passwd hermes | cut -d: -f6)\n"
+          "test -n \"$home\"\n"
+          "tmp=$(mktemp)\n"
+          "echo \"talaria ALL=(hermes) NOPASSWD: $home/.local/bin/talaria op *\" > \"$tmp\"\n"
+          "visudo -cf \"$tmp\"\n"
+          "install -m 440 -o root -g root \"$tmp\" /etc/sudoers.d/talaria-talaria-hermes\n"
+          "rm -f \"$tmp\"\n")
+
+
+def root_cmd(body):
+    return ("sudo bash -euo pipefail <<'TALARIA'\n" + body
+            + "echo 'Talaria: root step done'\nTALARIA\n")
 
 
 ASK = "ACTION REQUIRED: paste this into your terminal (sudo asks for your password), then run setup again"
@@ -52,32 +85,55 @@ def run_case(monkeypatch, tmp_path, capsys, kw, a):
 
 CASES = {
     "install": (dict(), dict(user="hermes", adopt="hermes-gateway.service"), 0,
-                "OK: Talaria v0.1.0 installed for hermes\n",
-                PRE + CHECKS + TAG + ORIGIN + CLONE + UPDATE,
-                [HANDOFF + ["--adopt", "hermes-gateway.service"]]),
-    "installed": (dict(installed=True), dict(), 0,
-                  "OK: Talaria v0.1.0 installed for hermes\n",
-                  PRE + CHECKS + TAG + ORIGIN + UPDATE, [HANDOFF]),
+                INSTALLED + "DONE\n",
+                PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + CLONE + UPDATE + HUB_UPDATE + PROBE,
+                [HANDOFF + ["--adopt", "hermes-gateway.service"], HUB_HANDOFF]),
+    "installed": (dict(installed=True), dict(), 0, INSTALLED + "DONE\n",
+                  PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + UPDATE + HUB_UPDATE + PROBE,
+                  [HANDOFF, HUB_HANDOFF]),
+    "hubfresh": (dict(installed=True, hub_installed=False), dict(), 0, INSTALLED + "DONE\n",
+                 PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + UPDATE + HUB_CLONE + HUB_UPDATE
+                 + PROBE, [HANDOFF, HUB_HANDOFF]),
     "newuser": (dict(user_exists=False), dict(), 10,
-                ASK + " with --user hermes:\n" + root_cmd(True), PRE, []),
+                ASK + " with --user hermes:\n" + root_cmd(acct("hermes", True) + OPRULE),
+                PRE + HUB_CHECKS, []),
+    "newhost": (dict(user_exists=False, hub_exists=False), dict(), 10,
+                ASK + " with --user hermes:\n"
+                + root_cmd(acct("talaria", True) + acct("hermes", True) + OPRULE), PRE, []),
+    "nohub": (dict(hub_exists=False), dict(user="hermes"), 10,
+              ASK + ":\n" + root_cmd(acct("talaria", True) + OPRULE), PRE + CHECKS, []),
+    "hubnolinger": (dict(hub_linger=False), dict(user="hermes"), 10,
+                    ASK + ":\n" + root_cmd(acct("talaria", False) + OPRULE),
+                    PRE + CHECKS + HUB_CHECKS, []),
+    "hubnosudo": (dict(hub_sudo_ok=False), dict(user="hermes"), 10,
+                  ASK + ":\n" + root_cmd(acct("talaria", False) + OPRULE),
+                  PRE + CHECKS + HUB_CHECKS[:1], []),
     "confirm": (dict(), dict(), 1,
                 "FOUND: account hermes exists but Talaria is not installed for it\n"
                 "STOP: confirm with the person, then re-run with --user hermes\n",
                 PRE + CHECKS, []),
     "sudo": (dict(sudo_ok=False), dict(user="hermes"), 10,
-             ASK + ":\n" + root_cmd(False),
-             PRE + CHECKS[:1], []),
+             ASK + ":\n" + root_cmd(acct("hermes", False) + OPRULE),
+             PRE + CHECKS[:1] + HUB_CHECKS, []),
     "nolinger": (dict(linger=False), dict(user="hermes"), 10,
-                 ASK + ":\n" + root_cmd(False),
-                 PRE + CHECKS, []),
+                 ASK + ":\n" + root_cmd(acct("hermes", False) + OPRULE),
+                 PRE + CHECKS + HUB_CHECKS, []),
+    "norule": (dict(probe_rc=1, probe_err="sudo: a password is required\n"), dict(user="hermes"),
+               10, INSTALLED + ASK + ":\n" + root_cmd(OPRULE),
+               PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + CLONE + UPDATE + HUB_UPDATE + PROBE, []),
     "plan": (dict(), dict(user="hermes", plan=True), 0,
              "PLAN: install Talaria v0.1.0 for hermes from https://github.com/o/talaria\n"
-             "PLAN: then: detect Hermes (fresh or adopt), dashboard password, Telegram bot "
-             "token and pairing, units, start Hermes, verify\n",
-             PRE + CHECKS + TAG + ORIGIN, []),
+             "PLAN: then: detect Hermes (fresh or adopt), dashboard password, units, start "
+             "Hermes, verify\n"
+             "PLAN: then: install the same Talaria for the hub talaria and register hermes with "
+             "it (Telegram bot token and pairing, once per host)\n",
+             PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN, []),
+    "planroot": (dict(hub_exists=False), dict(user="hermes", plan=True), 0,
+                 "PLAN: accounts, linger and sudo rules for talaria and hermes: setup prints a "
+                 "block to run as root\n", PRE + CHECKS, []),
     "notag": (dict(tag=None), dict(user="hermes"), 1,
               "STOP: this checkout is not at a release tag; check out the latest tag "
-              "(or pass --dev)\n", PRE + CHECKS + TAG, []),
+              "(or pass --dev)\n", PRE + CHECKS + HUB_CHECKS + TAG, []),
 }
 
 
@@ -109,7 +165,7 @@ def test_dev_install_exact(monkeypatch, tmp_path, capsys):
     sh, run, calls = op_env(monkeypatch, tmp_path, tag=None)
     sh.on("git", "-C", R, "rev-parse", out="abc123\n")
     assert run(args(user="hermes", dev=True)) == 0
-    assert capsys.readouterr().out == "OK: Talaria abc123 installed for hermes\n"
+    assert capsys.readouterr().out == ("OK: Talaria abc123 installed for hermes\nOK: Talaria abc123 installed for talaria\nDONE\n")
     cmds = list(zip(sh.calls, sh.timeouts))
     assert (["git", "-C", R, "rev-parse", "HEAD"], None) in cmds
     assert (SUDO + ["git", "clone", "-q", R, INSTALL], 600) in cmds

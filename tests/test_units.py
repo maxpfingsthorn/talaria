@@ -44,14 +44,45 @@ def test_timer_time(tmp_path):
     assert "OnCalendar=*-*-* 03:15" in units.render_units(ctx)["talaria-check.timer"]
 
 
-def test_install_reports_quadlet_change(tmp_path):
+def test_install_reports_quadlet_change_and_writes_no_bot_units(tmp_path):
     ctx = make_test_ctx(tmp_path)
     ctx.sh.on("systemctl")
     assert units.install_units(ctx) is True
     assert units.install_units(ctx) is False
     assert ctx.paths.quadlet.exists()
-    assert (ctx.paths.units_dir / "talaria-telegram.service").exists()
+    assert not (ctx.paths.units_dir / "talaria-telegram.service").exists()
+    assert not (ctx.paths.units_dir / "talaria-check.timer").exists()
     assert ctx.sh.called("systemctl", "--user", "daemon-reload")
+
+
+def _hub_ctx(check_time="04:30"):
+    from talaria.hubconf import HubConf
+    return Ctx(paths=Paths(FIXED_HOME), conf=HubConf(check_time=check_time), sh=None,
+               notify=None)
+
+
+def test_hub_units_exact():
+    r = units.render_hub_units(_hub_ctx("03:15"))
+    assert r["talaria-check.service"] == (
+        "[Unit]\nDescription=Talaria: check for new releases\n\n[Service]\nType=oneshot\n"
+        "ExecStart=%h/.local/bin/talaria check --timer\n")
+    assert r["talaria-check.timer"] == (
+        "[Unit]\nDescription=Talaria: daily release check\n\n[Timer]\n"
+        "OnCalendar=*-*-* 03:15\nRandomizedDelaySec=15m\nPersistent=true\n\n[Install]\n"
+        "WantedBy=timers.target\n")
+    assert r["talaria-telegram.service"] == (GOLDEN / "default.talaria-telegram.service").read_text()
+
+
+def test_install_hub_units_reports_changes(tmp_path):
+    from talaria.hubconf import HubConf
+    from tests.fakes import FakeShell
+    ctx = Ctx(paths=Paths(tmp_path), conf=HubConf(), sh=FakeShell().on("systemctl"), notify=None)
+    assert units.install_hub_units(ctx) is True
+    assert units.install_hub_units(ctx) is False
+    assert sorted(p.name for p in ctx.paths.units_dir.iterdir()) == list(units.TALARIA_UNITS)
+    ctx.conf.check_time = "05:00"
+    assert units.install_hub_units(ctx) is True
+    assert ctx.sh.calls == [["systemctl", "--user", "daemon-reload"]] * 3
 
 
 def test_quadlet_runs_the_gateway(tmp_path):

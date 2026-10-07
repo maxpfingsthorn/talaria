@@ -47,9 +47,21 @@ def render_quadlet(ctx) -> str:
         add_hosts=add_hosts, title=ctx.app.title, **ctx.app.quadlet_vars(ctx))
 
 
-def render_units(ctx) -> dict[str, str]:
-    return {name: _tpl(ctx, name).substitute(check_time=ctx.conf.check_time, title=ctx.app.title)
+HUB_TITLE = "new"     # "Talaria: check for new releases": the hub checks every app
+
+
+def _render(ctx, title: str) -> dict[str, str]:
+    return {name: _tpl(ctx, name).substitute(check_time=ctx.conf.check_time, title=title)
             for name in TALARIA_UNITS}
+
+
+def render_units(ctx) -> dict[str, str]:
+    """The units a v0.4 app install has on disk (pinned by the golden tests)."""
+    return _render(ctx, ctx.app.title)
+
+
+def render_hub_units(ctx) -> dict[str, str]:
+    return _render(ctx, HUB_TITLE)
 
 
 def _write(path, text: str) -> bool:
@@ -63,8 +75,15 @@ def _write(path, text: str) -> bool:
 
 
 def install_units(ctx) -> bool:
+    """An app install gets only its Quadlet; the bot and the timer belong to the hub."""
     changed = _write(ctx.paths.quadlet, render_quadlet(ctx))
-    for name, text in render_units(ctx).items():
-        _write(ctx.paths.units_dir / name, text)
+    ctx.sh.run(["systemctl", "--user", "daemon-reload"])
+    return changed
+
+
+def install_hub_units(ctx) -> bool:
+    changed = False
+    for name, text in render_hub_units(ctx).items():
+        changed = _write(ctx.paths.units_dir / name, text) or changed
     ctx.sh.run(["systemctl", "--user", "daemon-reload"])
     return changed

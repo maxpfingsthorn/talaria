@@ -13,16 +13,19 @@ from tests.fakes import FakeShell, make_test_ctx
 
 
 def args(**kw):
-    base = dict(plan=False, user=None, adopt=None, dev=False, app=None, as_service=False)
+    base = dict(plan=False, user=None, adopt=None, dev=False, app=None, as_service=False,
+                hub="talaria", as_hub=False, register=None, import_telegram=False)
     base.update(kw)
     return argparse.Namespace(**base)
 
 
 PW = SimpleNamespace(pw_name="hermes", pw_uid=1001, pw_gid=1001, pw_dir="/home/hermes")
+HUBPW = SimpleNamespace(pw_name="talaria", pw_uid=1002, pw_gid=1002, pw_dir="/home/talaria")
 
 
 def op_env(monkeypatch, tmp_path, *, user_exists=True, sudo_ok=True, linger=True,
-           installed=False, tag="v0.1.0"):
+           installed=False, tag="v0.1.0", hub_exists=True, hub_sudo_ok=True, hub_linger=True,
+           hub_installed=True, probe_rc=0, probe_err=""):
     monkeypatch.setattr(setup, "which", lambda t: f"/usr/bin/{t}")
     sh = FakeShell()
     sh.on("sudo")   # catch-all first: in FakeShell the most recently added rule wins
@@ -30,17 +33,23 @@ def op_env(monkeypatch, tmp_path, *, user_exists=True, sudo_ok=True, linger=True
     sh.on("getenforce", out="Permissive\n")
     sh.on("sudo", "-n", "-u", "hermes", "true", rc=0 if sudo_ok else 1)
     sh.on("sudo", "-n", "-u", "hermes", "test", rc=0 if installed else 1)
+    sh.on("sudo", "-n", "-u", "talaria", "true", rc=0 if hub_sudo_ok else 1)
+    sh.on("sudo", "-n", "-u", "talaria", "test", rc=0 if hub_installed else 1)
+    sh.on("sudo", "-n", "-u", "talaria", "sudo", rc=probe_rc, err=probe_err)
     sh.on("git", "-C", str(setup.REPO), "describe", out=f"{tag}\n", rc=0 if tag else 128)
     sh.on("git", "-C", str(setup.REPO), "remote", out="https://github.com/o/talaria\n")
     ld = tmp_path / "linger"
     ld.mkdir()
     if linger:
         (ld / "hermes").touch()
+    if hub_linger:
+        (ld / "talaria").touch()
+    accounts = {"hermes": PW if user_exists else None, "talaria": HUBPW if hub_exists else None}
 
     def getpwnam(name):
-        if not user_exists:
+        if accounts.get(name) is None:
             raise KeyError(name)
-        return PW
+        return accounts[name]
 
     calls = []
     run = lambda a: setup.operator_phase(sh, a, getpwnam=getpwnam, operator="admin",
@@ -77,6 +86,7 @@ def test_new_user_gets_one_root_block(monkeypatch, tmp_path, capsys):
     assert out.count("ACTION REQUIRED") == 1
     assert "id hermes >/dev/null 2>&1 || useradd --create-home --shell /bin/bash hermes" in out
     assert "admin ALL=(hermes) NOPASSWD: ALL" in out and "loginctl enable-linger hermes" in out
+    assert 'talaria ALL=(hermes) NOPASSWD: $home/.local/bin/talaria op *' in out
 
 
 def test_existing_user_needs_confirmation(monkeypatch, tmp_path, capsys):
@@ -111,6 +121,9 @@ def test_installs_and_hands_over(monkeypatch, tmp_path):
     assert "XDG_RUNTIME_DIR=/run/user/1001" in argv
     assert argv[-6:] == ["setup", "--as-service", "--app", "hermes", "--adopt",
                          "hermes-gateway.service"]
+    assert calls[1][-4:] == ["setup", "--as-hub", "--register", "hermes:hermes"]
+    assert calls[1][:5] == ["sudo", "-n", "-u", "talaria", "-H"]
+    assert "XDG_RUNTIME_DIR=/run/user/1002" in calls[1]
 
 
 def test_plan_changes_nothing(monkeypatch, tmp_path, capsys):
@@ -130,8 +143,7 @@ def test_plan_names_the_app_passed_in(monkeypatch, tmp_path, capsys):
                               linger_dir=tmp_path / "linger")
     assert rc == 0
     out = capsys.readouterr().out
-    assert ("then: detect Clawvisor (fresh or adopt), secrets, Telegram bot token and "
-            "pairing, units, start Clawvisor, verify") in out
+    assert "then: detect Clawvisor (fresh or adopt), secrets, units, start Clawvisor, verify" in out
 
 
 def test_operator_phase_rejects_an_unknown_app(tmp_path, capsys):
@@ -210,6 +222,7 @@ def test_clawvisor_default_account_name_and_plan_text(monkeypatch, tmp_path, cap
     ld = tmp_path / "linger"
     ld.mkdir()
     (ld / "clawvisor").touch()
+    (ld / "talaria").touch()
     rc = setup.operator_phase(sh, args(plan=True), getpwnam=lambda n: PW, operator="admin",
                               linger_dir=ld, app="clawvisor")
     out = capsys.readouterr().out
@@ -228,6 +241,7 @@ def test_clawvisor_handoff_carries_the_app_flag(monkeypatch, tmp_path):
     ld = tmp_path / "linger"
     ld.mkdir()
     (ld / "clawvisor").touch()
+    (ld / "talaria").touch()
     calls = []
     rc = setup.operator_phase(sh, args(), getpwnam=lambda n: PW, operator="admin",
                               call=lambda argv: calls.append(argv) or 0, linger_dir=ld,
@@ -276,23 +290,66 @@ def svc(tmp_path, monkeypatch):
 def test_fresh_install_end_to_end(svc, capsys):
     rc = setup.service_phase(svc, args(as_service=True))
     out = capsys.readouterr().out
-    assert rc == 0 and out.rstrip().endswith("DONE"), out
-    st = state.load(svc.paths)
-    assert st["current"]["tag"] == "v2026.9.24"
-    assert parse_kv(svc.paths.env_file.read_text())["TALARIA_TELEGRAM_USER_ID"] == "42"
+    assert rc == 0 and "DONE" not in out and "/pair" not in out, out
+    assert state.load(svc.paths)["current"]["tag"] == "v2026.9.24"
+    assert not svc.paths.env_file.exists()            # no bot token in an app install
     pw = parse_kv(svc.paths.hermes_env.read_text())["HERMES_DASHBOARD_BASIC_AUTH_PASSWORD"]
     assert len(pw) >= 24 and pw not in out
     assert svc.paths.quadlet.exists()
-    assert ["systemctl", "--user", "enable", "--now", "talaria-check.timer",
-            "talaria-telegram.service"] in svc.sh.calls
-    assert "Ann (@ann)" in out
+    assert not [c for c in svc.sh.calls if "talaria-telegram.service" in c
+                or "talaria-check.timer" in c]
 
 
-def test_missing_token_asks_person(svc, capsys):
-    svc.conf.telegram_token = ""
-    assert setup.service_phase(svc, args(as_service=True)) == 10
-    out = capsys.readouterr().out
-    assert "@BotFather" in out and "set-token" in out
+def test_check_time_in_an_app_conf_is_noted(svc, capsys):
+    svc.paths.conf_dir.mkdir(parents=True)
+    svc.paths.conf_file.write_text("check.time = 03:00\n")
+    assert setup.service_phase(svc, args(as_service=True)) == 0
+    assert ("NOTE: check.time in talaria.conf is not used any more; set it in the hub's "
+            "hub.conf\n") in capsys.readouterr().out
+
+
+def test_operator_phase_refuses_the_hubs_account_for_an_app(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path)
+    assert run(args(user="talaria")) == 1 and sh.calls == []
+    assert capsys.readouterr().out == ("STOP: talaria is the hub's account; the app needs an "
+                                       "account of its own (--user)\n")
+
+
+def test_operator_phase_validates_the_hub_name(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path)
+    assert run(args(user="hermes", hub="a b")) == 1
+    assert capsys.readouterr().out == "STOP: not a valid account name: 'a b'\n"
+
+
+def test_app_phase_failure_skips_the_hub(monkeypatch, tmp_path, capsys):
+    sh, _, _ = op_env(monkeypatch, tmp_path)
+    calls = []
+    rc = setup.operator_phase(sh, args(user="hermes"),
+                              getpwnam=lambda n: {"hermes": PW, "talaria": HUBPW}[n],
+                              operator="admin", linger_dir=tmp_path / "linger",
+                              call=lambda argv: calls.append(argv) or 10)
+    assert rc == 10 and len(calls) == 1 and "DONE" not in capsys.readouterr().out
+
+
+def test_hub_phase_failure_is_returned_without_done(monkeypatch, tmp_path, capsys):
+    sh, _, _ = op_env(monkeypatch, tmp_path)
+    rcs = [0, 10]
+    rc = setup.operator_phase(sh, args(user="hermes"),
+                              getpwnam=lambda n: {"hermes": PW, "talaria": HUBPW}[n],
+                              operator="admin", linger_dir=tmp_path / "linger",
+                              call=lambda argv: rcs.pop(0))
+    assert rc == 10 and "DONE" not in capsys.readouterr().out
+
+
+def test_probe_failure_that_is_not_sudo_stops(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, probe_rc=1,
+                            probe_err="Traceback (most recent call last):\nKeyError: 'x'\n")
+    assert run(args(user="hermes")) == 1 and calls == []
+    assert capsys.readouterr().out.endswith(
+        "STOP: Talaria for hermes does not answer: Traceback (most recent call last):\n"
+        "KeyError: 'x'\n")
+
+
 
 
 def test_rerun_is_idempotent(svc, capsys):
@@ -465,30 +522,63 @@ def test_host_loopback_with_slirp4netns_proceeds(svc, monkeypatch, capsys):
     assert "allow_host_loopback=true" in svc.paths.quadlet.read_text()
 
 
-def _block(create):
-    return setup.root_block("hermes", "admin", create)
+def _full_block():
+    return setup.root_block(setup.account_lines("talaria", "admin", True)
+                            + setup.account_lines("hermes", "admin", False)
+                            + setup.op_rule_lines("talaria", "hermes"))
 
 
-@pytest.mark.parametrize("create", [True, False])
-def test_root_block_is_one_quoted_heredoc_paste(create):
-    b = _block(create)
+def test_root_block_is_one_quoted_heredoc_paste():
+    b = _full_block()
     lines = b.splitlines()
     assert lines[0] == "sudo bash -euo pipefail <<'TALARIA'" and lines[-1] == "TALARIA"
+    assert lines[-2] == "echo 'Talaria: root step done'"
     assert b.count("TALARIA") == 2   # only opener and closer
-    assert ("useradd" in b) is create
     assert "chmod" not in b
 
 
-def test_root_block_validates_sudoers_before_installing():
-    b = _block(False)
-    assert b.index("visudo -cf") < b.index("install -m 440")
-    assert "> /etc/sudoers.d" not in b   # never written in place
+def test_every_sudoers_rule_is_validated_before_it_is_installed():
+    lines = _full_block().splitlines()
+    installs = [i for i, l in enumerate(lines) if l.startswith("install -m 440")]
+    checks = [i for i, l in enumerate(lines) if l.startswith("visudo -cf")]
+    assert len(installs) == len(checks) == 3
+    assert all(c == i - 1 for c, i in zip(checks, installs))
+    assert "> /etc/sudoers.d" not in _full_block()     # never written in place
 
 
-@pytest.mark.parametrize("create", [True, False])
-def test_e2e_extracts_exactly_what_setup_prints(monkeypatch, tmp_path, capsys, create):
+def test_op_rule_lines_exact():
+    assert setup.op_rule_lines("talaria", "hermes") == [
+        "home=$(getent passwd hermes | cut -d: -f6)", 'test -n "$home"', "tmp=$(mktemp)",
+        'echo "talaria ALL=(hermes) NOPASSWD: $home/.local/bin/talaria op *" > "$tmp"',
+        'visudo -cf "$tmp"',
+        'install -m 440 -o root -g root "$tmp" /etc/sudoers.d/talaria-talaria-hermes',
+        'rm -f "$tmp"']
+
+
+def test_op_rule_paste_writes_the_real_home_and_no_glob(tmp_path):
+    """Run the op-rule lines in bash with root-only commands stubbed: the rule must carry
+    the account's home from the passwd database, and `*` must stay a literal."""
+    out = tmp_path / "rule"
+    (tmp_path / "x").touch()          # a glob would expand to this
+    stubs = ("getent() { echo 'hermes:x:1:1::/srv/hermes:/bin/bash'; }\n"
+             "visudo() { :; }\n"
+             f"install() {{ cp \"$7\" {out}; }}\n")
+    import subprocess
+    r = subprocess.run(["bash", "-euo", "pipefail", "-c",
+                        stubs + "\n".join(setup.op_rule_lines("talaria", "hermes"))],
+                       cwd=tmp_path, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert out.read_text() == "talaria ALL=(hermes) NOPASSWD: /srv/hermes/.local/bin/talaria op *\n"
+
+
+@pytest.mark.parametrize("kw,a", [(dict(user_exists=False), dict()),
+                                  (dict(sudo_ok=False), dict(user="hermes")),
+                                  (dict(hub_exists=False), dict(user="hermes"))])
+def test_e2e_extracts_exactly_what_setup_prints(monkeypatch, tmp_path, capsys, kw, a):
     from tests.e2e.conftest import root_block as extract
-    kw = dict(user_exists=False) if create else dict(sudo_ok=False)
     sh, run, _ = op_env(monkeypatch, tmp_path, **kw)
-    run(args() if create else args(user="hermes"))
-    assert extract(capsys.readouterr().out) == _block(create)
+    assert run(args(**a)) == 10
+    out = capsys.readouterr().out
+    block = extract(out)
+    assert block.startswith("sudo bash -euo pipefail <<'TALARIA'\n") and block.endswith("\nTALARIA")
+    assert out.endswith(block + "\n")

@@ -10,9 +10,9 @@ import sys
 from pathlib import Path
 
 from talaria import adopt, apps, images, lock, rehearse, service, state, telegram, units
-from talaria.conf import check_bind, load_conf, write_env_value
+from talaria.conf import check_bind, load_conf, parse_kv, write_env_value
 from talaria.disk import NOT_RENAMABLE, renamable
-from talaria.hubconf import NAME_RE  # noqa: E402  (shared with hub.conf validation)
+from talaria.hubconf import NAME_RE, load_hub_conf, register_app
 from talaria.notify import ApiError, TelegramAPI
 from talaria.state import ensure_dir
 from talaria.tags import pick_candidate, releases
@@ -54,21 +54,78 @@ def selinux_enforcing(sh) -> bool:
         sh.run(["getenforce"], check=False).stdout.strip() == "Enforcing"
 
 
-def root_block(user: str, operator: str, create: bool) -> str:
-    """One command the person pastes whole into their own terminal; sudo asks for the
-    password. The quoted heredoc delimiter keeps their shell from expanding anything."""
+HUB = "talaria"
+HUB_CONF_HEAD = "# Talaria hub settings; see README.\n"
+PASTE = "paste this into your terminal (sudo asks for your password), then run setup again"
+
+
+def _sudoers(rule: str, name: str) -> list[str]:
+    """Validate with visudo before it can break sudo; never written in place."""
+    return ["tmp=$(mktemp)", f"echo {rule} > \"$tmp\"", "visudo -cf \"$tmp\"",
+            f"install -m 440 -o root -g root \"$tmp\" /etc/sudoers.d/{name}", "rm -f \"$tmp\""]
+
+
+def account_lines(user: str, operator: str, create: bool) -> list[str]:
     lines = []
     if create:
         lines += [f"id {user} >/dev/null 2>&1 || useradd --create-home --shell /bin/bash {user}",
                   f"grep -q '^{user}:' /etc/subuid || echo 'WARNING: {user} has no subuid range; see README'"]
-    lines += [f"loginctl enable-linger {user}",
-              "tmp=$(mktemp)",
-              f"echo '{operator} ALL=({user}) NOPASSWD: ALL' > \"$tmp\"",
-              "visudo -cf \"$tmp\"",   # validate before it can break sudo
-              f"install -m 440 -o root -g root \"$tmp\" /etc/sudoers.d/talaria-{user}",
-              "rm -f \"$tmp\"",
-              "echo 'Talaria: root step done'"]
-    return "\n".join(["sudo bash -euo pipefail <<'TALARIA'", *lines, "TALARIA"])
+    return lines + [f"loginctl enable-linger {user}",
+                    *_sudoers(f"'{operator} ALL=({user}) NOPASSWD: ALL'", f"talaria-{user}")]
+
+
+def op_rule_lines(hub: str, user: str) -> list[str]:
+    """The hub may run `talaria op …` as the app and nothing else (spec §4.1). The app's
+    home comes from the passwd database when the block runs."""
+    return [f"home=$(getent passwd {user} | cut -d: -f6)", "test -n \"$home\"",
+            *_sudoers(f"\"{hub} ALL=({user}) NOPASSWD: $home/.local/bin/talaria op *\"",
+                      f"talaria-{hub}-{user}")]
+
+
+def root_block(lines: list[str]) -> str:
+    """One command the person pastes whole into their own terminal; sudo asks for the
+    password. The quoted heredoc delimiter keeps their shell from expanding anything."""
+    return "\n".join(["sudo bash -euo pipefail <<'TALARIA'", *lines,
+                      "echo 'Talaria: root step done'", "TALARIA"])
+
+
+def sudo_as(user: str, home: str) -> list[str]:
+    # sudo may keep the caller's XDG_* dirs (e.g. on CI runners); podman and git must
+    # use the service user's own
+    return ["sudo", "-n", "-u", user, "-H", "env", "-u", "XDG_CONFIG_HOME", "-u",
+            "XDG_DATA_HOME", "-u", "XDG_STATE_HOME", "-u", "XDG_CACHE_HOME", f"HOME={home}"]
+
+
+def _bus(pw) -> list[str]:
+    return [f"XDG_RUNTIME_DIR=/run/user/{pw.pw_uid}",
+            f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{pw.pw_uid}/bus"]
+
+
+def _pw(getpwnam, name):
+    try:
+        return getpwnam(name)
+    except KeyError:
+        return None
+
+
+def _can_sudo(sh, user: str) -> bool:
+    return sh.run(["sudo", "-n", "-u", user, "true"], check=False).returncode == 0
+
+
+def _installed(sh, user: str, home: str) -> bool:
+    return sh.run(["sudo", "-n", "-u", user, "test", "-e", f"{home}/.local/share/talaria"],
+                  check=False).returncode == 0
+
+
+def _install(sh, user: str, home: str, url: str, ref: str, installed: bool) -> None:
+    install, sudo = f"{home}/.local/share/talaria", sudo_as(user, home)
+    if not installed:
+        sh.run(sudo + ["git", "clone", "-q", url, install], timeout=600)
+    sh.run(sudo + ["git", "-C", install, "fetch", "-q", "--tags", "origin"], timeout=600)
+    sh.run(sudo + ["git", "-C", install, "checkout", "-q", ref])
+    sh.run(sudo + ["mkdir", "-p", f"{home}/.local/bin"])
+    sh.run(sudo + ["ln", "-sfn", f"{install}/bin/talaria", f"{home}/.local/bin/talaria"])
+    say("OK", f"Talaria {ref} installed for {user}")
 
 
 def install_url(url: str) -> str | None:
@@ -91,44 +148,56 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
     A = apps.get(app)
     operator = operator or getpass.getuser()
     user = args.user or app
-    for name in (user, operator):
+    hub = getattr(args, "hub", None) or HUB
+    for name in (user, operator, hub):
         if not NAME_RE.match(name):
             say("STOP", f"not a valid account name: {name!r}")
             return 1
+    if user == hub:
+        say("STOP", f"{hub} is the hub's account; the app needs an account of its own (--user)")
+        return 1
     if prerequisites(sh):
         return 10
     if selinux_enforcing(sh):
         say("STOP", "SELinux is enforcing; Talaria v1 does not support that")
         return 1
-    try:
-        pw = getpwnam(user)
-    except KeyError:
+    lingers = lambda name: (Path(linger_dir) / name).exists()
+    pw = _pw(getpwnam, user)
+    app_lines, installed = [], False
+    if pw is None:
         if args.plan:
             say("PLAN", f"create the account {user}: setup prints a block to run as root")
             say("PLAN", f"then run setup again with --user {user} to install Talaria for it")
             return 0
-        say("ACTION REQUIRED", f"paste this into your terminal (sudo asks for your password), "
-            f"then run setup again with --user {user}:\n" + root_block(user, operator, create=True))
+        app_lines = account_lines(user, operator, create=True)
+    else:
+        sudo_ok = _can_sudo(sh, user)
+        installed = sudo_ok and _installed(sh, user, pw.pw_dir)
+        if not args.user and not installed:
+            say("FOUND", f"account {user} exists but Talaria is not installed for it")
+            say("STOP", f"confirm with the person, then re-run with --user {user}")
+            return 1
+        if not sudo_ok or not lingers(user):
+            app_lines = account_lines(user, operator, create=False)
+    hub_pw = _pw(getpwnam, hub)
+    hub_lines, hub_installed = [], False
+    if hub_pw is None:
+        hub_lines = account_lines(hub, operator, create=True)
+    else:
+        hub_ok = _can_sudo(sh, hub)
+        hub_installed = hub_ok and _installed(sh, hub, hub_pw.pw_dir)
+        if not hub_ok or not lingers(hub):
+            hub_lines = account_lines(hub, operator, create=False)
+    if app_lines or hub_lines:
+        if args.plan:
+            say("PLAN", f"accounts, linger and sudo rules for {hub} and {user}: setup prints "
+                        "a block to run as root")
+            return 0
+        again = f" with --user {user}" if pw is None else ""
+        say("ACTION REQUIRED", f"{PASTE}{again}:\n"
+            + root_block(hub_lines + app_lines + op_rule_lines(hub, user)))
         return 10
-    home, install = pw.pw_dir, f"{pw.pw_dir}/.local/share/talaria"
-    # sudo may keep the caller's XDG_* dirs (e.g. on CI runners); podman and git must
-    # use the service user's own
-    sudo = ["sudo", "-n", "-u", user, "-H", "env", "-u", "XDG_CONFIG_HOME", "-u",
-            "XDG_DATA_HOME", "-u", "XDG_STATE_HOME", "-u", "XDG_CACHE_HOME", f"HOME={home}"]
-    sudo_ok = sh.run(["sudo", "-n", "-u", user, "true"], check=False).returncode == 0
-    installed = sudo_ok and sh.run(["sudo", "-n", "-u", user, "test", "-e", install],
-                                   check=False).returncode == 0
-    if not args.user and not installed:
-        say("FOUND", f"account {user} exists but Talaria is not installed for it")
-        say("STOP", f"confirm with the person, then re-run with --user {user}")
-        return 1
-    if not sudo_ok or not (Path(linger_dir) / user).exists():
-        say("ACTION REQUIRED", f"paste this into your terminal (sudo asks for your password), "
-            f"then run setup again:\n"
-            + root_block(user, operator, create=False))
-        return 10
-    tag = sh.run(["git", "-C", str(REPO), "describe", "--tags", "--exact-match"],
-                 check=False)
+    tag = sh.run(["git", "-C", str(REPO), "describe", "--tags", "--exact-match"], check=False)
     if tag.returncode == 0:
         ref = tag.stdout.strip()
     elif args.dev:
@@ -146,21 +215,36 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         return 1
     if args.plan:
         say("PLAN", f"install Talaria {ref} for {user} from {url}")
-        say("PLAN", f"then: detect {A.title} (fresh or adopt), {A.prepare_summary}, Telegram bot "
-                    f"token and pairing, units, start {A.title}, verify")
+        say("PLAN", f"then: detect {A.title} (fresh or adopt), {A.prepare_summary}, units, "
+                    f"start {A.title}, verify")
+        say("PLAN", f"then: install the same Talaria for the hub {hub} and register {app} "
+                    "with it (Telegram bot token and pairing, once per host)")
         return 0
-    if not installed:
-        sh.run(sudo + ["git", "clone", "-q", url, install], timeout=600)
-    sh.run(sudo + ["git", "-C", install, "fetch", "-q", "--tags", "origin"], timeout=600)
-    sh.run(sudo + ["git", "-C", install, "checkout", "-q", ref])
-    sh.run(sudo + ["mkdir", "-p", f"{home}/.local/bin"])
-    sh.run(sudo + ["ln", "-sfn", f"{install}/bin/talaria", f"{home}/.local/bin/talaria"])
-    say("OK", f"Talaria {ref} installed for {user}")
+    home, hub_home = pw.pw_dir, hub_pw.pw_dir
+    _install(sh, user, home, url, ref, installed)
+    _install(sh, hub, hub_home, url, ref, hub_installed)
+    probe = sh.run(["sudo", "-n", "-u", hub, "sudo", "-n", "-H", "-u", user,
+                    f"{home}/.local/bin/talaria", "op", "hello"], check=False)
+    if probe.returncode != 0:
+        if probe.stderr.lstrip().startswith("sudo:"):
+            say("ACTION REQUIRED", f"{PASTE}:\n" + root_block(op_rule_lines(hub, user)))
+            return 10
+        say("STOP", f"Talaria for {user} does not answer: "
+                    f"{(probe.stderr or probe.stdout).strip()[-300:]}")
+        return 1
     rest = (["--app", app] if explicit_app else []) + \
         (["--adopt", args.adopt] if args.adopt else [])
-    return call(sudo + [f"XDG_RUNTIME_DIR=/run/user/{pw.pw_uid}",
-                        f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{pw.pw_uid}/bus",
-                        f"{home}/.local/bin/talaria", "setup", "--as-service", *rest])
+    rc = call(sudo_as(user, home) + _bus(pw)
+              + [f"{home}/.local/bin/talaria", "setup", "--as-service", *rest])
+    if rc != 0:
+        return rc
+    rc = call(sudo_as(hub, hub_home) + _bus(hub_pw)
+              + [f"{hub_home}/.local/bin/talaria", "setup", "--as-hub", "--register",
+                 f"{app}:{user}"])
+    if rc != 0:
+        return rc
+    print("DONE", flush=True)
+    return 0
 
 
 def _fresh_image(ctx, st) -> bool:
@@ -181,7 +265,61 @@ def _fresh_image(ctx, st) -> bool:
     return True
 
 
-def service_phase(ctx, args, api=None) -> int:
+def _telegram_ready(ctx, api=None) -> int | None:
+    """The bot token (stored by the person) and the pairing. None when both are there."""
+    p = ctx.paths
+    if not ctx.conf.telegram_token:
+        say("ACTION REQUIRED",
+            "create a Telegram bot: open @BotFather, send /newbot, copy the token. Then, in "
+            "your own terminal (not through an agent), run:\n"
+            f"  sudo -u {getpass.getuser()} -H {p.bin_link} set-token")
+        return 10
+    if not ctx.conf.telegram_user_id:
+        api = api or telegram.TelegramAPI(ctx.conf.telegram_api, ctx.conf.telegram_token)
+        code = telegram.new_code()
+        who = telegram.pair(ctx, api, code, announce=lambda: say(
+            "ACTION REQUIRED", f"in a private chat with your bot, send within 15 minutes:\n"
+                               f"  /pair {code}"))
+        if not who:
+            say("STOP", "no /pair message arrived; run setup again for a new code")
+            return 10
+        write_env_value(p.env_file, "TALARIA_TELEGRAM_USER_ID", str(who["id"]))
+        ctx.conf.telegram_user_id = who["id"]
+        say("OK", f"paired with {who.get('first_name', '')} (@{who.get('username', '-')})")
+    return None
+
+
+def hub_phase(ctx, args, api=None) -> int:
+    """The hub account's own setup (spec §7.2, §7.3): hub.conf, bot token and pairing,
+    the bot and timer units. `--register app:user` adds an app."""
+    p = ctx.paths
+    ensure_dir(p.conf_dir)
+    ensure_dir(p.state_dir)
+    if not p.hub_conf.exists():
+        p.hub_conf.write_text(HUB_CONF_HEAD)
+    added = False
+    try:
+        if args.register:
+            app, _, user = args.register.partition(":")
+            added = register_app(p, app, user)
+        ctx.conf = load_hub_conf(p)
+    except ValueError as e:
+        say("STOP", str(e))
+        return 1
+    rc = _telegram_ready(ctx, api)
+    if rc is not None:
+        return rc
+    changed = units.install_hub_units(ctx)
+    ctx.sh.run(["systemctl", "--user", "enable", "--now", "talaria-check.timer",
+                "talaria-telegram.service"])
+    if changed or added:      # a new app or new units: the bot must see them
+        ctx.sh.run(["systemctl", "--user", "restart", "talaria-telegram.service"])
+    names = ", ".join(a for a, _ in ctx.conf.apps) or "none yet"
+    say("OK", f"Talaria hub ready; apps: {names}")
+    return 0
+
+
+def service_phase(ctx, args) -> int:
     p = ctx.paths
     requested = getattr(args, "app", None)
     if requested and p.conf_file.exists() and requested != ctx.conf.app:
@@ -197,6 +335,9 @@ def service_phase(ctx, args, api=None) -> int:
     ensure_dir(p.state_dir)
     if not p.conf_file.exists():
         p.conf_file.write_text(ctx.app.initial_conf(ctx))
+    if "check.time" in parse_kv(p.conf_file.read_text()):
+        say("NOTE", "check.time in talaria.conf is not used any more; set it in the hub's "
+                    "hub.conf")
     if "tailscale" in ctx.conf.dashboard_bind.split() and not ctx.conf.tailscale_ip:
         ip = ctx.sh.run(["tailscale", "ip", "-4"]).stdout.split()[0]
         try:
@@ -250,7 +391,7 @@ def service_phase(ctx, args, api=None) -> int:
         else:
             say("OK", f"no existing {ctx.app.title} found: fresh install")
     if args.plan:
-        say("PLAN", f"{ctx.app.prepare_summary}, Telegram token and pairing, install units, "
+        say("PLAN", f"{ctx.app.prepare_summary}, install units, "
                     f"start {ctx.app.title}, verify")
         return 0
 
@@ -261,25 +402,6 @@ def service_phase(ctx, args, api=None) -> int:
         return 1
     for line in prepared:
         say("OK", line)
-
-    if not ctx.conf.telegram_token:
-        say("ACTION REQUIRED",
-            "create a Telegram bot: open @BotFather, send /newbot, copy the token. Then, in "
-            "your own terminal (not through an agent), run:\n"
-            f"  sudo -u {getpass.getuser()} -H {p.bin_link} set-token")
-        return 10
-    if not ctx.conf.telegram_user_id:
-        api = api or telegram.TelegramAPI(ctx.conf.telegram_api, ctx.conf.telegram_token)
-        code = telegram.new_code()
-        who = telegram.pair(ctx, api, code, announce=lambda: say(
-            "ACTION REQUIRED", f"in a private chat with your bot, send within 15 minutes:\n"
-                               f"  /pair {code}"))
-        if not who:
-            say("STOP", "no /pair message arrived; run setup again for a new code")
-            return 10
-        write_env_value(p.env_file, "TALARIA_TELEGRAM_USER_ID", str(who["id"]))
-        ctx.conf.telegram_user_id = who["id"]
-        say("OK", f"paired with {who.get('first_name', '')} (@{who.get('username', '-')})")
 
     if ctx.conf.dashboard_bind.split() == ["loopback"] and which("tailscale"):
         say("OK", "Tailscale found: optionally set dashboard.bind = tailscale in talaria.conf "
@@ -298,9 +420,6 @@ def service_phase(ctx, args, api=None) -> int:
                 elif not _fresh_image(ctx, st):
                     return 1
             changed = units.install_units(ctx)
-            ctx.sh.run(["systemctl", "--user", "enable", "--now", "talaria-check.timer",
-                        "talaria-telegram.service"])
-            ctx.sh.run(["systemctl", "--user", "restart", "talaria-telegram.service"])
             images.retag(ctx, "current", state.load(p)["current"])
             if changed or not service.is_active(ctx):
                 service.stop(ctx)
@@ -315,7 +434,6 @@ def service_phase(ctx, args, api=None) -> int:
         say("STOP", "a Talaria operation is running; run setup again in a minute")
         return 1
     say("OK", ctx.app.ready_text(ctx))
-    print("DONE", flush=True)
     return 0
 
 
@@ -336,12 +454,14 @@ def set_token(ctx) -> int:
 
 
 def setup(args) -> int:
-    from talaria.ctx import make_ctx
+    from talaria.ctx import make_ctx, make_hub_ctx
     from talaria.shell import Shell
     requested = getattr(args, "app", None)
     if requested is not None and requested not in apps.NAMES:
         say("STOP", f"unknown app: {requested!r}; choose one of {', '.join(apps.NAMES)}")
         return 1
+    if getattr(args, "as_hub", False):
+        return hub_phase(make_hub_ctx(), args)
     if args.as_service:
         return service_phase(make_ctx(app=requested), args)
     os.chdir("/")  # commands run as the service user, which may not enter the caller's cwd
