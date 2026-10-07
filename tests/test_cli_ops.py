@@ -177,16 +177,16 @@ def test_restore_describe_prints(run, capsys, monkeypatch):
     assert capsys.readouterr().out == "would restore 20260927T043000Z-manual\n"
 
 
-def test_delegations(run, monkeypatch):
+def test_delegations(run, monkeypatch, capsys):
     ctx, main = run
-    from talaria import selfupdate, setup, telegram
+    from talaria import selfupdate, setup
     seen = []
     monkeypatch.setattr(setup, "setup", lambda a: (seen.append(("setup", a.cmd)), 3)[1])
     monkeypatch.setattr(setup, "set_token", lambda c: (seen.append(("set-token", c is ctx)), 4)[1])
-    monkeypatch.setattr(telegram, "run", lambda c: (seen.append(("bot", c is ctx)), 5)[1])
     monkeypatch.setattr(selfupdate, "self_update", lambda c, t: (seen.append(("su", t)), 6)[1])
-    assert [main("setup"), main("set-token"), main("bot"), main("self-update", "v0.2.0")] == [3, 4, 5, 6]
-    assert seen == [("setup", "setup"), ("set-token", True), ("bot", True), ("su", "v0.2.0")]
+    assert [main("setup"), main("set-token"), main("bot"), main("self-update", "v0.2.0")] == [3, 4, 1, 6]
+    assert seen == [("setup", "setup"), ("set-token", True), ("su", "v0.2.0")]
+    assert "the hub runs it" in capsys.readouterr().err
 
 
 def test_self_update_runs_without_the_lock(run, monkeypatch):

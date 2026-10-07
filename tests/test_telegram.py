@@ -1,10 +1,15 @@
+# tests/test_telegram.py
 import pytest
 
-from talaria import state, telegram
+from talaria import relay, telegram
+from talaria.hubexec import NoAnswer, Unreachable
 from talaria.notify import ApiError
 from tests.fakes import make_test_ctx
+from tests.hubfakes import ex, hello, line, make_hub, reply
 
 OWNER = 42
+ID = "20260927T043000Z-manual"
+NU = "Not understood. Commands: " + telegram.HELP
 
 
 class FakeAPI:
@@ -32,14 +37,45 @@ def upd(uid, text, user=OWNER, chat_type="private"):
                                                    "username": "ann"}}}
 
 
+def cb(data, user=OWNER, chat_type="private", mid=55):
+    return {"update_id": 9, "callback_query": {
+        "id": "q1", "data": data, "from": {"id": user},
+        "message": {"message_id": mid, "chat": {"id": user, "type": chat_type}}}}
+
+
+def status_markup(label):
+    return {"chat_id": OWNER, "message_id": 55,
+            "reply_markup": {"inline_keyboard": [[{"text": label, "callback_data": "done"}]]}}
+
+
+def calls(api, method):
+    return [p for m, p in api.calls if m == method]
+
+
+def spawned(ctx):
+    return [c[5:] for c in ctx.sh.called("systemd-run")]
+
+
+def _bot(tmp_path, names):
+    hub = make_hub(tmp_path, names)
+    hub.ctx.sh.on("systemd-run")
+    for n in names:
+        ex(hub, n).on("hello", lines=[hello(app=n)]).on("interrupted").on(
+            "status", lines=[reply(f"{hub.apps[n].title} v1, running.")])
+    api = FakeAPI(hub.ctx)
+    b = telegram.Bot(hub, api)
+    b.offset = 1
+    return hub.ctx, api, b
+
+
 @pytest.fixture
 def bot(tmp_path):
-    ctx = make_test_ctx(tmp_path, telegram_user_id=OWNER, telegram_token="t")
-    ctx.sh.on("systemd-run").on("systemctl", "--user", "is-active", out="active\n")
-    api = FakeAPI(ctx)
-    b = telegram.Bot(ctx, api)
-    b.offset = 1
-    return ctx, api, b
+    return _bot(tmp_path, ("hermes",))
+
+
+@pytest.fixture
+def bot2(tmp_path):
+    return _bot(tmp_path, ("hermes", "clawvisor"))
 
 
 def test_new_code():
@@ -53,70 +89,273 @@ def test_only_owner_in_private_chat(bot):
     b.handle(upd(2, "/status", chat_type="group"))
     assert api.sent() == []
     b.handle(upd(3, "/status"))
-    assert "Hermes" in api.sent()[0]
+    assert api.sent() == ["Hermes v1, running."]
 
 
-def test_approve_spawns_deploy_with_absolute_path(bot):
+def test_status_lists_every_app(bot2):
+    ctx, api, b = bot2
+    b.handle(upd(1, "/status"))
+    assert api.sent() == ["Hermes v1, running.\n\nClawvisor v1, running."]
+
+
+def test_status_of_one_app(bot2):
+    ctx, api, b = bot2
+    b.handle(upd(1, "/status clawvisor"))
+    assert api.sent() == ["Clawvisor v1, running."]
+
+
+def test_app_name_is_optional_with_one_app(bot):
     ctx, api, b = bot
     b.handle(upd(1, "/approve v2026.9.24"))
-    argv = ctx.sh.called("systemd-run")[0]
-    assert argv[:4] == ["systemd-run", "--user", "--collect", "--quiet"]
-    assert argv[-3:] == [str(ctx.paths.bin_link), "deploy", "v2026.9.24"]
-    assert ctx.paths.bin_link.is_absolute()
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "relay", "hermes", "deploy", "v2026.9.24"]]
+    assert api.sent() == ["Deploying Hermes v2026.9.24. I will report the result."]
 
 
-def test_approve_refuses_the_other_apps_tag_scheme(bot):
+def test_spawn_exact(bot, monkeypatch):
     ctx, api, b = bot
-    b.handle(upd(1, "/approve v0.9.10"))
-    assert ctx.sh.called("systemd-run") == []
-    assert "Not understood" in api.sent()[-1]
+    monkeypatch.setattr(telegram.time, "time", lambda: 1234.9)
+    b.spawn("hermes-deploy", "relay", "hermes", "deploy", "v2026.9.24")
+    assert ctx.sh.calls[-1] == ["systemd-run", "--user", "--collect", "--quiet",
+                                "--unit=talaria-hermes-deploy-1234", str(ctx.paths.bin_link),
+                                "relay", "hermes", "deploy", "v2026.9.24"]
+    assert ctx.sh.timeouts[-1] is None and ctx.paths.bin_link.is_absolute()
+
+
+@pytest.mark.parametrize("text,reply_text,run", [
+    ("/check clawvisor", "Checking Clawvisor for releases.", ["relay", "clawvisor", "check"]),
+    ("/approve clawvisor v0.9.10", "Deploying Clawvisor v0.9.10. I will report the result.",
+     ["relay", "clawvisor", "deploy", "v0.9.10"]),
+    ("/rollback hermes CONFIRM", "Rolling back Hermes. I will report the result.",
+     ["relay", "hermes", "rollback", "confirm"]),
+    (f"/restore hermes {ID} CONFIRM", f"Restoring Hermes {ID}. I will report the result.",
+     ["relay", "hermes", "restore", ID, "confirm"]),
+    ("/check@talaria_bot hermes", "Checking Hermes for releases.", ["relay", "hermes", "check"]),
+])
+def test_long_commands_spawn_the_relay(bot2, text, reply_text, run):
+    ctx, api, b = bot2
+    b.handle(upd(1, text))
+    assert api.sent() == [reply_text]
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), *run]]
+    unit = ctx.sh.called("systemd-run")[0][4]
+    assert unit.startswith(f"--unit=talaria-{run[1]}-{run[2]}-")
+
+
+def test_quick_commands_ask_the_app(bot2):
+    ctx, api, b = bot2
+    ex(b.hub, "hermes").on("reject", lines=[reply("Rejected v2026.9.24. It will not be offered again.")])
+    ex(b.hub, "hermes").on("rollback", lines=[reply("would restore", [[("Roll back", "rb:B:1")]])])
+    ex(b.hub, "clawvisor").on("backups", lines=[reply("No backups yet.")])
+    ex(b.hub, "clawvisor").on("restore", lines=[reply(f"No backup {ID}. /backups lists them.")])
+    for text in ("/reject hermes v2026.9.24", "/rollback hermes", "/backups clawvisor",
+                 f"/restore clawvisor {ID}"):
+        b.handle(upd(1, text))
+    assert ex(b.hub, "hermes").ops()[-2:] == [["reject", "v2026.9.24"], ["rollback", "describe"]]
+    assert ex(b.hub, "clawvisor").ops()[-2:] == [["backups"], ["restore", ID, "describe"]]
+    rb = calls(api, "sendMessage")[1]
+    assert rb["text"] == "would restore"
+    assert rb["reply_markup"] == {"inline_keyboard": [[{"text": "Roll back",
+                                                        "callback_data": "hermes|rb:B:1"}]]}
+    assert spawned(ctx) == []
+
+
+@pytest.mark.parametrize("text,form", [
+    ("/backups", "backups"), ("/check", "check"), ("/approve v2026.9.24", "status"),
+    ("/reject v0.9.10", "status"), ("/rollback", "rollback"), ("/rollback CONFIRM", "rollback"),
+    (f"/restore {ID}", f"restore:{ID}"), (f"/restore {ID} CONFIRM", f"restore:{ID}"),
+])
+def test_which_app(bot2, text, form):
+    ctx, api, b = bot2
+    b.handle(upd(1, text))
+    (params,) = calls(api, "sendMessage")
+    assert params["text"] == "Which app?"
+    assert params["reply_markup"] == {"inline_keyboard": [[
+        {"text": "Hermes", "callback_data": f"hub|w:hermes:{form}"},
+        {"text": "Clawvisor", "callback_data": f"hub|w:clawvisor:{form}"}]]}
+    assert spawned(ctx) == []
+    assert all(o in (["hello"], ["interrupted"]) for n in b.hub.apps for o in ex(b.hub, n).ops())
+
+
+def test_which_app_restore_button_fits():
+    assert len(f"hub|w:clawvisor:restore:20261231T235959Z-pre-v2026.12.31.99-2".encode()) <= 64
+    assert telegram.read_form("/restore", ["20261231T235959Z-pre-v2026.12.31.99-2"]) == \
+        "restore:20261231T235959Z-pre-v2026.12.31.99-2"
+
+
+def test_which_app_button_runs_the_read_form_never_a_confirm(bot2):
+    ctx, api, b = bot2
+    ex(b.hub, "hermes").on("rollback", lines=[reply("would restore", [[("Roll back", "rb:B:1")]])])
+    ex(b.hub, "clawvisor").on("restore", lines=[reply("Restore it?")])
+    b.handle(cb("hub|w:hermes:rollback"))
+    b.handle(cb(f"hub|w:clawvisor:restore:{ID}"))
+    b.handle(cb("hub|w:hermes:check"))
+    assert ex(b.hub, "hermes").ops()[-1] == ["rollback", "describe"]
+    assert ex(b.hub, "clawvisor").ops()[-1] == ["restore", ID, "describe"]
+    assert api.sent() == ["would restore", "Restore it?", "Checking Hermes for releases."]
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "relay", "hermes", "check"]]
+    assert [p["text"] for p in calls(api, "answerCallbackQuery")] == ["Hermes", "Clawvisor", "Hermes"]
+    assert calls(api, "editMessageReplyMarkup") == []
+
+
+@pytest.mark.parametrize("data", ["hub|w:nope:status", "hub|w:hermes:deploy", "hub|w:hermes:restore:../x",
+                                  "hub|w:hermes:status:x", "hub|x", "hub|up:latest"])
+def test_bad_hub_buttons(bot2, data):
+    ctx, api, b = bot2
+    b.handle(cb(data))
+    assert calls(api, "answerCallbackQuery")[0]["text"] == "Unknown button"
+    assert spawned(ctx) == [] and api.sent() == []
+
+
+def test_unknown_app(bot2):
+    ctx, api, b = bot2
+    b.handle(upd(1, "/backups nope"))
+    assert api.sent() == ["Unknown app: nope. Apps: hermes, clawvisor"]
+
+
+def test_no_apps_registered(tmp_path):
+    ctx, api, b = _bot(tmp_path, ())
+    b.handle(upd(1, "/backups"))
+    b.handle(upd(2, "/status"))
+    assert api.sent() == ["No apps registered.", "No apps registered."]
+
+
+@pytest.mark.parametrize("text", [
+    "/help", "/status hermes extra", "/backups hermes x", "/check hermes now", "/reject",
+    "/reject v1", "/approve v0.9.10", "/rollback CONFIRM now", f"/restore {ID} confirm",
+    "/restore", "/update", "/update latest", "/update v1.2", "/approve $(id)",
+])
+def test_not_understood(bot, text):
+    ctx, api, b = bot
+    b.handle(upd(1, text))
+    assert api.sent() == [NU] and spawned(ctx) == []
 
 
 def test_invalid_arguments_never_spawn(bot):
     ctx, api, b = bot
     for text in ["/approve v2026.9.24;rm -rf", "/approve", "/restore ../x CONFIRM",
-                 "/rollback confirm", "/approve $(id)"]:
+                 "/rollback confirm", "/approve $(id)", "/update v1.2.3;id"]:
         b.handle(upd(1, text))
-    assert ctx.sh.called("systemd-run") == []
+    assert spawned(ctx) == []
 
 
-def test_rollback_describe_only_without_confirm(bot, monkeypatch):
+def test_help_text_exact():
+    assert telegram.HELP == ("/status · /check [app] · /approve [app] <tag> · /reject [app] <tag> · "
+                             "/rollback [app] [CONFIRM] · /backups [app] · "
+                             "/restore [app] <id> [CONFIRM] · /update <version>")
+
+
+def test_update_command_spawns_the_offer(bot):
     ctx, api, b = bot
-    monkeypatch.setattr(telegram.rollback, "describe", lambda c: "would restore")
-    b.handle(upd(1, "/rollback"))
-    assert api.sent() == ["would restore"] and ctx.sh.called("systemd-run") == []
-    b.handle(upd(2, "/rollback CONFIRM"))
-    assert ctx.sh.called("systemd-run")[0][-2:] == ["rollback", "--confirm"]
+    b.handle(upd(1, "/update v0.6.0"))
+    assert api.sent() == ["Checking what Talaria v0.6.0 would change. I will send the result."]
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "update", "v0.6.0", "--offer"]]
+    assert ctx.sh.called("systemd-run")[0][4].startswith("--unit=talaria-update-")
 
 
-def test_restore_confirm(bot):
+def test_quick_errors_name_the_app(bot):
     ctx, api, b = bot
-    b.handle(upd(1, "/restore 20260927T043000Z-manual CONFIRM"))
-    assert ctx.sh.called("systemd-run")[0][-3:] == ["restore", "20260927T043000Z-manual",
-                                                    "--confirm"]
+    ex(b.hub, "hermes").on("status", exc=Unreachable("hermes"))
+    b.handle(upd(1, "/status"))
+    ex(b.hub, "hermes").on("backups", exc=NoAnswer("hermes"))
+    b.handle(upd(2, "/backups"))
+    assert api.sent() == [relay.unreachable_text("Hermes"), "Hermes did not answer in time"]
 
 
-def test_reject_in_process(bot):
+def test_versions_differ(bot2):
+    ctx, api, b = bot2
+    b.mismatch = {"clawvisor"}
+    for text in ("/backups clawvisor", "/approve clawvisor v0.9.10", "/status"):
+        b.handle(upd(1, text))
+    assert api.sent() == [relay.VERSIONS, relay.VERSIONS,
+                          "Hermes v1, running.\n\nClawvisor: " + relay.VERSIONS]
+    b.handle(cb("clawvisor|ap:v0.9.10"))
+    assert calls(api, "answerCallbackQuery")[0]["text"] == relay.VERSIONS
+    b.handle(upd(2, "/update v0.6.0"))
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "update", "v0.6.0", "--offer"]]
+    assert ["button", "ap:v0.9.10"] not in ex(b.hub, "clawvisor").ops()
+
+
+def test_dispatch_error_is_replied(bot, monkeypatch):
     ctx, api, b = bot
-    b.handle(upd(1, "/reject v2026.9.24"))
-    assert state.load(ctx.paths)["rejected"] == ["v2026.9.24"]
+    monkeypatch.setattr(telegram.relay, "status_all", lambda h, m: 1 / 0)
+    b.handle(upd(1, "/status"))
+    assert api.sent() == ["Error: division by zero"]
 
 
-def test_command_with_bot_suffix(bot):
+def test_empty_answer_sends_nothing(bot):
     ctx, api, b = bot
-    b.handle(upd(1, "/check@talaria_bot"))
-    assert ctx.sh.called("systemd-run")[0][-1] == "check"
+    ex(b.hub, "hermes").on("backups")            # replied nothing, exit 0
+    b.handle(upd(1, "/backups"))
+    assert api.sent() == []
 
 
-def test_startup_drops_backlog_and_reports_interruption(bot):
-    ctx, api, b = bot
-    st = state.load(ctx.paths)
-    st["op"] = {"op": "deploy", "tag": "v2026.9.24", "started": ctx.now().isoformat()}
-    state.save(ctx.paths, st)
+# ---- startup and polling ----
+
+def test_startup_checks_versions_and_reports_interruptions(bot2):
+    ctx, api, b = bot2
+    ex(b.hub, "hermes").on("interrupted", lines=[reply("Interrupted deploy v2026.9.24 (3m ago).")])
+    ex(b.hub, "clawvisor").on("hello", lines=[hello(protocol=2, app="clawvisor")])
     api.batches = [[upd(10, "/approve v2026.9.24")], []]
     b.startup()
-    assert b.offset == 11 and ctx.sh.called("systemd-run") == []
-    assert "Interrupted" in ctx.notify.sent[-1].text
+    assert b.offset == 11 and spawned(ctx) == []
+    assert b.mismatch == {"clawvisor"}
+    assert ctx.notify.texts() == ["Interrupted deploy v2026.9.24 (3m ago)."]
+    assert ["interrupted"] not in ex(b.hub, "clawvisor").ops()
+
+
+def test_startup_marks_a_failing_hello_as_mismatch(bot):
+    ctx, api, b = bot
+    ex(b.hub, "hermes").on("hello", rc=2)
+    b.startup()
+    assert b.mismatch == {"hermes"}
+
+
+def test_startup_reports_an_unreachable_app(bot):
+    ctx, api, b = bot
+    ex(b.hub, "hermes").on("hello", exc=Unreachable("hermes")).on(
+        "interrupted", exc=Unreachable("hermes"))
+    b.startup()
+    assert b.mismatch == set() and ctx.notify.texts() == [relay.unreachable_text("Hermes")]
+
+
+def test_startup_registers_the_app_neutral_menu_for_the_owner_only(bot):
+    ctx, api, b = bot
+    b.startup()
+    (params,) = calls(api, "setMyCommands")
+    assert params["scope"] == {"type": "chat", "chat_id": OWNER}
+    assert [(c["command"], c["description"]) for c in params["commands"]] == telegram.MENU
+    assert [c for c, _ in telegram.MENU] == ["status", "check", "approve", "reject", "rollback",
+                                             "backups", "restore", "update"]
+    assert all(0 < len(d) <= 256 and "Hermes" not in d for _, d in telegram.MENU)
+
+
+def test_menu_failure_does_not_stop_startup(bot):
+    ctx, api, b = bot
+    real = api.call
+
+    def call(method, **p):
+        if method == "setMyCommands":
+            raise ApiError(400, None)
+        return real(method, **p)
+
+    api.call = call
+    b.startup()          # no exception
+
+
+def test_startup_without_backlog(bot):
+    ctx, api, b = bot
+    api.batches = [[]]
+    b.startup()
+    assert b.offset is None and [c for c in api.calls if c[0] == "getUpdates"] == [
+        ("getUpdates", {"offset": -1, "timeout": 0})]
+    assert ctx.notify.sent == []
+
+
+def test_startup_ack_exact(bot):
+    ctx, api, b = bot
+    api.batches = [[upd(4, "x")], []]
+    b.startup()
+    assert [c for c in api.calls if c[0] == "getUpdates"] == [
+        ("getUpdates", {"offset": -1, "timeout": 0}), ("getUpdates", {"offset": 5, "timeout": 0})]
 
 
 def test_poll_advances_offset(bot):
@@ -125,6 +364,139 @@ def test_poll_advances_offset(bot):
     b.poll_once()
     assert b.offset == 7
 
+
+def test_poll_once_params_exact(bot):
+    ctx, api, b = bot
+    b.offset = 7
+    b.poll_once()
+    assert api.calls[-1] == ("getUpdates", {"offset": 7, "timeout": 25,
+                                            "allowed_updates": ["message", "callback_query"]})
+
+
+def test_reply_exact(bot):
+    ctx, api, b = bot
+    b.reply("x" * 5000)
+    method, params = api.calls[-1]
+    assert method == "sendMessage" and params == {"chat_id": OWNER, "text": "x" * 4096}
+
+
+def test_empty_or_missing_text_is_ignored(bot, capsys):
+    ctx, api, b = bot
+    b.handle(upd(1, "   "))
+    b.handle({"update_id": 2, "message": {"chat": {"type": "private"}, "from": {"id": OWNER}}})
+    b.handle({"update_id": 3})
+    assert api.sent() == []
+    assert capsys.readouterr().err == ("[talaria] ignored update 1\n[talaria] ignored update 2\n"
+                                       "[talaria] ignored update 3\n")
+
+
+# ---- buttons ----
+
+def test_prefixed_button_asks_the_app_and_runs_its_answer(bot2):
+    ctx, api, b = bot2
+    ex(b.hub, "clawvisor").on("button", lines=[line(
+        "button", toast="Deploying", status="✅ Approved — deploying v0.9.10",
+        run=["deploy", "v0.9.10"])])
+    b.handle(cb("clawvisor|ap:v0.9.10"))
+    assert ex(b.hub, "clawvisor").calls[-1] == ("call", ["button", "ap:v0.9.10"], 60)
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "relay", "clawvisor", "deploy", "v0.9.10"]]
+    assert calls(api, "answerCallbackQuery") == [{"callback_query_id": "q1", "text": "Deploying"}]
+    assert calls(api, "editMessageReplyMarkup") == [status_markup("✅ Approved — deploying v0.9.10")]
+    assert api.sent() == []
+
+
+def test_button_without_run_only_answers(bot):
+    ctx, api, b = bot
+    ex(b.hub, "hermes").on("button", lines=[line("button", toast="Rejected",
+                                                 status="❌ Rejected v2026.9.24", run=None)])
+    b.handle(cb("hermes|rj:v2026.9.24"))
+    assert spawned(ctx) == []
+    assert calls(api, "editMessageReplyMarkup") == [status_markup("❌ Rejected v2026.9.24")]
+
+
+@pytest.mark.parametrize("run", [["setup"], ["deploy", 1], [], "deploy", None])
+def test_button_runs_only_long_ops(bot, run):
+    ctx, api, b = bot
+    ex(b.hub, "hermes").on("button", lines=[line("button", toast="x", status=None, run=run)])
+    b.handle(cb("hermes|ap:v2026.9.24"))
+    assert spawned(ctx) == []
+
+
+@pytest.mark.parametrize("data", ["ap:v2026.9.24", "nope|ap:v1", "|ap:v1"])
+def test_unprefixed_or_unknown_app_buttons_are_out_of_date(bot, data):
+    ctx, api, b = bot
+    b.handle(cb(data))
+    assert calls(api, "answerCallbackQuery")[0]["text"] == "Out of date — send /status"
+    assert calls(api, "editMessageReplyMarkup") == [status_markup("⌛ Out of date")]
+    assert ["button"] not in [o[:1] for o in ex(b.hub, "hermes").ops()]
+
+
+def test_app_answer_without_a_button_line(bot):
+    ctx, api, b = bot
+    ex(b.hub, "hermes").on("button", rc=2)
+    b.handle(cb("hermes|zz"))
+    assert calls(api, "answerCallbackQuery")[0]["text"] == "Unknown button"
+
+
+def test_button_for_an_unreachable_app(bot):
+    ctx, api, b = bot
+    ex(b.hub, "hermes").on("button", exc=Unreachable("hermes"))
+    b.handle(cb("hermes|ap:v2026.9.24"))
+    assert calls(api, "answerCallbackQuery")[0]["text"] == relay.unreachable_text("Hermes")
+    assert calls(api, "editMessageReplyMarkup") == []
+
+
+def test_update_button(bot):
+    ctx, api, b = bot
+    b.handle(cb("hub|up:v0.6.0"))
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "self-update", "v0.6.0"]]
+    assert calls(api, "answerCallbackQuery")[0]["text"] == "Updating"
+    assert calls(api, "editMessageReplyMarkup") == [status_markup("⬆️ Updating Talaria to v0.6.0…")]
+
+
+def test_status_button_tap_does_nothing(bot):
+    ctx, api, b = bot
+    b.handle(cb("done"))
+    assert calls(api, "answerCallbackQuery") == [{"callback_query_id": "q1", "text": "Already handled"}]
+    assert calls(api, "editMessageReplyMarkup") == [] and spawned(ctx) == []
+
+
+@pytest.mark.parametrize("update", [cb("hermes|ap:v2026.9.24", user=7),
+                                    cb("hermes|ap:v2026.9.24", chat_type="group")])
+def test_buttons_from_others_are_ignored(bot, update):
+    ctx, api, b = bot
+    b.handle(update)
+    assert spawned(ctx) == [] and api.calls == []
+
+
+@pytest.mark.parametrize("failing", ["answerCallbackQuery", "editMessageReplyMarkup"])
+def test_button_handling_survives_api_errors(bot, failing, capsys):
+    # a late tap makes Telegram answer 400 ("query is too old"); the rest must still happen
+    ctx, api, b = bot
+    ex(b.hub, "hermes").on("button", lines=[line("button", toast="Deploying", status="✅",
+                                                 run=["deploy", "v2026.9.24"])])
+    real = api.call
+
+    def call(method, **p):
+        if method == failing:
+            api.calls.append((method, p))
+            raise ApiError(400, None)
+        return real(method, **p)
+
+    api.call = call
+    b.handle(cb("hermes|ap:v2026.9.24"))
+    assert spawned(ctx)[0][-2:] == ["deploy", "v2026.9.24"]
+    assert [m for m, _ in api.calls if m == "editMessageReplyMarkup"]
+    assert f"[talaria] telegram {failing}: telegram api status 400" in capsys.readouterr().err
+
+
+def test_poll_asks_for_callback_queries(bot):
+    ctx, api, b = bot
+    b.poll_once()
+    assert calls(api, "getUpdates")[-1]["allowed_updates"] == ["message", "callback_query"]
+
+
+# ---- pairing (unchanged) ----
 
 def test_pair_first_correct_sender_wins(tmp_path):
     ctx = make_test_ctx(tmp_path)
@@ -143,168 +515,9 @@ def test_pair_ignores_groups_and_expires(tmp_path):
 def test_pair_code_shown_only_after_backlog_is_dropped(tmp_path):
     ctx = make_test_ctx(tmp_path)
     api = FakeAPI(ctx, [[upd(1, "old")]])
-    # the person answers instantly: the message exists before the next poll
     announce = lambda: api.batches.append([upd(2, "/pair ABCD2345", user=77)])
     who = telegram.pair(ctx, api, "ABCD2345", announce=announce)
     assert who["id"] == 77
-
-
-# ---- exact behaviour (mutation testing) ----
-
-class Stop(Exception):
-    pass
-
-
-def test_run_requires_token_and_user(tmp_path, capsys):
-    ctx = make_test_ctx(tmp_path, telegram_token="t")
-    assert telegram.run(ctx) == 1
-    assert capsys.readouterr().err == "talaria bot: token or user id missing; run talaria setup\n"
-    ctx = make_test_ctx(tmp_path, telegram_user_id=5)
-    assert telegram.run(ctx) == 1
-
-
-def test_run_backs_off_and_resets(tmp_path, monkeypatch, capsys):
-    ctx = make_test_ctx(tmp_path, telegram_user_id=OWNER, telegram_token="t")
-    ctx.sh.on("systemctl", "--user", "is-active", out="active\n")
-    events = [ApiError(0, None)] * 8 + [None, ApiError(502, None), Stop()]
-    made = []
-
-    class LoopAPI:
-        def __init__(self, base, token):
-            made.append((base, token))
-
-        def call(self, method, **p):
-            if method == "setMyCommands" or p.get("offset") == -1 or p.get("timeout") == 0:
-                return []
-            e = events.pop(0)
-            if e:
-                raise e
-            return []
-
-    slept = []
-    monkeypatch.setattr(telegram, "TelegramAPI", LoopAPI)
-    monkeypatch.setattr(telegram.time, "sleep", slept.append)
-    with pytest.raises(Stop):
-        telegram.run(ctx)
-    assert made == [(ctx.conf.telegram_api, "t")]
-    assert slept == [1, 2, 4, 8, 16, 32, 60]      # first failure retries at once
-    assert "[talaria] telegram: telegram api status 0" in capsys.readouterr().err
-
-
-def test_run_startup_once(tmp_path, monkeypatch):
-    ctx = make_test_ctx(tmp_path, telegram_user_id=OWNER, telegram_token="t")
-    starts = []
-    monkeypatch.setattr(telegram.Bot, "startup", lambda self: starts.append(1))
-    polls = [None, None, Stop()]
-
-    def poll(self):
-        p = polls.pop(0)
-        if p:
-            raise p
-
-    monkeypatch.setattr(telegram.Bot, "poll_once", poll)
-    monkeypatch.setattr(telegram, "TelegramAPI", lambda b, t: None)
-    with pytest.raises(Stop):
-        telegram.run(ctx)
-    assert starts == [1]
-
-
-def test_reply_exact(bot):
-    ctx, api, b = bot
-    b.reply("x" * 5000)
-    method, params = api.calls[-1]
-    assert method == "sendMessage" and params == {"chat_id": OWNER, "text": "x" * 4096}
-
-
-def test_spawn_exact(bot, monkeypatch):
-    ctx, api, b = bot
-    monkeypatch.setattr(telegram.time, "time", lambda: 1234.9)
-    b.spawn("deploy", "v2026.9.24")
-    assert ctx.sh.calls[-1] == ["systemd-run", "--user", "--collect", "--quiet",
-                                "--unit=talaria-op-deploy-1234", str(ctx.paths.bin_link),
-                                "deploy", "v2026.9.24"]
-    assert ctx.sh.timeouts[-1] is None
-
-
-@pytest.mark.parametrize("text,reply", [
-    ("/check", "Checking for releases."),
-    ("/approve v2026.9.24", "Deploying v2026.9.24. I will report the result."),
-    ("/rollback CONFIRM", "Rolling back. I will report the result."),
-    ("/restore 20260927T043000Z-manual CONFIRM",
-     "Restoring 20260927T043000Z-manual. I will report the result."),
-    ("/help", "Not understood. Commands: " + telegram.HELP),
-    ("/status extra", "Not understood. Commands: " + telegram.HELP),
-    ("/backups x", "Not understood. Commands: " + telegram.HELP),
-    ("/check now", "Not understood. Commands: " + telegram.HELP),
-    ("/reject", "Not understood. Commands: " + telegram.HELP),
-    ("/reject v1", "Not understood. Commands: " + telegram.HELP),
-    ("/rollback CONFIRM now", "Not understood. Commands: " + telegram.HELP),
-    ("/restore 20260927T043000Z-manual confirm", "Not understood. Commands: " + telegram.HELP),
-    ("/restore", "Not understood. Commands: " + telegram.HELP),
-])
-def test_dispatch_replies_exact(bot, text, reply):
-    ctx, api, b = bot
-    b.handle(upd(1, text))
-    assert api.sent() == [reply]
-
-
-def test_help_text_exact():
-    assert telegram.HELP == ("/status · /check · /approve <tag> · /reject <tag> · "
-                             "/rollback [CONFIRM] · /backups · /restore <id> [CONFIRM]")
-
-
-def test_backups_command(bot):
-    ctx, api, b = bot
-    b.handle(upd(1, "/backups"))
-    assert api.sent() == ["No backups yet."]
-
-
-def test_restore_describe(bot):
-    ctx, api, b = bot
-    b.handle(upd(1, "/restore 20260927T043000Z-manual"))
-    assert api.sent() == ["No backup 20260927T043000Z-manual. /backups lists them."]
-
-
-def test_dispatch_error_is_replied(bot, monkeypatch):
-    ctx, api, b = bot
-    monkeypatch.setattr(telegram.status, "status_text", lambda c: 1 / 0)
-    b.handle(upd(1, "/status"))
-    assert api.sent() == ["Error: division by zero"]
-
-
-def test_empty_or_missing_text_is_ignored(bot, capsys):
-    ctx, api, b = bot
-    b.handle(upd(1, "   "))
-    b.handle({"update_id": 2, "message": {"chat": {"type": "private"}, "from": {"id": OWNER}}})
-    b.handle({"update_id": 3})
-    assert api.sent() == []
-    assert capsys.readouterr().err == ("[talaria] ignored update 1\n[talaria] ignored update 2\n"
-                                       "[talaria] ignored update 3\n")
-
-
-def test_poll_once_params_exact(bot):
-    ctx, api, b = bot
-    b.offset = 7
-    b.poll_once()
-    assert api.calls[-1] == ("getUpdates", {"offset": 7, "timeout": 25,
-                                            "allowed_updates": ["message", "callback_query"]})
-
-
-def test_startup_without_backlog(bot):
-    ctx, api, b = bot
-    api.batches = [[]]
-    b.startup()
-    assert b.offset is None and [c for c in api.calls if c[0] == "getUpdates"] == [
-        ("getUpdates", {"offset": -1, "timeout": 0})]
-    assert ctx.notify.sent == []
-
-
-def test_startup_ack_exact(bot):
-    ctx, api, b = bot
-    api.batches = [[upd(4, "x")], []]
-    b.startup()
-    assert [c for c in api.calls if c[0] == "getUpdates"] == [
-        ("getUpdates", {"offset": -1, "timeout": 0}), ("getUpdates", {"offset": 5, "timeout": 0})]
 
 
 def test_pair_exact_calls(tmp_path):
@@ -349,226 +562,62 @@ def test_new_code_alphabet():
     assert len(codes) > 190 and all(set(c) <= set(telegram.ALPHABET) for c in codes)
 
 
-# ---- v0.2: command menu and buttons ----
+# ---- run ----
 
-def cb(data, user=OWNER, chat_type="private", mid=55):
-    return {"update_id": 9, "callback_query": {
-        "id": "q1", "data": data, "from": {"id": user},
-        "message": {"message_id": mid, "chat": {"id": user, "type": chat_type}}}}
+class Stop(Exception):
+    pass
 
 
-def status_markup(label):
-    return {"chat_id": OWNER, "message_id": 55,
-            "reply_markup": {"inline_keyboard": [[{"text": label, "callback_data": "done"}]]}}
+def test_run_requires_token_and_user(tmp_path, capsys):
+    hub = make_hub(tmp_path)
+    hub.ctx.conf.telegram_user_id = 0
+    assert telegram.run(hub) == 1
+    assert capsys.readouterr().err == "talaria bot: token or user id missing; run talaria setup\n"
+    hub.ctx.conf.telegram_user_id, hub.ctx.conf.telegram_token = 5, ""
+    assert telegram.run(hub) == 1
 
 
-def calls(api, method):
-    return [p for m, p in api.calls if m == method]
+def test_run_backs_off_and_resets(tmp_path, monkeypatch, capsys):
+    hub = make_hub(tmp_path)
+    ex(hub, "hermes").on("hello", lines=[hello()]).on("interrupted")
+    events = [ApiError(0, None)] * 8 + [None, ApiError(502, None), Stop()]
+    made = []
+
+    class LoopAPI:
+        def __init__(self, base, token):
+            made.append((base, token))
+
+        def call(self, method, **p):
+            if method == "setMyCommands" or p.get("offset") == -1 or p.get("timeout") == 0:
+                return []
+            e = events.pop(0)
+            if e:
+                raise e
+            return []
+
+    slept = []
+    monkeypatch.setattr(telegram, "TelegramAPI", LoopAPI)
+    monkeypatch.setattr(telegram.time, "sleep", slept.append)
+    with pytest.raises(Stop):
+        telegram.run(hub)
+    assert made == [(hub.ctx.conf.telegram_api, "t")]
+    assert slept == [1, 2, 4, 8, 16, 32, 60]      # first failure retries at once
+    assert "[talaria] telegram: telegram api status 0" in capsys.readouterr().err
 
 
-def pending(ctx, tag="v2026.9.24"):
-    st = state.load(ctx.paths)
-    st["pending"] = {"tag": tag}
-    state.save(ctx.paths, st)
+def test_run_startup_once(tmp_path, monkeypatch):
+    hub = make_hub(tmp_path)
+    starts = []
+    monkeypatch.setattr(telegram.Bot, "startup", lambda self: starts.append(1))
+    polls = [None, None, Stop()]
 
+    def poll(self):
+        p = polls.pop(0)
+        if p:
+            raise p
 
-def test_menu_descriptions_name_the_app(bot, monkeypatch):
-    ctx, api, b = bot
-    monkeypatch.setattr(type(ctx.app), "title", "Demo")
-    b.startup()
-    (params,) = calls(api, "setMyCommands")
-    descs = {c["command"]: c["description"] for c in params["commands"]}
-    assert descs["status"] == "Demo version, state, pending update"
-    assert descs["check"] == "Look for a new Demo release now"
-
-
-def test_startup_registers_command_menu_for_owner_only(bot):
-    ctx, api, b = bot
-    b.startup()
-    (params,) = calls(api, "setMyCommands")
-    assert params["scope"] == {"type": "chat", "chat_id": OWNER}
-    assert [c["command"] for c in params["commands"]] == [
-        "status", "check", "approve", "reject", "rollback", "backups", "restore"]
-    assert all(0 < len(c["description"]) <= 256 for c in params["commands"])
-
-
-def test_menu_failure_does_not_stop_startup(bot, monkeypatch):
-    ctx, api, b = bot
-    real = api.call
-
-    def call(method, **p):
-        if method == "setMyCommands":
-            raise ApiError(400, None)
-        return real(method, **p)
-
-    api.call = call
-    b.startup()          # no exception
-
-
-def test_poll_asks_for_callback_queries(bot):
-    ctx, api, b = bot
-    b.poll_once()
-    assert calls(api, "getUpdates")[-1]["allowed_updates"] == ["message", "callback_query"]
-
-
-def test_approve_button_deploys_and_removes_buttons(bot):
-    ctx, api, b = bot
-    pending(ctx)
-    b.handle(cb("ap:v2026.9.24"))
-    assert ctx.sh.called("systemd-run")[0][-2:] == ["deploy", "v2026.9.24"]
-    assert calls(api, "answerCallbackQuery") == [{"callback_query_id": "q1", "text": "Deploying"}]
-    assert calls(api, "editMessageReplyMarkup") == [status_markup("✅ Approved — deploying v2026.9.24")]
-    assert api.sent() == []                      # the outcome is shown in place, no extra message
-
-
-def test_stale_approve_button_is_refused(bot):
-    ctx, api, b = bot
-    pending(ctx, "v2026.10.1")
-    b.handle(cb("ap:v2026.9.24"))
-    assert ctx.sh.called("systemd-run") == []
-    assert calls(api, "answerCallbackQuery")[0]["text"] == "Out of date — send /status"
-    assert calls(api, "editMessageReplyMarkup") == [status_markup("⌛ Out of date")]
-
-
-def test_reject_button(bot):
-    ctx, api, b = bot
-    pending(ctx)
-    b.handle(cb("rj:v2026.9.24"))
-    assert state.load(ctx.paths)["rejected"] == ["v2026.9.24"]
-    assert calls(api, "editMessageReplyMarkup") == [status_markup("❌ Rejected v2026.9.24")]
-
-
-def test_rollback_button_must_match_current_target(bot, monkeypatch):
-    ctx, api, b = bot
-    monkeypatch.setattr(telegram.rollback, "needs_resume", lambda c, st: False)
-    monkeypatch.setattr(telegram.rollback, "target", lambda c, st: ("B1", {"tag": "v1"}))
-    now = telegram.rollback.stamp(ctx)
-    b.handle(cb(f"rb:20260927T043000Z-other:{now}"))
-    assert ctx.sh.called("systemd-run") == []
-    monkeypatch.setattr(telegram.rollback, "target",
-                        lambda c, st: ("20260927T043000Z-pre-v2", {"tag": "v1"}))
-    b.handle(cb(f"rb:20260927T043000Z-pre-v2:{now}"))
-    assert ctx.sh.called("systemd-run")[0][-2:] == ["rollback", "--confirm"]
-    assert calls(api, "editMessageReplyMarkup")[-1] == status_markup("↩️ Rolling back…")
-
-
-def test_resume_button(bot, monkeypatch):
-    ctx, api, b = bot
-    monkeypatch.setattr(telegram.rollback, "needs_resume", lambda c, st: True)
-    b.handle(cb("rb:resume"))
-    assert ctx.sh.called("systemd-run")[0][-2:] == ["rollback", "--confirm"]
-    monkeypatch.setattr(telegram.rollback, "needs_resume", lambda c, st: False)
-    monkeypatch.setattr(telegram.rollback, "target", lambda c, st: None)
-    b.handle(cb("rb:resume"))
-    assert len(ctx.sh.called("systemd-run")) == 1
-
-
-def test_restore_button(bot, monkeypatch):
-    ctx, api, b = bot
-    b.handle(cb("rs:20260927T043000Z-manual"))            # no such backup
-    assert ctx.sh.called("systemd-run") == []
-    from talaria import backup
-    bk = backup.create(ctx, "manual", None)
-    b.handle(cb(f"rs:{bk.id}:{telegram.rollback.stamp(ctx)}"))
-    assert ctx.sh.called("systemd-run")[0][-3:] == ["restore", bk.id, "--confirm"]
-    assert calls(api, "editMessageReplyMarkup")[-1] == status_markup(f"↩️ Restoring {bk.id}…")
-
-
-@pytest.mark.parametrize("age, fresh", [(0, True), (60, True), (61, False), (-1, False)])
-def test_rollback_and_restore_buttons_expire(bot, monkeypatch, age, fresh):
-    ctx, api, b = bot
-    from talaria import backup
-    bk = backup.create(ctx, "manual", None)
-    monkeypatch.setattr(telegram.rollback, "needs_resume", lambda c, st: False)
-    monkeypatch.setattr(telegram.rollback, "target", lambda c, st: (bk.id, {"tag": "v1"}))
-    sent = telegram.rollback.stamp(ctx) - age
-    b.handle(cb(f"rb:{bk.id}:{sent}"))
-    b.handle(cb(f"rs:{bk.id}:{sent}"))
-    assert len(ctx.sh.called("systemd-run")) == (2 if fresh else 0)
-    if not fresh:
-        assert calls(api, "editMessageReplyMarkup") == [status_markup("⌛ Out of date")] * 2
-
-
-@pytest.mark.parametrize("data", ["rb:{id}", "rs:{id}", "rb:{id}:x", "rs:{id}:1:2"])
-def test_buttons_without_a_valid_minute_are_stale(bot, monkeypatch, data):
-    ctx, api, b = bot
-    from talaria import backup
-    bk = backup.create(ctx, "manual", None)
-    monkeypatch.setattr(telegram.rollback, "needs_resume", lambda c, st: False)
-    monkeypatch.setattr(telegram.rollback, "target", lambda c, st: (bk.id, {"tag": "v1"}))
-    b.handle(cb(data.format(id=bk.id)))
-    assert ctx.sh.called("systemd-run") == []
-    assert calls(api, "editMessageReplyMarkup") == [status_markup("⌛ Out of date")]
-
-
-@pytest.mark.parametrize("update", [cb("ap:v2026.9.24", user=7), cb("ap:v2026.9.24", chat_type="group")])
-def test_buttons_from_others_are_ignored(bot, update):
-    ctx, api, b = bot
-    pending(ctx)
-    b.handle(update)
-    assert ctx.sh.called("systemd-run") == [] and api.calls == []
-
-
-@pytest.mark.parametrize("data", ["xx:1", "ap:latest;rm", "rs:../x", "rb:", "", None])
-def test_malformed_buttons(bot, data):
-    ctx, api, b = bot
-    b.handle(cb(data))
-    assert ctx.sh.called("systemd-run") == []
-    assert calls(api, "answerCallbackQuery")[0]["text"] == "Unknown button"
-
-
-def test_rollback_describe_carries_button(bot, monkeypatch):
-    ctx, api, b = bot
-    monkeypatch.setattr(telegram.rollback, "describe", lambda c: "would restore")
-    monkeypatch.setattr(telegram.rollback, "describe_buttons", lambda c: [[("Roll back", "rb:B")]])
-    b.handle(upd(1, "/rollback"))
-    (params,) = calls(api, "sendMessage")
-    assert params["text"] == "would restore"
-    assert params["reply_markup"] == {"inline_keyboard": [[{"text": "Roll back", "callback_data": "rb:B"}]]}
-
-
-def test_restore_describe_carries_button(bot, monkeypatch):
-    ctx, api, b = bot
-    monkeypatch.setattr(telegram.rollback, "describe_restore_buttons",
-                        lambda c, i: [[("Restore", f"rs:{i}")]])
-    b.handle(upd(1, "/restore 20260927T043000Z-manual"))
-    (params,) = calls(api, "sendMessage")
-    assert params["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "rs:20260927T043000Z-manual"
-
-
-@pytest.mark.parametrize("failing", ["answerCallbackQuery", "editMessageReplyMarkup"])
-def test_button_handling_survives_api_errors(bot, failing, capsys):
-    # a late tap makes Telegram answer 400 ("query is too old"); the rest must still happen
-    ctx, api, b = bot
-    pending(ctx)
-    real = api.call
-
-    def call(method, **p):
-        if method == failing:
-            api.calls.append((method, p))
-            raise ApiError(400, None)
-        return real(method, **p)
-
-    api.call = call
-    b.handle(cb("ap:v2026.9.24"))
-    assert ctx.sh.called("systemd-run")[0][-2:] == ["deploy", "v2026.9.24"]
-    assert [m for m, _ in api.calls if m == "editMessageReplyMarkup"]
-    assert f"[talaria] telegram {failing}: telegram api status 400" in capsys.readouterr().err
-
-
-
-def test_status_button_tap_does_nothing(bot):
-    ctx, api, b = bot
-    b.handle(cb("done"))
-    assert calls(api, "answerCallbackQuery") == [{"callback_query_id": "q1", "text": "Already handled"}]
-    assert calls(api, "editMessageReplyMarkup") == [] and ctx.sh.called("systemd-run") == []
-
-
-def test_reject_while_busy_keeps_the_buttons(bot):
-    ctx, api, b = bot
-    pending(ctx)
-    from talaria import lock
-    with lock.op_lock(ctx.paths):
-        b.handle(cb("rj:v2026.9.24"))
-    assert calls(api, "answerCallbackQuery")[0]["text"] == "Busy, try again in a minute"
-    assert calls(api, "editMessageReplyMarkup") == []
+    monkeypatch.setattr(telegram.Bot, "poll_once", poll)
+    monkeypatch.setattr(telegram, "TelegramAPI", lambda b, t: None)
+    with pytest.raises(Stop):
+        telegram.run(hub)
+    assert starts == [1]

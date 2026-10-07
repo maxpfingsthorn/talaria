@@ -180,8 +180,9 @@ def main(argv: list[str] | None = None, make=make_ctx) -> int:
         from talaria import setup
         return setup.set_token(ctx)
     if args.cmd == "bot":
-        from talaria import telegram
-        return telegram.run(ctx)
+        print("talaria bot: this account has no bot of its own; the hub runs it",
+              file=sys.stderr)
+        return 1
     if args.cmd == "self-update":     # not under the lock: it runs `setup`, which takes it
         from talaria import selfupdate
         return selfupdate.self_update(ctx, args.tag)
