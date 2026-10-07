@@ -721,3 +721,21 @@ def test_prepare_refuses_an_existing_empty_vault_key(tmp_path):
     (ctx.conf.data_dir / "vault.key").touch()
     with pytest.raises(ValueError, match="exists but is empty"):
         ctx.app.prepare(ctx)
+
+
+def test_published_is_exactly_the_given_tags(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    assert ctx.app.published(ctx, ["v0.9.10", "v0.9.9"]) == {"v0.9.10", "v0.9.9"}
+    assert ctx.app.published(ctx, []) == set()
+
+
+def test_pending_extra_carries_the_migration_count_after(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    assert ctx.app.pending_extra({"after": 7, "before": 5}) == {"migrations_after": 7}
+
+
+def test_data_version_is_the_latest_migration_or_none(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    make_db(tmp_path / "clawvisor.db", ["001_a.sql", "002_b.sql"])
+    assert ctx.app.data_version(tmp_path) == "002_b.sql"
+    assert ctx.app.data_version(tmp_path / "nowhere") is None
