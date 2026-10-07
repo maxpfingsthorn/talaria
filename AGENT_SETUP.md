@@ -19,7 +19,9 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
    `FOUND: account … exists`, ask whether that account should be used.
 5. `MISSING: <tool>`: work out the install command for this distribution (the hint line
    names the packages for Debian/Ubuntu, Fedora/RHEL and Arch). Ask before running it.
-6. `ACTION REQUIRED`: relay it in plain words. **Never ask for secrets in the chat.**
+6. `ACTION REQUIRED`: relay it in plain words. When it prints a `sudo bash … <<'TALARIA'`
+   command, show the whole command to the person to paste into their own terminal.
+   **Never run it yourself** — it needs the person's sudo password. **Never ask for secrets in the chat.**
    The person runs `set-token` in their own terminal, against this install's own bot
    (Clawvisor's install needs its own, second bot — never reuse Hermes's token).
    Show the pairing code; the person sends it to the bot.

@@ -43,8 +43,8 @@ bin/talaria setup --plan --user hermes   # what would happen
 bin/talaria setup --user hermes          # run again until it prints DONE
 ```
 
-`--user` names the service account; setup creates it (through a block you run as root)
-if it does not exist. Clone over https as shown: setup installs Talaria for the service
+`--user` names the service account; setup creates it if it does not exist, through one
+command you paste into your own terminal (sudo asks for your password). Clone over https as shown: setup installs Talaria for the service
 user from your checkout's origin, and that user has no SSH key.
 
 `--app hermes|clawvisor` picks which app to manage (default `hermes`; the account
@@ -58,7 +58,7 @@ can do:
 ```
 MISSING: podman >= 4.9 (found 4.3.1)
   hint: Debian/Ubuntu: apt install podman · Fedora/RHEL: dnf install podman · Arch: pacman -S podman
-ACTION REQUIRED: run this block as root, then run setup again with --user hermes: …
+ACTION REQUIRED: paste this into your terminal (sudo asks for your password), then run setup again with --user hermes: …
 ACTION REQUIRED: in a private chat with your bot, send within 15 minutes:
   /pair K7M2QX9P
 FOUND: Hermes unit hermes-gateway.service (container hermes-gateway)
