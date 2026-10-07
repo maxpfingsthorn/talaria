@@ -12,15 +12,17 @@ def test_self_update_checks_out_and_runs_the_new_setup(tmp_path):
     ctx.sh.on("git").on(str(ctx.paths.bin_link))
     assert selfupdate.self_update(ctx, "v0.2.0") == 0
     d = str(ctx.paths.install_dir)
-    assert ctx.sh.calls == [["git", "-C", d, "fetch", "-q", "--tags", "origin"],
+    assert ctx.sh.calls == [["git", "-C", d, "rev-parse", "HEAD"],
+                            ["git", "-C", d, "fetch", "-q", "--tags", "origin"],
                             ["git", "-C", d, "checkout", "-q", "v0.2.0"],
-                            [str(ctx.paths.bin_link), "setup", "--as-service"]]
+                            [str(ctx.paths.bin_link), "setup", "--as-service", "--lock-held"]]
     assert not ctx.sh.called("systemctl")       # an app install has no bot to restart
 
 
 def test_self_update_unknown_tag(tmp_path, capsys):
     ctx = make_test_ctx(tmp_path)
     ctx.sh.on("git", "-C", str(ctx.paths.install_dir), "fetch")
+    ctx.sh.on("git", "-C", str(ctx.paths.install_dir), "rev-parse")
     ctx.sh.on("git", "-C", str(ctx.paths.install_dir), "checkout", rc=1, err="no such ref")
     assert selfupdate.self_update(ctx, "v9.9.9") == 1
     assert "no such ref" in capsys.readouterr().err
@@ -31,7 +33,7 @@ def test_self_update_exact(tmp_path, capsys):
     ctx.sh.on("git").on(str(ctx.paths.bin_link), out="OK: x\n")
     assert selfupdate.self_update(ctx, "v0.2.0") == 0
     assert capsys.readouterr().out == "OK: x\nTalaria v0.2.0 installed.\n"
-    assert ctx.sh.timeouts == [600, None, 1800]
+    assert ctx.sh.timeouts == [None, 600, None, 1800]
 
 
 def test_self_update_setup_failure_is_reported(tmp_path, capsys):
@@ -64,10 +66,12 @@ def quadlet_reply(text):
 
 
 @pytest.fixture
-def dry(tmp_path):
+def dry(tmp_path, monkeypatch):
     ctx = make_test_ctx(tmp_path)
-    wt = ctx.paths.state_dir / "dry-run"
+    wt = ctx.paths.state_dir / "dry-run-fixed"
     ctx.sh.on("git")
+    monkeypatch.setattr(selfupdate.tempfile, "mkdtemp",
+                        lambda prefix, dir: (wt.mkdir(parents=True, exist_ok=True), str(wt))[1])
     ctx.paths.quadlet.parent.mkdir(parents=True)
     ctx.paths.quadlet.write_text("OLD\n")
     return ctx, wt
@@ -80,7 +84,6 @@ def test_dry_run_commands_exact(dry):
     d = str(ctx.paths.install_dir)
     assert list(zip(ctx.sh.calls, ctx.sh.timeouts)) == [
         (["git", "-C", d, "fetch", "-q", "--tags", "origin"], 600),
-        (["git", "-C", d, "worktree", "remove", "--force", str(wt)], None),
         (["git", "-C", d, "worktree", "prune"], None),
         (["git", "-C", d, "worktree", "add", "-q", "--detach", str(wt), "v0.6.0"], 120),
         ([str(wt / "bin/talaria"), "op", "quadlet"], 120),

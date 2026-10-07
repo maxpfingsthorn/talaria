@@ -14,6 +14,7 @@ from talaria import __version__, cli, rollback, selfupdate, state, status, units
 from talaria.backup import ID_RE
 from talaria.notify import Message
 from talaria.shell import CommandError
+from talaria.tags import semver_newer
 
 PROTOCOL = 1
 OPS = ("status", "backups", "check", "deploy", "reject", "rollback", "restore", "button",
@@ -22,8 +23,13 @@ STALE = "Out of date — send /status"
 
 
 def emit(out, kind: str, **fields) -> None:
-    out.write(json.dumps({"v": 1, "kind": kind, **fields}) + "\n")
-    out.flush()
+    """One JSON line. If nobody reads the pipe any more (the hub's relay died), the
+    operation still finishes; the journal has the details."""
+    try:
+        out.write(json.dumps({"v": 1, "kind": kind, **fields}) + "\n")
+        out.flush()
+    except OSError as e:          # BrokenPipeError is one
+        print(f"[talaria] output closed ({e}); carrying on", file=sys.stderr)
 
 
 def _rows(buttons) -> list:
@@ -103,7 +109,14 @@ def _reply(out, text: str, buttons=()) -> int:
     return 0
 
 
+FIRST_HUB_RELEASE = "v0.5.0"          # the first release that speaks this protocol
+
+
 def _self_update(ctx, args, out) -> int:
+    if semver_newer(FIRST_HUB_RELEASE, args.tag):
+        _reply(out, f"refused: {args.tag} is older than {FIRST_HUB_RELEASE}, the first hub "
+                    "release; it has no hub door")
+        return 2
     if args.dry_run:
         try:
             restart = selfupdate.dry_run(ctx, args.tag)

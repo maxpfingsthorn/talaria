@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import getpass
 import json
+import sys
+import traceback
 
 from talaria import __version__, hubupdate, relay
 from talaria.notify import Message
@@ -24,11 +26,15 @@ def load_state(paths) -> dict:
 
 def check(hub, timer: bool) -> int:
     for name, e in hub.apps.items():
-        err = relay.hello(e)
-        if err:
-            hub.ctx.notify.send(Message(f"{e.title}: {err}" if err == relay.VERSIONS else err))
-            continue
-        relay.relay(hub, name, ["check", "--timer"] if timer else ["check"])
+        try:
+            err = relay.hello(e)
+            if err:
+                hub.ctx.notify.send(Message(f"{e.title}: {err}" if err == relay.VERSIONS else err))
+                continue
+            relay.relay(hub, name, ["check", "--timer"] if timer else ["check"])
+        except Exception as x:    # one app must not stop the others or the release check
+            traceback.print_exc(file=sys.stderr)
+            hub.ctx.notify.send(Message(f"{e.title}: the check failed unexpectedly ({x})"))
     if hub.transitional and timer:
         (app,) = hub.apps
         hub.ctx.notify.send(Message(TRANSITIONAL.format(app=app, user=getpass.getuser())))

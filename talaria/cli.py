@@ -48,6 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--as-service", action="store_true", help=argparse.SUPPRESS)
     s.add_argument("--hub", default="talaria", help="the hub's account (default talaria)")
     s.add_argument("--as-hub", action="store_true", help=argparse.SUPPRESS)
+    s.add_argument("--lock-held", action="store_true", help=argparse.SUPPRESS)
+    s.add_argument("--no-restart", action="store_true", help=argparse.SUPPRESS)
     s.add_argument("--register", metavar="APP:USER", help=argparse.SUPPRESS)
     s.add_argument("--import-telegram", action="store_true", help=argparse.SUPPRESS)
     sub.add_parser("set-token")

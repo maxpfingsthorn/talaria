@@ -11,7 +11,7 @@ def h2(tmp_path):
     events = []
     h = make_hub(tmp_path, ("hermes", "clawvisor"), log=events)
     sh = h.ctx.sh
-    sh.on("git", fn=lambda argv, input: (events.append(("git", argv[3])), Result(0))[1])
+    sh.on("git", fn=lambda argv, input: (events.append(("git", argv[3])), Result(0, "abc123\n"))[1])
     sh.on(str(h.ctx.paths.bin_link), fn=lambda argv, input: (events.append(("setup",)),
                                                              Result(0, "OK: hub units\n"))[1])
     sh.on("systemctl", fn=lambda argv, input: (events.append(("restart",)), Result(0))[1])
@@ -23,14 +23,15 @@ def h2(tmp_path):
 
 def test_hub_first_then_each_app_then_the_bot(h2, capsys):
     assert hubupdate.self_update(h2, "v0.6.0") == 0
-    assert h2.events == [("git", "fetch"), ("git", "checkout"), ("setup",),
+    assert h2.events == [("git", "rev-parse"), ("git", "fetch"), ("git", "checkout"), ("setup",),
                          ("hermes", "stream", ("self-update", "v0.6.0")),
                          ("clawvisor", "stream", ("self-update", "v0.6.0")), ("restart",)]
     d = str(h2.ctx.paths.install_dir)
     assert list(zip(h2.ctx.sh.calls, h2.ctx.sh.timeouts)) == [
+        (["git", "-C", d, "rev-parse", "HEAD"], None),
         (["git", "-C", d, "fetch", "-q", "--tags", "origin"], 600),
         (["git", "-C", d, "checkout", "-q", "v0.6.0"], None),
-        ([str(h2.ctx.paths.bin_link), "setup", "--as-hub"], 600),
+        ([str(h2.ctx.paths.bin_link), "setup", "--as-hub", "--no-restart"], 600),
         (["systemctl", "--user", "restart", "talaria-telegram.service"], None)]
     assert h2.ctx.notify.texts() == ["Talaria v0.6.0 installed: Hermes ✓ · Clawvisor ✓"]
     assert capsys.readouterr().out == "OK: hub units\n"
@@ -66,8 +67,9 @@ def test_hub_checkout_failure_changes_nothing(h2, capsys):
 def test_hub_setup_failure_stops_before_the_apps(h2):
     h2.ctx.sh.on(str(h2.ctx.paths.bin_link), rc=1, out="STOP: x\n")
     assert hubupdate.self_update(h2, "v0.6.0") == 1
-    assert h2.ctx.notify.texts() == ["Talaria v0.6.0: the hub's setup failed (exit 1); apps were "
-                                     "not updated. Details in the journal."]
+    assert h2.ctx.notify.texts() == ["Talaria v0.6.0: the hub's setup failed (exit 1); the "
+                                     "previous version was restored and the apps were not "
+                                     "updated. Details in the journal."]
     assert not any(e[0] in ("hermes", "clawvisor", "restart") for e in h2.events)
 
 

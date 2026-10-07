@@ -6,13 +6,14 @@ import sys
 import time
 from datetime import timedelta
 
-from talaria import apps, hubexec, relay
+from talaria import __version__, apps, hubexec, relay
 from talaria.backup import ID_RE
 from talaria.notify import ApiError, Message, TelegramAPI, keyboard
 from talaria.op import STALE
-from talaria.tags import SEMVER, TAG_ARG
+from talaria.tags import SEMVER, TAG_ARG, semver_newer
 
 ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+NOT_NEWER = "Talaria {tag} is not newer than the installed v{cur}"
 HELP = ("/status · /check [app] · /approve [app] <tag> · /reject [app] <tag> · "
         "/rollback [app] [CONFIRM] · /backups [app] · /restore [app] <id> [CONFIRM] · "
         "/update <version>")
@@ -106,6 +107,8 @@ class Bot:
             return relay.status_all(self.hub, self.mismatch)
         if cmd == "/update":
             if len(args) == 1 and SEMVER.match(args[0]):
+                if not semver_newer(args[0], f"v{__version__}"):
+                    return NOT_NEWER.format(tag=args[0], cur=__version__)
                 self.spawn("update", "update", args[0], "--offer")
                 return f"Checking what Talaria {args[0]} would change. I will send the result."
             return nu
@@ -157,6 +160,8 @@ class Bot:
     def hub_button(self, rest: str) -> tuple[str, str | None]:
         kind, _, arg = rest.partition(":")
         if kind == "up" and SEMVER.match(arg):
+            if not semver_newer(arg, f"v{__version__}"):
+                return NOT_NEWER.format(tag=arg, cur=__version__), None
             self.spawn("update", "self-update", arg)
             return "Updating", f"⬆️ Updating Talaria to {arg}…"
         if kind == "w":

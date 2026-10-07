@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import getpass
 import os
 import pwd
@@ -15,7 +16,7 @@ from talaria.disk import NOT_RENAMABLE, renamable
 from talaria.hubconf import NAME_RE, load_hub_conf, register_app
 from talaria.notify import ApiError, TelegramAPI
 from talaria.state import ensure_dir
-from talaria.tags import pick_candidate, releases
+from talaria.tags import SEMVER, pick_candidate, releases, semver_newer
 
 REPO = Path(__file__).resolve().parent.parent
 TOKEN_RE = re.compile(r"^\d{3,}:[A-Za-z0-9_-]{30,}$")
@@ -61,6 +62,8 @@ PASTE = "paste this into your terminal (sudo asks for your password), then run s
 
 def _sudoers(rule: str, name: str) -> list[str]:
     """Validate with visudo before it can break sudo; never written in place."""
+    # sudo's #includedir ignores file names containing a dot
+    name = name.replace(".", "_")
     return ["tmp=$(mktemp)", f"echo {rule} > \"$tmp\"", "visudo -cf \"$tmp\"",
             f"install -m 440 -o root -g root \"$tmp\" /etc/sudoers.d/{name}", "rm -f \"$tmp\""]
 
@@ -117,6 +120,14 @@ def _installed(sh, user: str, home: str) -> bool:
                   check=False).returncode == 0
 
 
+def _older_than_installed(sh, user: str, home: str, ref: str) -> str | None:
+    """The tag `user`'s install is at, if `ref` would move it backwards."""
+    install = f"{home}/.local/share/talaria"
+    cur = sh.run(sudo_as(user, home) + ["git", "-C", install, "describe", "--tags",
+                                        "--exact-match"], check=False).stdout.strip()
+    return cur if SEMVER.match(cur) and semver_newer(cur, ref) else None
+
+
 def _install(sh, user: str, home: str, url: str, ref: str, installed: bool) -> None:
     install, sudo = f"{home}/.local/share/talaria", sudo_as(user, home)
     if not installed:
@@ -170,8 +181,15 @@ def _migrate(sh, user: str, pw, hub: str, hub_pw, found, move) -> int:
     has_units, has_token = found
     home, s = pw.pw_dir, sudo_as(user, pw.pw_dir)
     if has_units:
-        sh.run(s + _bus(pw) + ["systemctl", "--user", "disable", "--now",
-                               "talaria-telegram.service", "talaria-check.timer"], check=False)
+        for unit in ("talaria-telegram.service", "talaria-check.timer"):
+            sh.run(s + _bus(pw) + ["systemctl", "--user", "disable", "--now", unit], check=False)
+        active = sh.run(s + _bus(pw) + ["systemctl", "--user", "is-active",
+                                        "talaria-telegram.service"], check=False)
+        if active.stdout.strip() in ("active", "activating", "reloading"):
+            say("STOP", f"{user}'s own bot is still running; stop it (systemctl --user stop "
+                        "talaria-telegram.service as that user) and run setup again. "
+                        "Nothing was removed.")
+            return 1
         sh.run(s + ["rm", "-f", *(f"{home}/.config/systemd/user/{u}" for u in OLD_UNITS)])
         sh.run(s + _bus(pw) + ["systemctl", "--user", "daemon-reload"])
         say("OK", f"stopped {user}'s own bot; the hub {hub} runs the only one")
@@ -256,6 +274,17 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         hub_installed = hub_ok and _installed(sh, hub, hub_pw.pw_dir)
         if not hub_ok or not lingers(hub):
             hub_lines = account_lines(hub, operator, create=False)
+    if hub_pw is None or not hub_installed:       # this run makes the hub: one bot per host
+        for other in apps.NAMES:
+            opw = _pw(getpwnam, other) if other != user else None
+            if opw and _can_sudo(sh, other) and sh.run(
+                    ["sudo", "-n", "-u", other, "test", "-e",
+                     f"{opw.pw_dir}/.config/systemd/user/talaria-telegram.service"],
+                    check=False).returncode == 0:
+                say("STOP", f"{other} still runs its own Talaria bot; set {other} up first so "
+                            f"its bot moves to the hub: bin/talaria setup --app {other} "
+                            f"--user {other}")
+                return 1
     if app_lines or hub_lines:
         if args.plan:
             say("PLAN", f"accounts, linger and sudo rules for {hub} and {user}: setup prints "
@@ -293,6 +322,12 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
                         f"new pairing; {A.title} is not restarted)")
         return 0
     home, hub_home = pw.pw_dir, hub_pw.pw_dir
+    if hub_installed:
+        newer = _older_than_installed(sh, hub, hub_home, ref)
+        if newer:
+            say("STOP", f"the hub {hub} already runs Talaria {newer}; this checkout is {ref}. "
+                        "Check out the newer tag and run setup again")
+            return 1
     _install(sh, user, home, url, ref, installed)
     _install(sh, hub, hub_home, url, ref, hub_installed)
     probe = sh.run(["sudo", "-n", "-u", hub, "sudo", "-n", "-H", "-u", user,
@@ -390,7 +425,8 @@ def hub_phase(ctx, args, api=None) -> int:
     changed = units.install_hub_units(ctx)
     ctx.sh.run(["systemctl", "--user", "enable", "--now", "talaria-check.timer",
                 "talaria-telegram.service"])
-    if changed or added:      # a new app or new units: the bot must see them
+    # a new app or new units: the bot must see them (an update restarts it itself, last)
+    if (changed or added) and not getattr(args, "no_restart", False):
         ctx.sh.run(["systemctl", "--user", "restart", "talaria-telegram.service"])
     names = ", ".join(a for a, _ in ctx.conf.apps) or "none yet"
     say("OK", f"Talaria hub ready; apps: {names}")
@@ -486,7 +522,8 @@ def service_phase(ctx, args) -> int:
                   "and run setup again to reach the dashboard over your tailnet")
 
     try:
-        with lock.op_lock(p):
+        with (contextlib.nullcontext() if getattr(args, "lock_held", False)
+              else lock.op_lock(p)):
             if not managed:
                 if found:
                     if adopt.apply(ctx, found, plan) != 0:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import traceback
 
 from talaria.hubexec import NoAnswer, Unreachable
 from talaria.notify import Message
@@ -87,6 +88,11 @@ def relay(hub, app: str, argv: list[str]) -> int:
                 sent = True
     except Unreachable:
         hub.ctx.notify.send(Message(unreachable_text(e.title)))
+        return 1
+    except Exception as x:    # a missing binary, an odd message shape: never end silently
+        traceback.print_exc(file=sys.stderr)
+        hub.ctx.notify.send(Message(f"{e.title}: {' '.join(argv)} — Talaria could not follow "
+                                    f"this operation ({x}); details in the journal"))
         return 1
     rc = e.executor.returncode or 0
     if rc != 0 and not sent:

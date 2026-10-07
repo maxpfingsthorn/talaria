@@ -85,27 +85,30 @@ def run_case(monkeypatch, tmp_path, capsys, kw, a):
 
 MIGCHK = [(SUDO + ["test", "-e", "/home/hermes/.config/systemd/user/talaria-telegram.service"], None),
           (SUDO + ["grep", "-qs", "^TALARIA_TELEGRAM_", "/home/hermes/.config/talaria/.env"], None)]
+HUB_DESC = [(HSUDO + ["git", "-C", HUBINSTALL, "describe", "--tags", "--exact-match"], None)]
 BUS = ["XDG_RUNTIME_DIR=/run/user/1001", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus"]
 UNITDIR = "/home/hermes/.config/systemd/user"
 ENV = "/home/hermes/.config/talaria/.env"
-STOP_BOT = [(SUDO + BUS + ["systemctl", "--user", "disable", "--now", "talaria-telegram.service",
-                          "talaria-check.timer"], None),
+STOP_BOT = [(SUDO + BUS + ["systemctl", "--user", "disable", "--now", "talaria-telegram.service"],
+             None),
+            (SUDO + BUS + ["systemctl", "--user", "disable", "--now", "talaria-check.timer"], None),
+            (SUDO + BUS + ["systemctl", "--user", "is-active", "talaria-telegram.service"], None),
             (SUDO + ["rm", "-f", f"{UNITDIR}/talaria-telegram.service",
                      f"{UNITDIR}/talaria-check.timer", f"{UNITDIR}/talaria-check.service"], None),
             (SUDO + BUS + ["systemctl", "--user", "daemon-reload"], None)]
 DROP_TOKEN = [(SUDO + ["sed", "-i", "-E", "/^TALARIA_TELEGRAM_(TOKEN|USER_ID)=/d", ENV], None)]
 MOVE = (SUDO + ["grep", "-E", "^TALARIA_TELEGRAM_(TOKEN|USER_ID)=", ENV],
         HSUDO + ["/home/talaria/.local/bin/talaria", "setup", "--as-hub", "--import-telegram"])
-BEFORE_HANDOFF = PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + MIGCHK + UPDATE + HUB_UPDATE + PROBE
+BEFORE_HANDOFF = PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + MIGCHK + HUB_DESC + UPDATE + HUB_UPDATE + PROBE
 
 
 CASES = {
     "install": (dict(), dict(user="hermes", adopt="hermes-gateway.service"), 0,
                 INSTALLED + "DONE\n",
-                PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + MIGCHK + CLONE + UPDATE + HUB_UPDATE + PROBE,
+                PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + MIGCHK + HUB_DESC + CLONE + UPDATE + HUB_UPDATE + PROBE,
                 [HANDOFF + ["--adopt", "hermes-gateway.service"], HUB_HANDOFF]),
     "installed": (dict(installed=True), dict(), 0, INSTALLED + "DONE\n",
-                  PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + MIGCHK + UPDATE + HUB_UPDATE + PROBE,
+                  PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + MIGCHK + HUB_DESC + UPDATE + HUB_UPDATE + PROBE,
                   [HANDOFF, HUB_HANDOFF]),
     "hubfresh": (dict(installed=True, hub_installed=False), dict(), 0, INSTALLED + "DONE\n",
                  PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + MIGCHK + UPDATE + HUB_CLONE + HUB_UPDATE
@@ -136,7 +139,7 @@ CASES = {
                  PRE + CHECKS + HUB_CHECKS, []),
     "norule": (dict(probe_rc=1, probe_err="sudo: a password is required\n"), dict(user="hermes"),
                10, INSTALLED + ASK + ":\n" + root_cmd(OPRULE),
-               PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + MIGCHK + CLONE + UPDATE + HUB_UPDATE + PROBE, []),
+               PRE + CHECKS + HUB_CHECKS + TAG + ORIGIN + MIGCHK + HUB_DESC + CLONE + UPDATE + HUB_UPDATE + PROBE, []),
     "plan": (dict(), dict(user="hermes", plan=True), 0,
              "PLAN: install Talaria v0.1.0 for hermes from https://github.com/o/talaria\n"
              "PLAN: then: detect Hermes (fresh or adopt), dashboard password, units, start "
@@ -319,7 +322,7 @@ def test_migration_moves_the_bot_between_the_app_and_the_hub_setup(monkeypatch, 
     assert cmds == BEFORE_HANDOFF + STOP_BOT + DROP_TOKEN
     assert sh.moves == [MOVE]
     n = len(BEFORE_HANDOFF)
-    assert sh.marks == [("call", n), ("move", n + 3), ("call", n + 4)]
+    assert sh.marks == [("call", n), ("move", n + 5), ("call", n + 6)]
     assert calls == [HANDOFF, HUB_HANDOFF]
     assert capsys.readouterr().out == (
         INSTALLED + "OK: stopped hermes's own bot; the hub talaria runs the only one\n"
