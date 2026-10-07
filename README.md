@@ -202,7 +202,7 @@ Name=talaria0
 [Network]
 Address=10.254.254.1/32
 EOF2
-systemctl restart systemd-networkd
+networkctl reload    # needs systemd-networkd running (default on Ubuntu Server)
 ```
 
 - Clawvisor's `talaria.conf`: `dashboard.bind = 10.254.254.1`
