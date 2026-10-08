@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import sys
 from urllib.parse import urlsplit
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -144,7 +145,15 @@ def _as_path(paths, v: str) -> Path:
     return paths.home / v[2:] if v.startswith("~/") else Path(v)
 
 
-def load_conf(paths) -> Conf:
+def unknown_key(where, key: str, strict: bool) -> None:
+    """Setup refuses a key this Talaria does not know; everything else warns and goes on,
+    so a key added for a newer Talaria cannot cut an older install off."""
+    if strict:
+        raise ValueError(f"unknown key in {where}: {key}")
+    print(f"[talaria] ignoring unknown key in {where}: {key} (newer Talaria?)", file=sys.stderr)
+
+
+def load_conf(paths, strict: bool = False) -> Conf:
     conf = Conf(data_dir=paths.home / "hermes-data", app=paths.app)
     seen = set()
     if paths.conf_file.exists():
@@ -153,7 +162,8 @@ def load_conf(paths) -> Conf:
             raise ValueError(f"set only one of repo / hermes_repo in {paths.conf_file}")
         for k, v in kv.items():
             if k not in _KEYS:
-                raise ValueError(f"unknown key in {paths.conf_file}: {k}")
+                unknown_key(paths.conf_file, k, strict)
+                continue
             attr, kind = _KEYS[k]
             if kind == "path":
                 val = _as_path(paths, v)

@@ -269,7 +269,7 @@ class Bot:
         if self.offset is not None:
             self.api.call("getUpdates", offset=self.offset, timeout=0)
         # spec §4.4: each app's protocol, once per bot start (an update restarts the bot)
-        self.mismatch = {n for n, e in self.hub.apps.items() if relay.hello(e) == relay.VERSIONS}
+        self.mismatch = {n for n, e in self.hub.apps.items() if (relay.hello(e) or "").startswith(relay.VERSIONS)}
         for n, e in self.hub.apps.items():
             if n not in self.mismatch:
                 text, _ = relay.quick(e, ["interrupted"])

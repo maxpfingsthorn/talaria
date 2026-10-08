@@ -49,6 +49,11 @@ def _stop(ctx, text: str) -> int:
     return 1
 
 
+def _exit_text(entry, rc) -> str:
+    line = getattr(entry.executor, "stderr_line", "")
+    return f"exit {rc}: {line}" if line else f"exit {rc}"
+
+
 def _update_app(entry, tag: str) -> tuple[bool, str]:
     last = ""  # pragma: no mutate  (only used through `last or ...`)
     try:
@@ -60,7 +65,7 @@ def _update_app(entry, tag: str) -> tuple[bool, str]:
     rc = entry.executor.returncode
     if rc == 0:
         return True, f"{entry.title} ✓"
-    return False, f"{entry.title} ✗ ({last or f'exit {rc}'})"
+    return False, f"{entry.title} ✗ ({last or _exit_text(entry, rc)})"
 
 
 def self_update(hub, tag: str) -> int:

@@ -50,7 +50,7 @@ def test_unknown_key_is_an_error(tmp_path):
     p.conf_dir.mkdir(parents=True, exist_ok=True)
     p.conf_file.write_text("nope = 1\n")
     try:
-        load_conf(p)
+        load_conf(p, strict=True)
     except ValueError as e:
         assert "nope" in str(e)
     else:
@@ -178,3 +178,46 @@ def test_public_url_accepts(tmp_path, url):
 def test_public_url_rejects(tmp_path, url):
     with pytest.raises(ValueError, match="dashboard.public_url"):
         load_conf(_conf_with(tmp_path, f"dashboard.public_url = {url}\n"))
+
+
+def test_unknown_key_is_ignored_with_a_warning_at_runtime(tmp_path, capsys):
+    p = Paths(tmp_path)
+    p.conf_dir.mkdir(parents=True, exist_ok=True)
+    p.conf_file.write_text("nope = 1\nbackup.keep = 7\n")
+    c = load_conf(p)
+    assert c.backup_keep == 7
+    err = capsys.readouterr().err
+    assert err == f"[talaria] ignoring unknown key in {p.conf_file}: nope (newer Talaria?)\n"
+
+
+def test_strict_load_names_the_unknown_key_and_stays_quiet(tmp_path, capsys):
+    p = Paths(tmp_path)
+    p.conf_dir.mkdir(parents=True, exist_ok=True)
+    p.conf_file.write_text("dashboard.public_url2 = x\n")
+    with pytest.raises(ValueError, match="unknown key in .*: dashboard.public_url2"):
+        load_conf(p, strict=True)
+    assert capsys.readouterr().err == ""
+
+
+def test_bad_value_of_known_key_still_errors_at_runtime(tmp_path):
+    p = Paths(tmp_path)
+    p.conf_dir.mkdir(parents=True, exist_ok=True)
+    p.conf_file.write_text("nope = 1\ndashboard.bind = 0.0.0.0\n")
+    with pytest.raises(ValueError, match="dashboard.bind"):
+        load_conf(p)
+
+
+def test_setup_loads_strictly(tmp_path, monkeypatch, capsys):
+    from talaria import ctx as ctxmod, setup
+    from types import SimpleNamespace
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    p = Paths(tmp_path)
+    p.conf_dir.mkdir(parents=True, exist_ok=True)
+    p.conf_file.write_text("nope = 1\n")
+    assert setup.setup(SimpleNamespace(app=None, as_hub=False, as_service=True)) == 1
+    assert "STOP: unknown key in" in capsys.readouterr().out
+    p.hub_conf.write_text("colour = red\n")
+    assert setup.setup(SimpleNamespace(app=None, as_hub=True, as_service=False)) == 1
+    out = capsys.readouterr().out
+    assert "STOP: unknown key in" in out and out.rstrip().endswith("colour")
+    ctxmod.make_ctx()   # the runtime path is tolerant

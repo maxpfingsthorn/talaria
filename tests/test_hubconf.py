@@ -57,7 +57,7 @@ def test_keys_and_secrets(tmp_path):
 def test_invalid_hub_conf(tmp_path, line, msg):
     p = home(tmp_path, line + "\n")
     with pytest.raises(ValueError, match=msg.replace("(", r"\(")):
-        load_hub_conf(p)
+        load_hub_conf(p, strict=True)
 
 
 def test_register_into_an_empty_conf(tmp_path):
@@ -113,3 +113,19 @@ def test_make_hub_ctx(tmp_path):
 
 def test_setup_uses_the_same_name_rule():
     assert setup.NAME_RE is hubconf.NAME_RE
+
+
+def test_hub_conf_unknown_key_warns_at_runtime(tmp_path, capsys):
+    p = home(tmp_path, "colour = red\ncheck.time = 05:00\n")
+    assert load_hub_conf(p).check_time == "05:00"
+    assert capsys.readouterr().err == \
+        f"[talaria] ignoring unknown key in {p.hub_conf}: colour (newer Talaria?)\n"
+    assert make_hub_ctx(tmp_path).conf.check_time == "05:00"
+    with pytest.raises(ValueError, match="unknown key in .*: colour"):
+        load_hub_conf(p, strict=True)
+
+
+def test_hub_conf_bad_known_value_still_errors_at_runtime(tmp_path):
+    p = home(tmp_path, "colour = red\napps = hermes\n")
+    with pytest.raises(ValueError, match="not <app>:<user>"):
+        load_hub_conf(p)

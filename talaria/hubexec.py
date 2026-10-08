@@ -37,9 +37,16 @@ def parse_lines(text: str, app: str) -> list[dict]:
     return out
 
 
+def last_line(text: str, limit: int = 200) -> str:
+    """The last non-empty line of an op's stderr (Talaria's own traceback), for a report."""
+    lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
+    return lines[-1][:limit] if lines else ""
+
+
 class _Executor:
     app = ""
     returncode: int | None = None
+    stderr_line = ""     # last non-empty stderr line of the latest call / stream
 
     def argv(self, op_argv) -> list[str]:
         raise NotImplementedError
@@ -50,12 +57,14 @@ class _Executor:
     def call(self, op_argv, timeout: float = 60) -> list[dict]:
         """A quick op: wait for it (up to `timeout` seconds), return its lines."""
         self.returncode = None
+        self.stderr_line = ""
         try:
             p = subprocess.run(self.argv(op_argv), capture_output=True, text=True,
                                timeout=timeout, cwd="/")
         except subprocess.TimeoutExpired:
             raise NoAnswer(self.app) from None
         self.returncode = p.returncode
+        self.stderr_line = last_line(p.stderr)
         if p.stderr:
             sys.stderr.write(p.stderr)
         if self._refused(p.returncode, p.stderr):
@@ -66,6 +75,7 @@ class _Executor:
         """A long op: yield each line as it arrives. stderr goes to a file, never a pipe,
         so a chatty op cannot block on it while we read stdout."""
         self.returncode = None
+        self.stderr_line = ""
         with tempfile.TemporaryFile(mode="w+") as err:
             p = subprocess.Popen(self.argv(op_argv), stdout=subprocess.PIPE, stderr=err,
                                  text=True, cwd="/")
@@ -77,6 +87,7 @@ class _Executor:
                 self.returncode = p.wait()
                 err.seek(0)
                 text = err.read()
+                self.stderr_line = last_line(text)
                 if text:
                     sys.stderr.write(text)
         if self._refused(self.returncode, text):

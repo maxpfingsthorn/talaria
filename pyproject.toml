@@ -1,6 +1,6 @@
 [project]
 name = "talaria"
-version = "0.5.2"
+version = "0.5.3"
 description = "Safe, approved updates for self-hosted Hermes Agent on rootless podman"
 requires-python = ">=3.10"
 license = { text = "MIT" }

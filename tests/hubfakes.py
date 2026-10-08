@@ -34,14 +34,16 @@ class FakeExecutor:
 
     def __init__(self, app="hermes", log=None):
         self.app, self.rules, self.calls, self.returncode, self.log = app, [], [], None, log
+        self.stderr_line = ""
 
-    def on(self, *prefix, lines=(), rc=0, exc=None):
-        self.rules.insert(0, (tuple(prefix), list(lines), rc, exc))
+    def on(self, *prefix, lines=(), rc=0, exc=None, err=""):
+        self.rules.insert(0, (tuple(prefix), list(lines), rc, exc, err))
         return self
 
     def _rule(self, argv):
-        for prefix, lines, rc, exc in self.rules:
+        for prefix, lines, rc, exc, err in self.rules:
             if tuple(argv[:len(prefix)]) == prefix:
+                self.stderr_line = err
                 return lines, rc, exc
         raise AssertionError(f"unexpected op for {self.app}: {argv}")
 

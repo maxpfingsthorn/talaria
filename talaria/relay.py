@@ -44,6 +44,13 @@ def to_message(app: str, d: dict) -> Message:
                    commands=with_app(app, d.get("commands")), buttons=prefix(app, d.get("buttons")))
 
 
+def failed_text(entry, what: str) -> str:
+    """`<Title>: <what> failed unexpectedly (exit N): <last stderr line>`."""
+    line = getattr(entry.executor, "stderr_line", "")
+    return (f"{entry.title}: {what} failed unexpectedly (exit {entry.executor.returncode})"
+            + (f": {line}" if line else ""))
+
+
 def quick(entry, argv: list[str], timeout: float = 60) -> tuple[str, list]:
     try:
         lines = entry.executor.call(argv, timeout=timeout)
@@ -56,7 +63,7 @@ def quick(entry, argv: list[str], timeout: float = 60) -> tuple[str, list]:
             return str(d.get("text") or ""), prefix(entry.name, d.get("buttons"))
     rc = entry.executor.returncode
     if rc:
-        return f"{entry.title}: {argv[0]} failed unexpectedly (exit {rc})", []
+        return failed_text(entry, argv[0]), []
     return "", []
 
 
@@ -69,6 +76,8 @@ def hello(entry) -> str | None:
         return no_answer_text(entry.title)
     if any(d.get("kind") == "hello" and d.get("protocol") == PROTOCOL for d in lines):
         return None
+    if entry.executor.returncode and getattr(entry.executor, "stderr_line", ""):
+        return f"{VERSIONS} ({failed_text(entry, 'hello')})"
     return VERSIONS
 
 
@@ -101,7 +110,7 @@ def relay_sent(hub, app: str, argv: list[str]) -> tuple[int, bool]:
         return 1, sent
     rc = e.executor.returncode or 0
     if rc != 0 and not sent:
-        hub.ctx.notify.send(Message(f"{e.title}: {' '.join(argv)} failed unexpectedly (exit {rc})"))
+        hub.ctx.notify.send(Message(failed_text(e, ' '.join(argv))))
     return rc, sent
 
 

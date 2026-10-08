@@ -186,7 +186,9 @@ Hermes's; a Clawvisor install (`app = clawvisor`) gets its own defaults for `dat
 | `host_loopback` | `false` (`true`: the container may reach the host's loopback at `10.0.2.2`; needs `slirp4netns`) |
 | `add_hosts` | (none; space-separated `name:ip` pairs, e.g. `clawvisor:10.254.254.1`) |
 
-Run setup again after changing it.
+Run setup again after changing it. An unknown key stops setup (naming the key) but is only
+warned about at runtime, so a key added for a newer Talaria does not cut an older install
+off; still update first, then add new keys.
 
 ### The hub's `hub.conf`
 

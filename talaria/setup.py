@@ -213,7 +213,7 @@ def import_telegram(ctx, stream) -> int:
     if not TOKEN_RE.match(token):
         say("STOP", "no valid bot token on stdin; nothing changed")
         return 1
-    if load_hub_conf(ctx.paths).telegram_token:
+    if load_hub_conf(ctx.paths, strict=True).telegram_token:
         say("OK", "the hub already has a bot; the app's own token is not needed any more")
         return 0
     write_env_value(ctx.paths.env_file, "TALARIA_TELEGRAM_TOKEN", token)
@@ -415,7 +415,7 @@ def hub_phase(ctx, args, api=None) -> int:
         if args.register:
             app, _, user = args.register.partition(":")  # pragma: no mutate  (rpartition fails the same way: the entry is re-joined and rejected)
             added = register_app(p, app, user)
-        ctx.conf = load_hub_conf(p)
+        ctx.conf = load_hub_conf(p, strict=True)
     except ValueError as e:
         say("STOP", str(e))
         return 1
@@ -528,7 +528,7 @@ def service_phase(ctx, args) -> int:
                 if found:
                     if adopt.apply(ctx, found, plan) != 0:
                         return 1
-                    ctx.conf = load_conf(p)
+                    ctx.conf = load_conf(p, strict=True)
                 elif not renamable(ctx.conf.data_dir):
                     say("STOP", NOT_RENAMABLE.format(ctx.conf.data_dir))
                     return 1
@@ -575,10 +575,14 @@ def setup(args) -> int:
     if requested is not None and requested not in apps.NAMES:
         say("STOP", f"unknown app: {requested!r}; choose one of {', '.join(apps.NAMES)}")
         return 1
-    if getattr(args, "as_hub", False):
-        return hub_phase(make_hub_ctx(), args)
-    if args.as_service:
-        return service_phase(make_ctx(app=requested), args)
+    if getattr(args, "as_hub", False) or args.as_service:
+        try:    # setup is the one strict loader: an unknown key stops it, naming the key
+            ctx = (make_hub_ctx(strict=True) if getattr(args, "as_hub", False)
+                   else make_ctx(app=requested, strict=True))
+        except ValueError as e:
+            say("STOP", str(e))
+            return 1
+        return hub_phase(ctx, args) if getattr(args, "as_hub", False) else service_phase(ctx, args)
     os.chdir("/")  # commands run as the service user, which may not enter the caller's cwd
     # The app to install, in order: --app; else --user, if that names a known app;
     # else hermes. Only the first two are forwarded to the service phase with --app --

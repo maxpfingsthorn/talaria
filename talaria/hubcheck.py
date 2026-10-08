@@ -32,7 +32,7 @@ def check(hub, timer: bool, report: bool = False) -> int:
         try:
             err = relay.hello(e)
             if err:
-                hub.ctx.notify.send(Message(f"{e.title}: {err}" if err == relay.VERSIONS else err))
+                hub.ctx.notify.send(Message(f"{e.title}: {err}" if err.startswith(relay.VERSIONS) else err))
                 failed.append(e.title)
                 continue
             rc, sent = relay.relay_sent(hub, name, ["check", "--timer"] if timer else ["check"])

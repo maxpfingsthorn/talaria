@@ -5,7 +5,7 @@ import os
 import re
 from dataclasses import dataclass, field
 
-from talaria.conf import parse_kv, read_telegram_env
+from talaria.conf import parse_kv, read_telegram_env, unknown_key
 
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")   # goes into a root shell block
 RESERVED = ("hub", "talaria")        # "hub": button prefix of the hub itself; "talaria": /check talaria
@@ -49,12 +49,13 @@ def parse_apps(value: str, where) -> tuple:
     return tuple(out)
 
 
-def load_hub_conf(paths) -> HubConf:
+def load_hub_conf(paths, strict: bool = False) -> HubConf:
     conf = HubConf()
     if paths.hub_conf.exists():
         for k, v in parse_kv(paths.hub_conf.read_text()).items():
             if k not in _KEYS:
-                raise ValueError(f"unknown key in {paths.hub_conf}: {k}")
+                unknown_key(paths.hub_conf, k, strict)
+                continue
             setattr(conf, _KEYS[k], parse_apps(v, paths.hub_conf) if k == "apps" else v)
     conf.telegram_token, conf.telegram_user_id = read_telegram_env(paths.env_file)
     return conf
@@ -64,7 +65,7 @@ def register_app(paths, app: str, user: str) -> bool:
     """Add app:user to the `apps` line, in place, keeping every other line. False if it is
     already registered; ValueError if the app is registered for another account or the
     entry is invalid."""
-    current = load_hub_conf(paths).apps
+    current = load_hub_conf(paths, strict=True).apps
     if (app, user) in current:
         return False
     for a, u in current:

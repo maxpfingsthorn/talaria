@@ -115,7 +115,7 @@ class Ctx:
     app: object = None
 
 
-def make_ctx(app: str | None = None) -> Ctx:
+def make_ctx(app: str | None = None, strict: bool = False) -> Ctx:
     """`app` seeds the app to use when talaria.conf does not exist yet (a fresh install
     picked with `talaria setup --app ...`). An existing conf file is read as it is, so a
     conf without an `app` key stays `hermes` and setup can catch a contradicting --app."""
@@ -127,18 +127,18 @@ def make_ctx(app: str | None = None) -> Ctx:
     seed = Paths(Path.home())
     if app and not seed.conf_file.exists():
         seed = Paths(Path.home(), app)
-    conf = load_conf(seed)
+    conf = load_conf(seed, strict)
     paths = Paths(Path.home(), conf.app)
     return Ctx(paths=paths, conf=conf, sh=Shell(), notify=TelegramNotifier(conf),
                app=apps.get(conf.app))
 
 
-def make_hub_ctx(home: Path | None = None, sh=None) -> Ctx:
+def make_hub_ctx(home: Path | None = None, sh=None, strict: bool = False) -> Ctx:
     """The hub account's ctx: hub.conf instead of talaria.conf, no app."""
     from talaria.hubconf import load_hub_conf
     from talaria.notify import TelegramNotifier
     from talaria.shell import Shell
 
     paths = Paths(Path(home) if home else Path.home())
-    conf = load_hub_conf(paths)
+    conf = load_hub_conf(paths, strict)
     return Ctx(paths=paths, conf=conf, sh=sh or Shell(), notify=TelegramNotifier(conf))
