@@ -239,3 +239,20 @@ def test_hardlink_to_kept_file_stays_a_link(tmp_path):
     with tarfile.open(b.path) as t:
         m = t.getmember("./memories/b.md")
     assert m.islnk() and m.linkname == "./memories/a.md"
+
+
+def test_clawvisor_backup_keeps_adapters_but_not_the_login_session(tmp_path):
+    from talaria import rehearse
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    d = ctx.conf.data_dir
+    (d / ".clawvisor" / "adapters").mkdir(parents=True)
+    (d / ".clawvisor" / "adapters" / "x.yaml").write_text("a: 1\n")
+    (d / ".clawvisor" / ".local-session").write_text("secret")
+    (d / "config.yaml").write_text("x: 1\n")
+    n = names(backup.create(ctx, "pre-v1", None))
+    assert "./.clawvisor/adapters/x.yaml" in n and "./config.yaml" in n
+    assert "./.clawvisor/.local-session" not in n
+    copy = tmp_path / "copy"
+    rehearse.copy_data(d, copy, ctx.conf.backup_exclude)
+    assert (copy / ".clawvisor/adapters/x.yaml").is_file()
+    assert not (copy / ".clawvisor/.local-session").exists()

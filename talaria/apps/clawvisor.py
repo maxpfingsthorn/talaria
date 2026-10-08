@@ -30,7 +30,7 @@ ENV = ["CONFIG_FILE=/data/config.yaml", "SERVER_HOST=0.0.0.0", "DATABASE_DRIVER=
        "CLAWVISOR_RELAY_KEY_FILE=/data/daemon-ed25519.key",
        "CLAWVISOR_RELAY_E2E_KEY_FILE=/data/daemon-x25519.key",
        "CLAWVISOR_DAEMON_DATA_DIR=/data", "CLAWVISOR_CONTAINER=1", "MAX_USERS=1",
-       "CLAWVISOR_AUTO_UPDATE_ENABLED=false", "HOME=/tmp"]
+       "CLAWVISOR_AUTO_UPDATE_ENABLED=false", "HOME=/data"]
 
 
 def migrations(db) -> list[str]:
@@ -111,7 +111,7 @@ class Clawvisor(App):
     default_image = ""
     default_repo = "https://github.com/clawvisor/clawvisor"
     min_release = "v0.9.9"
-    backup_exclude = (".login-link",)   # login-link's throwaway HOME; removed after use
+    backup_exclude = (".login-link", ".clawvisor/.local-session")  # throwaway login HOMEs / CLI session
     can_adopt = False
 
     def is_release(self, tag: str) -> bool:

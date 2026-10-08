@@ -224,6 +224,10 @@ database, so it never shares a user, a podman network or a data dir with Hermes.
 no second bot, token or pairing. In the chat, name the app when you type a command:
 `/approve clawvisor v0.9.10`.
 
+Clawvisor's `HOME` is its data dir, so custom adapters
+(`~clawvisor/clawvisor-data/.clawvisor/adapters/`) persist and are backed up and rolled back
+with the data; the login session file (`.clawvisor/.local-session`) is excluded from backups.
+
 Clawvisor has no dashboard password; its first login is a single-use, short-lived
 link. As the `clawvisor` service user, **in your own terminal** (never through a
 coding agent): `talaria login-link`. Treat its output like a password — **never
