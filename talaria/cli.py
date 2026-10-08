@@ -55,6 +55,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("set-token")
     c = sub.add_parser("check")
     c.add_argument("--timer", action="store_true")
+    c.add_argument("--report", action="store_true", help=argparse.SUPPRESS)    # hub: /check
+    c.add_argument("--talaria", action="store_true", help=argparse.SUPPRESS)   # hub: /check talaria
     for name in ("rehearse", "deploy", "reject"):
         sub.add_parser(name).add_argument("tag", type=_release)
     r = sub.add_parser("rollback")
@@ -188,7 +190,9 @@ def _hub_main(hub, args) -> int:
         return 0
     if cmd == "check":
         from talaria import hubcheck
-        return hubcheck.check(hub, timer=args.timer)
+        if args.talaria:
+            return hubcheck.check_talaria(hub)
+        return hubcheck.check(hub, timer=args.timer, report=args.report)
     from talaria import hubupdate
     if cmd == "self-update":
         return hubupdate.self_update(hub, args.tag)

@@ -14,11 +14,11 @@ from talaria.tags import SEMVER, TAG_ARG, semver_newer
 
 ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 NOT_NEWER = "Talaria {tag} is not newer than the installed v{cur}"
-HELP = ("/status · /check [app] · /approve [app] <tag> · /reject [app] <tag> · "
+HELP = ("/status · /check [app|talaria] · /approve [app] <tag> · /reject [app] <tag> · "
         "/rollback [app] [CONFIRM] · /backups [app] · /restore [app] <id> [CONFIRM] · "
         "/update <version>")
 MENU = [("status", "Every app: version, state, pending update"),
-        ("check", "Look for new releases now: /check [app]"),
+        ("check", "Look for new releases now: /check [app|talaria]"),
         ("approve", "Deploy a pending update: /approve [app] <tag>"),
         ("reject", "Never offer a release: /reject [app] <tag>"),
         ("rollback", "Undo the last change: /rollback [app] (asks to confirm)"),
@@ -29,7 +29,7 @@ APP_WORD = re.compile(r"^[a-z][a-z_-]{0,31}$")
 APP_CMDS = ("/status", "/backups", "/check", "/approve", "/reject", "/rollback", "/restore")
 LONG_OPS = ("check", "deploy", "rollback", "restore")
 OUT_OF_DATE = "⌛ Out of date"
-FORMS = {"status": "/status", "backups": "/backups", "check": "/check", "rollback": "/rollback"}
+FORMS = {"status": "/status", "backups": "/backups", "rollback": "/rollback"}
 
 
 def new_code() -> str:
@@ -66,7 +66,7 @@ def pair(ctx, api, code: str, timeout_s: int = 900, announce=lambda: None) -> di
 def read_form(cmd: str, args: list[str]) -> str | None:
     """What a "Which app?" button runs for this command: its read or describe form, never
     a confirm (spec §5.1)."""
-    if cmd in ("/status", "/backups", "/check") and not args:
+    if cmd in ("/status", "/backups") and not args:
         return cmd[1:]
     if cmd in ("/approve", "/reject") and len(args) == 1 and TAG_ARG.match(args[0]):
         return "status"
@@ -115,6 +115,17 @@ class Bot:
         if cmd not in APP_CMDS:
             return nu
         names = list(self.hub.apps)
+        if cmd == "/check" and not args:
+            if not names:
+                return "No apps registered."
+            self.spawn("check", "check", "--report")
+            titles = [e.title for e in self.hub.apps.values()]
+            return f"Checking {', '.join(titles)} and Talaria."
+        if cmd == "/check" and args == ["talaria"]:
+            self.spawn("talaria-check", "check", "--talaria")
+            return "Checking for a new Talaria release."
+        if cmd == "/check" and args[:1] == ["talaria"]:
+            return nu
         if args and args[0] in self.hub.apps:
             return self.app_command(args[0], cmd, args[1:])
         if args and APP_WORD.match(args[0]):

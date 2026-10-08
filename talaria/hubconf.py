@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from talaria.conf import parse_kv, read_telegram_env
 
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")   # goes into a root shell block
-RESERVED = "hub"                                          # button prefix of the hub itself
+RESERVED = ("hub", "talaria")        # "hub": button prefix of the hub itself; "talaria": /check talaria
 
 
 @dataclass
@@ -34,7 +34,7 @@ def parse_apps(value: str, where) -> tuple:
     out, names, users = [], set(), set()
     for entry in value.split():
         app, sep, user = entry.partition(":")
-        if not sep or app == RESERVED or app not in apps.NAMES:
+        if not sep or app in RESERVED or app not in apps.NAMES:
             raise ValueError(f"apps: {entry!r} is not <app>:<user> with app one of "
                              f"{', '.join(apps.NAMES)} in {where}")
         if not NAME_RE.match(user):

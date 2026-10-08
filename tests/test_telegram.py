@@ -159,7 +159,7 @@ def test_quick_commands_ask_the_app(bot2):
 
 
 @pytest.mark.parametrize("text,form", [
-    ("/backups", "backups"), ("/check", "check"), ("/approve v2026.9.24", "status"),
+    ("/backups", "backups"), ("/approve v2026.9.24", "status"),
     ("/reject v0.9.10", "status"), ("/rollback", "rollback"), ("/rollback CONFIRM", "rollback"),
     (f"/restore {ID}", f"restore:{ID}"), (f"/restore {ID} CONFIRM", f"restore:{ID}"),
 ])
@@ -187,16 +187,15 @@ def test_which_app_button_runs_the_read_form_never_a_confirm(bot2):
     ex(b.hub, "clawvisor").on("restore", lines=[reply("Restore it?")])
     b.handle(cb("hub|w:hermes:rollback"))
     b.handle(cb(f"hub|w:clawvisor:restore:{ID}"))
-    b.handle(cb("hub|w:hermes:check"))
     assert ex(b.hub, "hermes").ops()[-1] == ["rollback", "describe"]
     assert ex(b.hub, "clawvisor").ops()[-1] == ["restore", ID, "describe"]
-    assert api.sent() == ["would restore", "Restore it?", "Checking Hermes for releases."]
-    assert spawned(ctx) == [[str(ctx.paths.bin_link), "relay", "hermes", "check"]]
-    assert [p["text"] for p in calls(api, "answerCallbackQuery")] == ["Hermes", "Clawvisor", "Hermes"]
+    assert api.sent() == ["would restore", "Restore it?"]
+    assert spawned(ctx) == []
+    assert [p["text"] for p in calls(api, "answerCallbackQuery")] == ["Hermes", "Clawvisor"]
     assert calls(api, "editMessageReplyMarkup") == []
 
 
-@pytest.mark.parametrize("data", ["hub|w:nope:status", "hub|w:hermes:deploy", "hub|w:hermes:restore:../x",
+@pytest.mark.parametrize("data", ["hub|w:nope:status", "hub|w:hermes:deploy", "hub|w:hermes:check", "hub|w:hermes:restore:../x",
                                   "hub|w:hermes:status:x", "hub|x", "hub|up:latest"])
 def test_bad_hub_buttons(bot2, data):
     ctx, api, b = bot2
@@ -238,7 +237,7 @@ def test_invalid_arguments_never_spawn(bot):
 
 
 def test_help_text_exact():
-    assert telegram.HELP == ("/status · /check [app] · /approve [app] <tag> · /reject [app] <tag> · "
+    assert telegram.HELP == ("/status · /check [app|talaria] · /approve [app] <tag> · /reject [app] <tag> · "
                              "/rollback [app] [CONFIRM] · /backups [app] · "
                              "/restore [app] <id> [CONFIRM] · /update <version>")
 
@@ -621,3 +620,39 @@ def test_run_startup_once(tmp_path, monkeypatch):
     with pytest.raises(Stop):
         telegram.run(hub)
     assert starts == [1]
+
+
+def test_bare_check_runs_the_whole_hub_check(bot2):
+    ctx, api, b = bot2
+    b.handle(upd(1, "/check"))
+    assert api.sent() == ["Checking Hermes, Clawvisor and Talaria."]
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "check", "--report"]]
+    assert ctx.sh.called("systemd-run")[0][4].startswith("--unit=talaria-check-")
+    assert all(o in (["hello"], ["interrupted"]) for n in b.hub.apps for o in ex(b.hub, n).ops())
+
+
+def test_bare_check_with_one_app_does_not_ask_which(bot):
+    ctx, api, b = bot
+    b.handle(upd(1, "/check"))
+    assert api.sent() == ["Checking Hermes and Talaria."]
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "check", "--report"]]
+
+
+def test_check_talaria_checks_only_talaria(bot2):
+    ctx, api, b = bot2
+    b.handle(upd(1, "/check talaria"))
+    assert api.sent() == ["Checking for a new Talaria release."]
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "check", "--talaria"]]
+    assert ctx.sh.called("systemd-run")[0][4].startswith("--unit=talaria-talaria-check-")
+
+
+def test_check_talaria_with_extra_words_is_not_understood(bot2):
+    ctx, api, b = bot2
+    b.handle(upd(1, "/check talaria now"))
+    assert api.sent()[0].startswith("Not understood.") and spawned(ctx) == []
+
+
+def test_bare_check_never_shows_the_picker(bot2):
+    ctx, api, b = bot2
+    b.handle(upd(1, "/check"))
+    assert "Which app?" not in api.sent() and telegram.read_form("/check", []) is None

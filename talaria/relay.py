@@ -79,6 +79,11 @@ def status_all(hub, mismatch=frozenset()) -> str:
 
 
 def relay(hub, app: str, argv: list[str]) -> int:
+    return relay_sent(hub, app, argv)[0]
+
+
+def relay_sent(hub, app: str, argv: list[str]) -> tuple[int, bool]:
+    """(exit code, whether the app sent any message)."""
     e = hub.apps[app]
     sent = False  # pragma: no mutate  (None is falsy too)
     try:
@@ -88,16 +93,16 @@ def relay(hub, app: str, argv: list[str]) -> int:
                 sent = True
     except Unreachable:
         hub.ctx.notify.send(Message(unreachable_text(e.title)))
-        return 1
+        return 1, sent
     except Exception as x:    # a missing binary, an odd message shape: never end silently
         traceback.print_exc(file=sys.stderr)  # pragma: no mutate  (stderr is the default)
         hub.ctx.notify.send(Message(f"{e.title}: {' '.join(argv)} — Talaria could not follow "
                                     f"this operation ({x}); details in the journal"))
-        return 1
+        return 1, sent
     rc = e.executor.returncode or 0
     if rc != 0 and not sent:
         hub.ctx.notify.send(Message(f"{e.title}: {' '.join(argv)} failed unexpectedly (exit {rc})"))
-    return rc
+    return rc, sent
 
 
 def main(hub, app: str, argv: list[str]) -> int:

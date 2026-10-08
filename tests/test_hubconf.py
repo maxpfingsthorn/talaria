@@ -89,7 +89,7 @@ def test_register_refuses_an_account_already_serving_another_app(tmp_path):
     assert p.hub_conf.read_text() == "apps = hermes:agent\n"
 
 
-@pytest.mark.parametrize("app,user", [("hub", "x"), ("nope", "x"), ("hermes", "a b")])
+@pytest.mark.parametrize("app,user", [("hub", "x"), ("talaria", "x"), ("nope", "x"), ("hermes", "a b")])
 def test_register_validates_the_entry(tmp_path, app, user):
     p = home(tmp_path, "")
     with pytest.raises(ValueError):

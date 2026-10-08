@@ -113,7 +113,9 @@ pairing.
 | Telegram command | Effect |
 |---|---|
 | `/status` | every app: version and state, free disk, data size, pending update, interrupted change |
-| `/check [app]` | look for a release now |
+| `/check` | look for new releases now, for every app and for Talaria itself; always ends with a summary, even when nothing is new |
+| `/check <app>` | the same for one app |
+| `/check talaria` | only the Talaria release: the update offer if there is a newer one, else "Talaria vX is current." |
 | `/approve [app] <tag>` | deploy the pending update |
 | `/reject [app] <tag>` | never offer this release again |
 | `/rollback [app]` | describe what a rollback would restore, and how old the backup is |
@@ -123,7 +125,7 @@ pairing.
 | `/update <version>` | show which apps a Talaria update would restart, with an **Update** button |
 
 With one app registered, the app name is optional. With several, a command without one
-answers "Which app?" with a button per app; the button runs the read-only or describe
+answers "Which app?" with a button per app (not `/check`, which checks everything); the button runs the read-only or describe
 form (status, rollback description), never a confirm.
 
 The bot registers these commands with Telegram, so they appear under the **Menu**

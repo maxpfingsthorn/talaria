@@ -347,7 +347,7 @@ from tests.test_telegram import ID, _bot, calls, cb, spawned, upd  # noqa: E402
 def test_read_form_only_describes_never_confirms():
     rf = telegram.read_form
     assert [rf("/status", []), rf("/backups", []), rf("/check", [])] == ["status", "backups",
-                                                                          "check"]
+                                                                          None]
     assert rf("/status", ["x"]) is None and rf("/status", ["v2026.9.24"]) is None
     assert rf("/approve", ["v2026.9.24"]) == "status" == rf("/reject", ["v2026.9.24"])
     assert rf("/approve", []) is None and rf("/rollback", ["v2026.9.24"]) is None

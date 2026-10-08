@@ -110,8 +110,8 @@ def test_parser_setup_flags():
 
 
 @pytest.mark.parametrize("argv,expected", [
-    (["check"], {"cmd": "check", "timer": False}),
-    (["check", "--timer"], {"cmd": "check", "timer": True}),
+    (["check"], {"cmd": "check", "timer": False, "report": False, "talaria": False}),
+    (["check", "--timer"], {"cmd": "check", "timer": True, "report": False, "talaria": False}),
     (["rehearse", "v2026.1.2"], {"cmd": "rehearse", "tag": "v2026.1.2"}),
     (["deploy", "v2026.1.2"], {"cmd": "deploy", "tag": "v2026.1.2"}),
     (["reject", "v2026.1.2"], {"cmd": "reject", "tag": "v2026.1.2"}),

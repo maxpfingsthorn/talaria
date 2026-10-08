@@ -137,15 +137,15 @@ def test_one_apps_failure_does_not_stop_the_hub_check(tmp_path, monkeypatch):
     ex(h, "hermes").on("hello", lines=[hello()]).on("check", lines=[message("a")])
     ex(h, "clawvisor").on("hello", lines=[hello(app="clawvisor")]).on(
         "check", lines=[message("c")])
-    real = relay.relay
+    real = relay.relay_sent
 
     def flaky(hub, name, argv):
         if name == "hermes":
             raise RuntimeError("boom")
         return real(hub, name, argv)
-    monkeypatch.setattr(hubcheck.relay, "relay", flaky)
+    monkeypatch.setattr(hubcheck.relay, "relay_sent", flaky)
     called = []
-    monkeypatch.setattr(hubcheck, "talaria_release", lambda hub: called.append(1))
+    monkeypatch.setattr(hubcheck, "talaria_release", lambda hub, force=False: called.append(1) or "current")
     assert hubcheck.check(h, timer=True) == 0
     assert "c" in h.ctx.notify.texts() and called == [1]
 

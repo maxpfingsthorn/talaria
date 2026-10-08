@@ -23,7 +23,7 @@ def test_v04_bot_and_timer_run_the_hub_code_locally(tmp_path, monkeypatch):
     from talaria import hubcheck, telegram
     monkeypatch.setattr(telegram, "run", lambda h: seen.append(
         ("bot", h.transitional, h.apps["hermes"].executor.argv(["hello"]))) or 0)
-    monkeypatch.setattr(hubcheck, "check", lambda h, timer: seen.append(
+    monkeypatch.setattr(hubcheck, "check", lambda h, timer, report=False: seen.append(
         ("check", h.transitional, timer)) or 0)
     load = lambda: hubexec.load_hub(tmp_path)
     assert cli.main(["bot"], make_hub=load) == 0

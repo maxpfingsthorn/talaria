@@ -15,7 +15,8 @@ def hubmain(tmp_path, monkeypatch):
     monkeypatch.setattr(telegram, "run", lambda h: (seen.append(("bot", h is hub)), 11)[1])
     monkeypatch.setattr(relay, "main", lambda h, app, argv: (seen.append(("relay", app, argv)), 12)[1])
     monkeypatch.setattr(relay, "status_all", lambda h: "ALL")
-    monkeypatch.setattr(hubcheck, "check", lambda h, timer: (seen.append(("check", timer)), 13)[1])
+    monkeypatch.setattr(hubcheck, "check", lambda h, timer, report=False: (seen.append(("check", timer, report)), 13)[1])
+    monkeypatch.setattr(hubcheck, "check_talaria", lambda h: (seen.append(("talaria",)), 18)[1])
     monkeypatch.setattr(hubupdate, "self_update", lambda h, t: (seen.append(("su", t)), 14)[1])
     monkeypatch.setattr(hubupdate, "start_update", lambda h, t: (seen.append(("update", t)), 15)[1])
     monkeypatch.setattr(hubupdate, "offer", lambda h, t: (seen.append(("offer", t)), 16)[1])
@@ -28,11 +29,12 @@ def hubmain(tmp_path, monkeypatch):
 def test_hub_commands(hubmain, capsys):
     hub, run, seen = hubmain
     assert [run("bot"), run("relay", "hermes", "check", "--timer"), run("check", "--timer"),
-            run("check"), run("self-update", "v0.6.0"), run("update", "v0.6.0"),
+            run("check"), run("check", "--report"), run("check", "--talaria"),
+            run("self-update", "v0.6.0"), run("update", "v0.6.0"),
             run("update", "v0.6.0", "--offer"), run("set-token"), run("status")] == \
-        [11, 12, 13, 13, 14, 15, 16, 17, 0]
-    assert seen == [("bot", True), ("relay", "hermes", ["check", "--timer"]), ("check", True),
-                    ("check", False), ("su", "v0.6.0"), ("update", "v0.6.0"), ("offer", "v0.6.0"),
+        [11, 12, 13, 13, 13, 18, 14, 15, 16, 17, 0]
+    assert seen == [("bot", True), ("relay", "hermes", ["check", "--timer"]), ("check", True, False),
+                    ("check", False, False), ("check", False, True), ("talaria",), ("su", "v0.6.0"), ("update", "v0.6.0"), ("offer", "v0.6.0"),
                     ("token", True)]
     assert capsys.readouterr().out == "ALL\n"
 
