@@ -6,6 +6,7 @@ import pytest
 
 import talaria
 from talaria import cli
+from talaria.shell import Result
 from tests.fakes import make_test_ctx
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -71,6 +72,21 @@ def test_login_link_prints_the_link_with_the_bind_ip(tmp_path, monkeypatch, caps
                                       "Through an SSH tunnel, open it as http://127.0.0.1:25297/... instead (rest of the link unchanged).\n")
     assert ctx.sh.called("podman", "exec", "clawvisor", "/clawvisor-server", "dashboard",
                          "--no-open")
+
+
+def test_login_link_runs_podman_from_root(tmp_path, monkeypatch):
+    """The service user may not be able to enter the caller's cwd; podman would fail."""
+    import os
+    import sys
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    seen = []
+    ctx.sh.on("podman", "exec", out="Open: http://localhost:25297/x\n",
+              fn=lambda argv, input: (seen.append(os.getcwd()),
+                                      Result(0, "Open: http://localhost:25297/x\n", ""))[1])
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    assert cli.main(["login-link"], make=lambda: ctx) == 0
+    assert seen == ["/"]
 
 
 def test_login_link_rewrites_the_published_port_too(tmp_path, monkeypatch, capsys):
@@ -152,4 +168,4 @@ def test_versions_agree():
     import re
     py = re.search(r'^version = "([^"]+)"', (ROOT / "pyproject.toml").read_text(), re.M)[1]
     lock = re.search(r'name = "talaria"\nversion = "([^"]+)"', (ROOT / "uv.lock").read_text())[1]
-    assert py == lock == talaria.__version__ == "0.5.0"
+    assert py == lock == talaria.__version__ == "0.5.1"

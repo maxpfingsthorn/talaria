@@ -30,7 +30,7 @@ ENV = ["CONFIG_FILE=/data/config.yaml", "SERVER_HOST=0.0.0.0", "DATABASE_DRIVER=
        "CLAWVISOR_RELAY_KEY_FILE=/data/daemon-ed25519.key",
        "CLAWVISOR_RELAY_E2E_KEY_FILE=/data/daemon-x25519.key",
        "CLAWVISOR_DAEMON_DATA_DIR=/data", "CLAWVISOR_CONTAINER=1", "MAX_USERS=1",
-       "CLAWVISOR_AUTO_UPDATE_ENABLED=false"]
+       "CLAWVISOR_AUTO_UPDATE_ENABLED=false", "HOME=/tmp"]
 
 
 def migrations(db) -> list[str]:

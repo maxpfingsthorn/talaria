@@ -95,6 +95,7 @@ def login_link(ctx) -> int:
     if not sys.stdout.isatty():
         print("run this in your own terminal", file=sys.stderr)
         return 1
+    os.chdir("/")  # podman fails if the service user cannot enter the caller's cwd
     try:
         r = ctx.sh.run(["podman", "exec", ctx.app.container, "/clawvisor-server",
                         "dashboard", "--no-open"], check=False, timeout=30)

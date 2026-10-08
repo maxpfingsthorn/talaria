@@ -623,7 +623,7 @@ def test_quadlet(tmp_path):
     q = units.render_quadlet(ctx)
     for line in ("Image=localhost/clawvisor:current", "ReadOnly=true",
                  "UserNS=keep-id:uid=65532,gid=65532", f"Volume={ctx.conf.data_dir}:/data:Z",
-                 "PublishPort=100.64.0.1:25297:25297", "Environment=CLAWVISOR_AUTO_UPDATE_ENABLED=false",
+                 "PublishPort=100.64.0.1:25297:25297", "Environment=CLAWVISOR_AUTO_UPDATE_ENABLED=false", "Environment=HOME=/tmp",
                  f"EnvironmentFile={ctx.paths.app_env}"):
         assert f"\n{line}\n" in q
 
