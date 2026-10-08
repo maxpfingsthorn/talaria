@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 580" width="880" height="580" role="img" aria-labelledby="t d">
+  <title id="t">How Talaria's accounts fit together</title>
+  <desc id="d">One host. You, the operator, run setup and may sudo to the hub and to each app account. The hub account talaria runs the only Telegram bot and the daily timer and reaches each app account (hermes, clawvisor) only through sudo -u APP talaria op. Each app account runs its own rootless podman container. The Hermes container reaches the Clawvisor container through a published host address.</desc>
+  <style>
+    text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1f2328; font-size: 14px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+    .muted { fill: #59636e; }
+    .title { font-weight: 600; font-size: 15px; }
+    .small { font-size: 12.5px; }
+    .bg { fill: #ffffff; }
+    .frame { fill: none; stroke: #d0d7de; stroke-width: 1.5; stroke-dasharray: 6 4; }
+    .hub, .tg { fill: #ddf4ff; stroke: #0969da; stroke-width: 1.5; }
+    .op { fill: #fff8c5; stroke: #9a6700; stroke-width: 1.5; }
+    .app { fill: #f6f8fa; stroke: #8c959f; stroke-width: 1.5; }
+    .pod { fill: #dafbe1; stroke: #1a7f37; stroke-width: 1.5; }
+    .arrow { stroke: #57606a; stroke-width: 1.6; fill: none; }
+    .link { stroke: #bf3989; stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; }
+    .head { fill: #57606a; }
+    .headl { fill: #bf3989; }
+    .linktext { fill: #bf3989; }
+    @media (prefers-color-scheme: dark) {
+      text { fill: #e6edf3; }
+      .muted { fill: #9198a1; }
+      .bg { fill: #0d1117; }
+      .frame { stroke: #3d444d; }
+      .hub, .tg { fill: #0c2d6b; stroke: #4493f8; }
+      .op { fill: #3b2300; stroke: #d29922; }
+      .app { fill: #151b23; stroke: #656c76; }
+      .pod { fill: #0f2e1b; stroke: #3fb950; }
+      .arrow { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+      .link { stroke: #db61a2; }
+      .headl, .linktext { fill: #db61a2; }
+    }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="head"/>
+    </marker>
+    <marker id="l" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" class="headl"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="880" height="580" rx="12"/>
+
+  <!-- Telegram -->
+  <rect class="tg" x="485" y="16" width="220" height="40" rx="20"/>
+  <text x="595" y="41" text-anchor="middle">Telegram · your one bot</text>
+  <line class="arrow" x1="595" y1="58" x2="595" y2="114" marker-start="url(#a)" marker-end="url(#a)"/>
+
+  <!-- host -->
+  <rect class="frame" x="20" y="84" width="840" height="476" rx="12"/>
+  <text x="36" y="106" class="muted small">host (one machine)</text>
+
+  <!-- operator -->
+  <rect class="op" x="60" y="116" width="250" height="118" rx="10"/>
+  <text x="80" y="142" class="title">you — operator account</text>
+  <text x="80" y="166" class="small">run <tspan class="mono">bin/talaria setup</tspan></text>
+  <text x="80" y="188" class="small muted">may sudo to the hub and each app</text>
+  <text x="80" y="210" class="small muted">root: one paste per new account</text>
+
+  <!-- operator to hub -->
+  <line class="arrow" x1="312" y1="175" x2="368" y2="175" marker-end="url(#a)"/>
+  <text x="340" y="167" text-anchor="middle" class="small muted">setup</text>
+
+  <!-- hub -->
+  <rect class="hub" x="370" y="116" width="450" height="118" rx="10"/>
+  <text x="390" y="142" class="title">talaria — hub account</text>
+  <text x="390" y="166" class="mono">talaria-telegram.service</text>
+  <text x="600" y="166" class="small muted">the bot, holds the token</text>
+  <text x="390" y="190" class="mono">talaria-check.timer</text>
+  <text x="600" y="190" class="small muted">daily check, every app</text>
+  <text x="390" y="220" class="small muted">no app data · runs only <tspan class="mono">talaria op</tspan> as each app</text>
+
+  <!-- hub to apps -->
+  <path class="arrow" d="M430,234 V262 H210 V292" marker-end="url(#a)"/>
+  <text x="222" y="256" class="mono">sudo -u hermes talaria op …</text>
+  <line class="arrow" x1="670" y1="234" x2="670" y2="292" marker-end="url(#a)"/>
+  <text x="682" y="268" class="mono">sudo -u clawvisor …</text>
+
+  <!-- hermes -->
+  <rect class="app" x="60" y="294" width="300" height="190" rx="10"/>
+  <text x="80" y="320" class="title">hermes — app account</text>
+  <rect class="pod" x="80" y="334" width="260" height="86" rx="8"/>
+  <text x="96" y="356" class="small muted">rootless podman</text>
+  <text x="96" y="380" class="mono">hermes.service (Quadlet)</text>
+  <text x="96" y="404" class="small">dashboard :9119</text>
+  <text x="80" y="446" class="small muted">data · state · backups · lock</text>
+  <text x="80" y="468" class="small muted">its own Talaria install</text>
+
+  <!-- clawvisor -->
+  <rect class="app" x="520" y="294" width="300" height="190" rx="10"/>
+  <text x="540" y="320" class="title">clawvisor — app account</text>
+  <rect class="pod" x="540" y="334" width="260" height="86" rx="8"/>
+  <text x="556" y="356" class="small muted">rootless podman</text>
+  <text x="556" y="380" class="mono">clawvisor.service (Quadlet)</text>
+  <text x="556" y="404" class="small">dashboard + MCP :25297</text>
+  <text x="540" y="446" class="small muted">data · state · backups · lock</text>
+  <text x="540" y="468" class="small muted">its own Talaria install</text>
+
+  <!-- container to container -->
+  <line class="link" x1="340" y1="388" x2="536" y2="388" marker-end="url(#l)"/>
+  <text x="440" y="378" text-anchor="middle" class="mono linktext">clawvisor:25297</text>
+  <text x="440" y="406" text-anchor="middle" class="small muted">via host address</text>
+  <text x="440" y="514" text-anchor="middle" class="small muted">The host address is a dummy NIC, Tailscale or loopback (see Clawvisor below);</text>
+  <text x="440" y="534" text-anchor="middle" class="small muted">podman networks cannot cross accounts.</text>
+</svg>

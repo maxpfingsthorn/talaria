@@ -25,6 +25,15 @@ does not cover the git-based `hermes update` path.
 Talaria is an independent project and is not affiliated with or endorsed by Nous
 Research.
 
+## How it fits together
+
+![One host: you (the operator) run setup; the hub account talaria runs the only bot and reaches each app account only through sudo and talaria op; each app account runs its own rootless podman container; Hermes reaches Clawvisor through a published host address.](docs/accounts.svg)
+
+Each app runs in its own account with its own rootless podman, data and backups. The hub
+account holds the only bot token and no app data; it can run nothing but `talaria op` as
+each app. Podman networks cannot cross accounts, so containers reach each other only
+through a published host address (see [Clawvisor](#clawvisor)).
+
 ## Requirements
 
 - Linux with systemd user units and linger (tested on Ubuntu 24.04).
