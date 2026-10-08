@@ -111,6 +111,9 @@ def login_link(ctx) -> int:
     # that on ctx.conf.dashboard_port, which can differ -- rewrite both host and port.
     # One line per published address; the token appears only in these lines.
     port = ctx.conf.dashboard_port
+    public = ctx.conf.dashboard_public_url
+    if public:
+        print(re.sub(r"http://localhost:\d+", lambda _: public, r.stdout.strip()))
     for ip in ctx.conf.bind_ips:
         print(re.sub(r"http://localhost:\d+", f"http://{ip}:{port}", r.stdout.strip()))
     ts = ctx.conf.tailscale_ip if "tailscale" in ctx.conf.dashboard_bind.split() else None

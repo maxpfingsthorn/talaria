@@ -25,7 +25,7 @@ def test_defaults_without_files(tmp_path):
 
 def test_conf_file_and_env(tmp_path):
     p = Paths(tmp_path)
-    p.conf_dir.mkdir(parents=True)
+    p.conf_dir.mkdir(parents=True, exist_ok=True)
     p.conf_file.write_text(
         "data_dir = ~/data\n"
         "dashboard.bind = tailscale\n"
@@ -47,7 +47,7 @@ def test_conf_file_and_env(tmp_path):
 
 def test_unknown_key_is_an_error(tmp_path):
     p = Paths(tmp_path)
-    p.conf_dir.mkdir(parents=True)
+    p.conf_dir.mkdir(parents=True, exist_ok=True)
     p.conf_file.write_text("nope = 1\n")
     try:
         load_conf(p)
@@ -117,7 +117,7 @@ def test_repo_and_hermes_repo_together_is_an_error(tmp_path):
 
 def _conf_with(tmp_path, text):
     p = Paths(tmp_path)
-    p.conf_dir.mkdir(parents=True)
+    p.conf_dir.mkdir(parents=True, exist_ok=True)
     p.conf_file.write_text(text)
     return p
 
@@ -158,3 +158,23 @@ def test_duplicate_after_resolving_tailscale_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="twice"):
         load_conf(_conf_with(tmp_path, "tailscale_ip = 100.64.0.9\n"
                                        "dashboard.bind = tailscale 100.64.0.9\n"))
+
+
+def test_public_url_defaults_to_empty_and_drops_a_trailing_slash(tmp_path):
+    assert load_conf(_conf_with(tmp_path / "a", "")).dashboard_public_url == ""
+    c = load_conf(_conf_with(tmp_path / "b", "dashboard.public_url = https://h.tail1.ts.net/\n"))
+    assert c.dashboard_public_url == "https://h.tail1.ts.net"
+
+
+@pytest.mark.parametrize("url", ["https://h.ts.net:8443", "http://127.0.0.1:9", "http://localhost"])
+def test_public_url_accepts(tmp_path, url):
+    assert load_conf(_conf_with(tmp_path, f"dashboard.public_url = {url}\n")
+                     ).dashboard_public_url == url
+
+
+@pytest.mark.parametrize("url", ["http://h.ts.net", "ftp://x", "https://h.ts.net/dash",
+                                 "https://", "https://u@h.ts.net", "http://127.0.0.2",
+                                 "https://h.ts.net?x=1", "h.ts.net", "https://h.ts.net//"])
+def test_public_url_rejects(tmp_path, url):
+    with pytest.raises(ValueError, match="dashboard.public_url"):
+        load_conf(_conf_with(tmp_path, f"dashboard.public_url = {url}\n"))

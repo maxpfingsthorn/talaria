@@ -41,6 +41,8 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
     **Never run this command yourself and never show its output in chat, a ticket, or
     anywhere else it could be logged.** Tell the person to run `talaria login-link`
     themselves, in their own terminal, as the service user, and use the link directly.
+    The dashboard must be opened over HTTPS or an SSH tunnel to `http://127.0.0.1:<port>`
+    (plain http to another address logs out at once); see the README's Clawvisor section.
 11. For a Clawvisor install that Hermes must reach, ask the person which networking
     option from the README's Clawvisor section to use: dummy NIC (recommended; needs
     root, so the person runs that snippet), Tailscale, or host loopback (no root, but

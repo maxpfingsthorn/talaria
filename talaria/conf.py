@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+from urllib.parse import urlsplit
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -39,6 +40,7 @@ class Conf:
     talaria_repo: str = "https://github.com/maxpfingsthorn/talaria"
     dashboard_bind: str = "loopback"
     dashboard_port: int = 9119
+    dashboard_public_url: str = ""    # only shown by login-link
     tailscale_ip: str = ""
     host_loopback: bool = False
     backup_keep: int = 5
@@ -77,6 +79,7 @@ _KEYS = {
     "data_dir": ("data_dir", "path"), "app": ("app", str), "image": ("image", str),
     "repo": ("repo", str), "hermes_repo": ("repo", str), "talaria_repo": ("talaria_repo", str),
     "dashboard.bind": ("dashboard_bind", str), "dashboard.port": ("dashboard_port", int),
+    "dashboard.public_url": ("dashboard_public_url", str),
     "tailscale_ip": ("tailscale_ip", str), "host_loopback": ("host_loopback", "bool"),
     "backup.keep": ("backup_keep", int),
     "backup.exclude": ("backup_exclude", "list"), "add_hosts": ("add_hosts", "list"),
@@ -121,6 +124,22 @@ def check_bind(value: str, where, tailscale_ip: str = "") -> None:
         seen.append(r)
 
 
+def check_public_url(value: str, where) -> str:
+    """dashboard.public_url: https://host[:port] or http://127.0.0.1 / http://localhost,
+    no path; a trailing slash is dropped. Empty means not set."""
+    url = value[:-1] if value.endswith("/") else value
+    if url:
+        u = urlsplit(url)
+        ok = (u.scheme == "https" and u.hostname) or \
+             (u.scheme == "http" and u.hostname in ("127.0.0.1", "localhost"))
+        if not ok or u.path or u.query or u.fragment or u.username or u.password \
+                or any(c.isspace() for c in url):
+            raise ValueError(f"dashboard.public_url must be https://<host> or "
+                             f"http://127.0.0.1 / http://localhost, without a path, "
+                             f"got {value!r} in {where}")
+    return url
+
+
 def _as_path(paths, v: str) -> Path:
     return paths.home / v[2:] if v.startswith("~/") else Path(v)
 
@@ -149,6 +168,7 @@ def load_conf(paths) -> Conf:
     from talaria import apps
     app = apps.get(conf.app)
     check_bind(conf.dashboard_bind, paths.conf_file, conf.tailscale_ip)
+    conf.dashboard_public_url = check_public_url(conf.dashboard_public_url, paths.conf_file)
     if paths.conf_file.exists() and conf.backup_keep < 1:
         # retention would delete the undo backup it just made
         raise ValueError(f"backup.keep must be at least 1 in {paths.conf_file}")

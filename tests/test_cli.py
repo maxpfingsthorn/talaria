@@ -169,3 +169,16 @@ def test_versions_agree():
     py = re.search(r'^version = "([^"]+)"', (ROOT / "pyproject.toml").read_text(), re.M)[1]
     lock = re.search(r'name = "talaria"\nversion = "([^"]+)"', (ROOT / "uv.lock").read_text())[1]
     assert py == lock == talaria.__version__ == "0.5.2"
+
+
+def test_login_link_prints_the_public_url_first(tmp_path, monkeypatch, capsys):
+    import sys
+    ctx = make_test_ctx(tmp_path, app="clawvisor", dashboard_public_url="https://h.ts.net")
+    ctx.sh.on("podman", "exec", out="Open this link: http://localhost:25297/login?token=abc\n")
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    assert cli.main(["login-link"], make=lambda: ctx) == 0
+    assert capsys.readouterr().out == (
+        "Open this link: https://h.ts.net/login?token=abc\n"
+        "Open this link: http://127.0.0.1:25297/login?token=abc\n"
+        "Through an SSH tunnel, open it as http://127.0.0.1:25297/... instead "
+        "(rest of the link unchanged).\n")
