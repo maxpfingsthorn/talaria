@@ -70,8 +70,8 @@ def test_login_link_prints_the_link_with_the_bind_ip(tmp_path, monkeypatch, caps
     assert capsys.readouterr().out == (
         "Open this link: http://127.0.0.1:25297/login?token=abc\n"
                                       "Through an SSH tunnel, open it as http://127.0.0.1:25297/... instead (rest of the link unchanged).\n")
-    assert ctx.sh.called("podman", "exec", "clawvisor", "/clawvisor-server", "dashboard",
-                         "--no-open")
+    assert ctx.sh.called("podman", "exec", "-e", "HOME=/data/.login-link", "clawvisor",
+                         "/clawvisor-server", "dashboard", "--no-open")
 
 
 def test_login_link_runs_podman_from_root(tmp_path, monkeypatch):
@@ -182,3 +182,39 @@ def test_login_link_prints_the_public_url_first(tmp_path, monkeypatch, capsys):
         "Open this link: http://127.0.0.1:25297/login?token=abc\n"
         "Through an SSH tunnel, open it as http://127.0.0.1:25297/... instead "
         "(rest of the link unchanged).\n")
+
+
+def _link_ctx(tmp_path, monkeypatch, **on):
+    import sys
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.sh.on("podman", "exec", **on)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    return ctx
+
+
+def test_login_link_writes_its_own_session_file_and_removes_it(tmp_path, monkeypatch):
+    import json
+    import stat
+    ctx = _link_ctx(tmp_path, monkeypatch, out="Open: http://localhost:25297/x\n")
+    seen = {}
+    orig = ctx.sh.run
+
+    def run(argv, **kw):
+        d = ctx.conf.data_dir / ".login-link"
+        f = d / ".clawvisor" / ".local-session"
+        seen["json"] = json.loads(f.read_text())
+        seen["modes"] = [stat.S_IMODE(p.stat().st_mode) for p in (d, d / ".clawvisor", f)]
+        return orig(argv, **kw)
+    monkeypatch.setattr(ctx.sh, "run", run)
+    assert cli.main(["login-link"], make=lambda: ctx) == 0
+    assert seen["json"] == {"server_url": "http://localhost:25297", "magic_token": ""}
+    assert seen["modes"] == [0o700, 0o700, 0o600]
+    assert not (ctx.conf.data_dir / ".login-link").exists()
+    assert ctx.sh.calls[-1][:5] == ["podman", "exec", "-e", "HOME=/data/.login-link", "clawvisor"]
+
+
+@pytest.mark.parametrize("on", [dict(rc=1), dict(fn=lambda argv, input: (_ for _ in ()).throw(subprocess.TimeoutExpired(argv, 30)))])
+def test_login_link_removes_the_session_dir_on_failure(tmp_path, monkeypatch, on):
+    ctx = _link_ctx(tmp_path, monkeypatch, **on)
+    assert cli.main(["login-link"], make=lambda: ctx) == 1
+    assert not (ctx.conf.data_dir / ".login-link").exists()

@@ -176,7 +176,7 @@ Hermes's; a Clawvisor install (`app = clawvisor`) gets its own defaults for `dat
 | `image` | `docker.io/nousresearch/hermes-agent` |
 | `repo` (`hermes_repo` also accepted) | `https://github.com/NousResearch/hermes-agent` |
 | `talaria_repo` | not used since v0.5 (see the hub's `hub.conf`) |
-| `dashboard.public_url` | empty; `https://<host>` (or `http://127.0.0.1`/`http://localhost`), no path. `login-link` prints its link with this address first. Changes nothing Talaria publishes or health-checks |
+| `dashboard.public_url` | empty; `https://<host>` (or `http://127.0.0.1`/`http://localhost`), no path. `login-link` prints its link with this address first. Sets Clawvisor's `PUBLIC_URL`; changes nothing Talaria publishes or health-checks |
 | `dashboard.bind` | `loopback`; or a space-separated list of 1-3 of `loopback`, `tailscale` and private IPv4 addresses (never `0.0.0.0`, public or other `127.x` addresses). The first is the primary address (health checks); each is published |
 | `dashboard.port` | `9119` |
 | `backup.keep` | `5` |
@@ -247,6 +247,12 @@ or over HTTPS, e.g. `sudo tailscale serve --bg --https=443 http://<bind address>
 `dashboard.public_url = https://<host>.<tailnet>.ts.net` so `login-link` prints that link
 first. Plain `http://` to a Tailscale, LAN or dummy-NIC address logs you out right after
 login ("Link expired or already used").
+
+`dashboard.public_url` also becomes Clawvisor's `PUBLIC_URL` (a line in its Quadlet), which
+Google OAuth needs: the redirect URI is `<public_url>/api/oauth/callback`, see Clawvisor's
+[GOOGLE_OAUTH_SETUP.md](https://github.com/clawvisor/clawvisor/blob/main/docs/GOOGLE_OAUTH_SETUP.md).
+`login-link` does not depend on it: it hands Clawvisor a throwaway session file
+(`<data dir>/.login-link`, removed afterwards) that points at the container's own address.
 
 **1. Dummy NIC (recommended).** Only services bound to its address are exposed, but that
 holds for the host only: a neighbour on your LAN that routes `10.254.254.1` via your server,

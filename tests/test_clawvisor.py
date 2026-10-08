@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from talaria import apps, rehearse
+from talaria import apps, rehearse, units
 from talaria.conf import write_env_value
 from talaria.images import RevisionMismatch
 from tests.fakes import make_test_ctx
@@ -628,6 +628,23 @@ def test_quadlet(tmp_path):
         assert f"\n{line}\n" in q
 
 
+def test_quadlet_public_url(tmp_path):
+    from talaria.apps.clawvisor import ENV
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    plain = units.render_quadlet(ctx)
+    assert "PUBLIC_URL" not in plain
+    ctx.conf.dashboard_public_url = "https://h.ts.net"
+    q = units.render_quadlet(ctx)
+    assert "\nEnvironment=PUBLIC_URL=https://h.ts.net\nEnvironmentFile=" in q
+    assert q.replace("Environment=PUBLIC_URL=https://h.ts.net\n", "") == plain
+    assert not any(e.startswith("PUBLIC_URL") for e in ENV)
+
+
+def test_hermes_quadlet_never_gets_public_url(tmp_path):
+    ctx = make_test_ctx(tmp_path, dashboard_public_url="https://h.ts.net")
+    assert "PUBLIC_URL" not in units.render_quadlet(ctx)
+
+
 def test_quadlet_environment_keys_match_the_rehearsal_env(tmp_path):
     """The template's Environment= lines and the rehearsal's ENV list must name the same
     variables, so a rehearsal keeps testing what production actually runs with."""
@@ -640,6 +657,9 @@ def test_quadlet_environment_keys_match_the_rehearsal_env(tmp_path):
         for pair in line[len("Environment="):].split()
     }
     env_keys = {e.split("=", 1)[0] for e in ENV}
+    # PUBLIC_URL is not in the template text: it is rendered only with dashboard.public_url
+    # and deliberately absent from ENV: it sets links and the OAuth redirect, which a
+    # rehearsal on the --network=none copy never uses (see test_quadlet_public_url).
     assert template_keys == env_keys
 
 

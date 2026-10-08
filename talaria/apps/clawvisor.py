@@ -111,7 +111,7 @@ class Clawvisor(App):
     default_image = ""
     default_repo = "https://github.com/clawvisor/clawvisor"
     min_release = "v0.9.9"
-    backup_exclude = ()
+    backup_exclude = (".login-link",)   # login-link's throwaway HOME; removed after use
     can_adopt = False
 
     def is_release(self, tag: str) -> bool:

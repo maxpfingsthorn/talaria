@@ -44,7 +44,9 @@ def render_quadlet(ctx) -> str:
     return _tpl(ctx, ctx.app.quadlet_file).substitute(
         data_dir=c.data_dir, app_env=ctx.paths.app_env, publish_ports=publish,
         marker=ctx.paths.marker, wait_addr=wait, host_net=host_net,
-        add_hosts=add_hosts, title=ctx.app.title, **ctx.app.quadlet_vars(ctx))
+        add_hosts=add_hosts,
+        public_env=f"Environment=PUBLIC_URL={c.dashboard_public_url}\n" if c.dashboard_public_url else "",
+        title=ctx.app.title, **ctx.app.quadlet_vars(ctx))
 
 
 HUB_TITLE = "new"     # "Talaria: check for new releases": the hub checks every app

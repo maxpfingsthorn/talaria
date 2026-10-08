@@ -88,7 +88,7 @@ def test_conf_defaults_follow_the_app(tmp_path):
     p.conf_file.write_text("app = clawvisor\n")
     c = load_conf(p)
     assert (c.dashboard_port, c.repo, c.min_release, c.backup_exclude) == (
-        25297, "https://github.com/clawvisor/clawvisor", "v0.9.9", ())
+        25297, "https://github.com/clawvisor/clawvisor", "v0.9.9", (".login-link",))
     assert c.data_dir == tmp_path / "clawvisor-data"
 
 

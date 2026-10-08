@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import shutil
 import os
 import re
 import subprocess
@@ -98,12 +100,26 @@ def login_link(ctx) -> int:
         print("run this in your own terminal", file=sys.stderr)
         return 1
     os.chdir("/")  # podman fails if the service user cannot enter the caller's cwd
+    # The server writes ~/.clawvisor/.local-session with server_url = PUBLIC_URL when that is
+    # set, and the dashboard command posts to it; the endpoint only answers 127.0.0.1. So
+    # write our own session file (no token: the server issues the link) in a throwaway HOME.
+    tmp = ctx.conf.data_dir / ".login-link"
     try:
-        r = ctx.sh.run(["podman", "exec", ctx.app.container, "/clawvisor-server",
-                        "dashboard", "--no-open"], check=False, timeout=30)
+        sess = tmp / ".clawvisor"
+        sess.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(tmp, 0o700)
+        os.chmod(sess, 0o700)
+        fd = os.open(sess / ".local-session", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump({"server_url": f"http://localhost:{ctx.app.container_port}",
+                       "magic_token": ""}, f)
+        r = ctx.sh.run(["podman", "exec", "-e", "HOME=/data/.login-link", ctx.app.container,
+                        "/clawvisor-server", "dashboard", "--no-open"], check=False, timeout=30)
     except subprocess.TimeoutExpired:
         print("STOP: podman exec timed out", file=sys.stderr)
         return 1
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     if r.returncode != 0:
         print("STOP: could not get a login link from Clawvisor", file=sys.stderr)
         return 1
