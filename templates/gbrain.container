@@ -1,0 +1,26 @@
+# Managed by Talaria. Re-run `talaria setup` after changing talaria.conf.
+[Unit]
+Description=gbrain (managed by Talaria)
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+ContainerName=gbrain
+Image=localhost/gbrain:current
+Pull=never
+ReadOnly=true
+UserNS=keep-id:uid=65532,gid=65532
+Volume=${data_dir}:/data:Z
+Environment=HOME=/data GBRAIN_HOME=/data
+EnvironmentFile=${app_env}
+Exec=serve --http --bind 0.0.0.0 --port ${container_port} --public-url ${public_url} --enable-dcr --fail-fast --surface full
+${host_net}${publish_ports}${add_hosts}
+[Service]
+ExecCondition=/bin/sh -c 'test ! -e "${marker}"'
+${wait_addr}
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target
