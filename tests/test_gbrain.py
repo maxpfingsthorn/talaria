@@ -317,6 +317,13 @@ def test_parse_schema_reads_the_schema_check():
     assert gb.parse_schema("UPGRADE_AVAILABLE 1 2\n" + doctor(7)) == 7
 
 
+def test_parse_schema_survives_bracketed_notices_around_the_json():
+    notice = "[AGENT] why: [behavior_changes] the schema moved\n"
+    assert gb.parse_schema(notice + doctor(9)) == 9
+    assert gb.parse_schema(doctor(9) + "\n" + notice + "[/AGENT] {done}\n") == 9
+    assert gb.parse_schema('{"x": 1}\n' + notice + doctor(4)) == 4   # first dict with checks
+
+
 @pytest.mark.parametrize("out,msg", [
     (doctor(221, "warn"), "schema_version is warn: Version 221 is AHEAD"),
     ("", "doctor printed no JSON"),
@@ -324,7 +331,7 @@ def test_parse_schema_reads_the_schema_check():
     (json.dumps({"checks": []}), "doctor reports no schema_version check"),
     (json.dumps({"checks": [{"name": "schema_version", "status": "ok", "message": "fine"}]}),
      "schema_version names no version"),
-    ("[1]", "doctor reports no schema_version check"),
+    ("[1]", "doctor printed no JSON"),
 ])
 def test_parse_schema_refuses(out, msg):
     with pytest.raises(ValueError, match=msg):
@@ -661,3 +668,10 @@ def test_setup_plan_names_the_admin_token(tmp_path, capsys):
     assert setup.service_phase(ctx, args(as_service=True, plan=True)) == 0
     assert capsys.readouterr().out == ("OK: no existing gbrain found: fresh install\n"
                                        "PLAN: admin token, install units, start gbrain, verify\n")
+
+
+def test_file_sha256_streams_in_chunks(tmp_path, monkeypatch):
+    f = tmp_path / "big"
+    f.write_bytes(b"x" * (3 * (1 << 20) + 5))
+    monkeypatch.setattr(type(f), "read_bytes", lambda self: pytest.fail("read whole file"))
+    assert gb.file_sha256(f) == hashlib.sha256(b"x" * (3 * (1 << 20) + 5)).hexdigest()

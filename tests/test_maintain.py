@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import pytest
 
 from talaria import cli, lock, maintain, marker, op, state
+from talaria.shell import Result
 from tests.fakes import local_tz, make_test_ctx
 
 
@@ -175,9 +176,45 @@ def test_manual_run_ignores_the_window_and_reports_success(mctx):
     at(mctx, 14, 0)
     st = st0()
     maintain.run(mctx, st, timer=False)
-    assert mctx.hook["seen"] == [["stop"]]
+    assert mctx.hook["seen"] == [["is-active", "stop"]]
     assert mctx.notify.texts() == ["Hermes maintenance finished."]
-    assert st["maintenance"] == {"date": "2026-10-08", "ok": True}
+    assert st.get("maintenance") is None      # a manual run does not consume a night
+
+
+def test_manual_run_does_not_use_up_the_nights_window(mctx):
+    mctx.conf.maintenance_time = "23:30"
+    at(mctx, 10, 0)
+    st = st0()
+    maintain.run(mctx, st, timer=False)
+    at(mctx, 23, 40)
+    maintain.run(mctx, st, timer=True)
+    assert len(mctx.hook["seen"]) == 2
+
+
+def test_manual_run_leaves_a_stopped_app_stopped(mctx):
+    mctx.sh.on("systemctl", "--user", "is-active", out="inactive\n")
+    maintain.run(mctx, st0(), timer=False)
+    assert len(mctx.hook["seen"]) == 1
+    assert "start" not in verbs(mctx) and "stop" not in verbs(mctx)
+
+
+def stop_fails(ctx, how):
+    def fn(argv, input):
+        if how == "timeout":
+            raise subprocess.TimeoutExpired(argv, 600)
+        return Result(1, "", "Job failed")
+    ctx.sh.on("systemctl", "--user", "stop", fn=fn)
+
+
+@pytest.mark.parametrize("how", ["rc", "timeout"])
+def test_a_failing_stop_still_ends_with_a_start(mctx, how):
+    stop_fails(mctx, how)
+    st = st0()
+    maintain.run(mctx, st, timer=True)
+    assert verbs(mctx)[-2:] == ["reset-failed", "start"]
+    assert mctx.hook["seen"] == []              # the hook did not run on a running app
+    assert len(mctx.notify.sent) == 1 and mctx.notify.sent[0].untrusted
+    assert st["maintenance"]["ok"] is False
 
 
 def test_app_without_maintenance(mctx, monkeypatch):
@@ -231,3 +268,27 @@ def test_op_refuses_other_maintain_forms(argv):
     out = io.StringIO()
     assert op.main(argv, make=lambda: pytest.fail("no ctx"), out=out) == 2
     assert out.getvalue() == ""
+
+
+def test_timer_decides_due_without_the_lock_or_state_writes(mctx, routed, monkeypatch):
+    before = state.load(mctx.paths)
+    at(mctx, 14, 0)                              # outside the window
+    real = lock.op_lock
+    monkeypatch.setattr(lock, "op_lock", lambda p: pytest.fail("lock taken"))
+    assert cli.main(["maintain", "--timer"], make=lambda: mctx) == 0
+    monkeypatch.setattr(lock, "op_lock", real)
+    assert routed == [] and mctx.notify.sent == []
+    assert state.load(mctx.paths) == before
+    # inside the window the run goes through the lock as before
+    at(mctx, 3, 40)
+    assert cli.main(["maintain", "--timer"], make=lambda: mctx) == 0
+    assert routed == [(True, True)]
+
+
+def test_timer_not_due_when_the_night_is_done(mctx, routed, monkeypatch):
+    monkeypatch.setattr(lock, "op_lock", lambda p: pytest.fail("lock taken"))
+    st = st0()
+    st["maintenance"] = {"date": "2026-10-08", "ok": True}
+    state.save(mctx.paths, st)
+    assert cli.main(["maintain", "--timer"], make=lambda: mctx) == 0
+    assert routed == []

@@ -181,6 +181,11 @@ def _locked(ctx, args) -> None:
 
 def run_locked(ctx, args) -> int:
     """Run a state-changing command under the op lock; report Busy and crashes."""
+    if args.cmd == "maintain" and args.timer and ctx.app.has_maintenance:
+        # the timer ticks every 15 minutes: decide "due?" read-only, so an owner's
+        # approve/backup is not met by Busy outside the window (re-checked under the lock)
+        if maintain.timer_day(ctx, state.load(ctx.paths)) is None:
+            return 0
     try:
         with lock.op_lock(ctx.paths):
             _locked(ctx, args)

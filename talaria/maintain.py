@@ -27,6 +27,21 @@ def window_start(ctx) -> datetime | None:
     return start if now < start + WINDOW else None
 
 
+def timer_day(ctx, st: dict) -> str | None:
+    """The date of the window the timer should run now, or None when nothing is due:
+    no hook, outside the window, tonight already done, or the app is not running
+    (stopped on purpose or broken: /status says so). Read-only."""
+    if not ctx.app.has_maintenance:
+        return None
+    start = window_start(ctx)
+    if start is None:
+        return None
+    day = start.date().isoformat()
+    if (st.get("maintenance") or {}).get("date") == day:
+        return None
+    return day if service.is_active(ctx) else None
+
+
 def run(ctx, st: dict, timer: bool) -> None:
     app = ctx.app
     if not app.has_maintenance:
@@ -34,36 +49,38 @@ def run(ctx, st: dict, timer: bool) -> None:
             ctx.notify.send(Message(f"{app.title} has no maintenance."))
         return
     if timer:
-        start = window_start(ctx)
-        if start is None:
+        day = timer_day(ctx, st)
+        if day is None:
             return
-        day = start.date().isoformat()
-        if (st.get("maintenance") or {}).get("date") == day:
-            return
-        if not service.is_active(ctx):      # stopped on purpose or broken: /status says so
-            return
-    else:
-        day = local_now(ctx).date().isoformat()
+        was_active = True
+    else:                                   # a manual run neither uses up a night nor
+        day = None                          # starts an app that was stopped on purpose
+        was_active = service.is_active(ctx)
     why = interrupted(ctx, st)
     if why:
         if not timer:
             ctx.notify.send(Message(f"{app.title} maintenance not run: {why}."))
         return
-    st["maintenance"] = {"date": day, "ok": False}
-    state.save(ctx.paths, st)               # a crash below must not repeat the run tonight
-    service.stop(ctx)
+    if day:
+        st["maintenance"] = {"date": day, "ok": False}
+        state.save(ctx.paths, st)           # a crash below must not repeat the run tonight
     try:
+        if was_active:
+            service.stop(ctx)
         reason = app.maintenance(ctx)
     except Exception as e:                  # the app must come back whatever the hook did
         reason = f"{type(e).__name__}: {e}"
-    try:
-        service.start(ctx)
-        down = service.post_start_check(ctx)
-    except Exception as e:
-        down = str(e)
+    down = None
+    if was_active:
+        try:
+            service.start(ctx)
+            down = service.post_start_check(ctx)
+        except Exception as e:
+            down = str(e)
     if down:
         reason = f"{reason}; then {down}" if reason else down
-    st["maintenance"]["ok"] = reason is None
+    if day:
+        st["maintenance"]["ok"] = reason is None
     if reason:
         ctx.notify.send(Message(f"{app.title} maintenance failed. Talaria tries again next "
                                 "night.", untrusted=[("Last error", reason)]))

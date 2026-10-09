@@ -87,18 +87,30 @@ def last_line(r) -> str:
     return lines[-1][:300] if lines else f"exit {r.returncode}"
 
 
+def file_sha256(path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def parse_schema(out: str) -> int:
     """The brain's schema version from `gbrain doctor --json`; ValueError (the reason)
     unless the schema_version check is ok. Other checks (keyless warnings) do not count."""
-    starts = [i for i in (out.find("{"), out.find("[")) if i >= 0]
-    start, end = min(starts, default=-1), max(out.rfind("}"), out.rfind("]"))
-    if start < 0 or end < start:
-        raise ValueError("doctor printed no JSON")
-    try:
-        doc = json.loads(out[start:end + 1])
-    except ValueError:
-        raise ValueError("doctor printed no valid JSON") from None
-    checks = doc.get("checks") if isinstance(doc, dict) else None
+    dec, doc, i = json.JSONDecoder(), None, out.find("{")
+    while i >= 0 and doc is None:           # notices around the JSON may hold brackets
+        try:
+            obj, _ = dec.raw_decode(out, i)
+            if isinstance(obj, dict) and "checks" in obj:
+                doc = obj
+        except ValueError:
+            pass
+        i = out.find("{", i + 1)
+    if doc is None:
+        raise ValueError("doctor printed no JSON" if "{" not in out
+                         else "doctor printed no valid JSON")
+    checks = doc.get("checks")
     for c in checks if isinstance(checks, list) else []:
         if isinstance(c, dict) and c.get("name") == "schema_version":
             if c.get("status") != "ok":
@@ -208,7 +220,7 @@ class Gbrain(App):
                                        f"limit ({e})") from None
             if code != 200:
                 raise Transient(f"release assets of {tag} are not published yet")
-            got = hashlib.sha256((work / "gbrain").read_bytes()).hexdigest()
+            got = file_sha256(work / "gbrain")
             if got != want:
                 raise RevisionMismatch(f"{tag}: {ASSET} failed verification (sha256 {got[:12]}… "
                                        f"is not the published {want[:12]}…)")

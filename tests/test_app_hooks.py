@@ -1,6 +1,9 @@
+import subprocess
+
 import pytest
 
 from talaria import rehearse
+from talaria.shell import Result
 from tests.fakes import make_test_ctx
 from tests.test_rehearse import IMG, st_with_current
 from tests.test_setup import svc  # noqa: F401  (fixture)
@@ -90,6 +93,21 @@ def test_the_app_is_started_again_when_the_copy_fails(tmp_path, monkeypatch):
         raise OSError("disk full")
     monkeypatch.setattr(rehearse, "copy_data", broken)
     with pytest.raises(rehearse.Transient, match="could not copy the data dir: disk full"):
+        rehearse.rehearse(ctx, st_with_current(), "v2026.9.24", "c")
+    assert ctx.sh.calls == [sc("is-active"), sc("stop"), sc("reset-failed"), sc("start")]
+    assert seen == []
+
+
+@pytest.mark.parametrize("how", ["rc", "timeout"])
+def test_the_app_is_started_again_when_the_stop_fails(tmp_path, monkeypatch, how):
+    ctx, seen = rctx(tmp_path, monkeypatch)
+
+    def fn(argv, input):
+        if how == "timeout":
+            raise subprocess.TimeoutExpired(argv, 600)
+        return Result(1, "", "Job failed")
+    ctx.sh.on("systemctl", "--user", "stop", fn=fn)
+    with pytest.raises(rehearse.Transient, match="could not stop"):
         rehearse.rehearse(ctx, st_with_current(), "v2026.9.24", "c")
     assert ctx.sh.calls == [sc("is-active"), sc("stop"), sc("reset-failed"), sc("start")]
     assert seen == []

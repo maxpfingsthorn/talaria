@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import sqlite3
+import subprocess
 import stat
 from pathlib import Path
 
@@ -105,9 +106,12 @@ def rehearse(ctx, st: dict, tag: str, commit: str) -> None:
         # an app whose files are only consistent at rest (gbrain's PGLite) is stopped
         # for the copy; seconds of downtime
         stopped = ctx.app.copy_stopped and service.is_active(ctx)
-        if stopped:
-            service.stop(ctx)
         try:
+            if stopped:
+                try:
+                    service.stop(ctx)
+                except (CommandError, subprocess.TimeoutExpired) as e:
+                    raise Transient(f"could not stop {ctx.app.title}: {str(e)[:300]}") from None
             copy_data(data, copy, ctx.conf.backup_exclude)
         except (OSError, shutil.Error, sqlite3.Error) as e:
             raise Transient(f"could not copy the data dir: {str(e)[:300]}") from None
