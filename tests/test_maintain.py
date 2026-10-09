@@ -31,8 +31,8 @@ def st0():
 
 @pytest.fixture
 def mctx(tmp_path, monkeypatch):
-    ctx = make_test_ctx(tmp_path, maintenance_time="03:30")
-    at(ctx, 3, 40)                               # Thursday 03:40, inside 03:30-05:30
+    ctx = make_test_ctx(tmp_path, maintenance_time="01:30")
+    at(ctx, 1, 40)                               # Thursday 01:40, inside 01:30-03:30
     ctx.sh.on("systemctl").on("systemctl", "--user", "is-active", out="active\n")
     monkeypatch.setattr(ctx.app, "has_maintenance", True)
     ctx.hook = {"reason": None, "exc": None, "down": None, "seen": []}
@@ -67,8 +67,8 @@ def test_timer_runs_once_per_window(mctx):
     assert len(mctx.hook["seen"]) == 1
 
 
-@pytest.mark.parametrize("h,m,runs", [(3, 29, False), (3, 30, True), (5, 29, True),
-                                      (5, 30, False), (12, 0, False)])
+@pytest.mark.parametrize("h,m,runs", [(1, 29, False), (1, 30, True), (3, 29, True),
+                                      (3, 30, False), (12, 0, False)])
 def test_window_is_two_hours_from_maintenance_time(mctx, h, m, runs):
     at(mctx, h, m)
     maintain.run(mctx, st0(), timer=True)
@@ -90,7 +90,7 @@ def test_window_crossing_midnight_runs_once(mctx):
 
 
 def test_window_start_values(mctx):
-    assert maintain.window_start(mctx) == datetime(2026, 10, 8, 3, 30, tzinfo=timezone.utc)
+    assert maintain.window_start(mctx) == datetime(2026, 10, 8, 1, 30, tzinfo=timezone.utc)
     mctx.conf.maintenance_time = ""
     assert maintain.window_start(mctx) is None
 
@@ -280,7 +280,7 @@ def test_timer_decides_due_without_the_lock_or_state_writes(mctx, routed, monkey
     assert routed == [] and mctx.notify.sent == []
     assert state.load(mctx.paths) == before
     # inside the window the run goes through the lock as before
-    at(mctx, 3, 40)
+    at(mctx, 1, 40)
     assert cli.main(["maintain", "--timer"], make=lambda: mctx) == 0
     assert routed == [(True, True)]
 

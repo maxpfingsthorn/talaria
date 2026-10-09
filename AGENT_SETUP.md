@@ -8,12 +8,12 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
    git clone https://github.com/maxpfingsthorn/talaria && cd talaria
    git checkout "$(git tag -l 'v*' --sort=-v:refname | head -1)"
    ```
-3. **Ask the person which app this install manages — Hermes or Clawvisor — before
+3. **Ask the person which app this install manages — Hermes, Clawvisor or gbrain — before
    running anything.** Don't assume: a host can run both, each as its own install.
-   Pass `--app clawvisor` for a Clawvisor install; omit it (or pass `--app hermes`)
+   Pass `--app clawvisor` or `--app gbrain` for those installs; omit it (or pass `--app hermes`)
    for Hermes.
-4. Setup uses a dedicated service user per app, `hermes` by default (`clawvisor` by default
-   for a Clawvisor install), and one hub account per host, `talaria`, which runs the
+4. Setup uses a dedicated service user per app, `hermes` by default (`clawvisor` or `gbrain` by default
+   for those installs), and one hub account per host, `talaria`, which runs the
    Telegram bot for every app. **Confirm both names with the person first** (`--hub NAME`
    picks another hub name), then run `bin/talaria setup --plan --app APP --user NAME` and
    explain the plan in plain words. Pass the same flags on every later run. If setup reports
@@ -56,7 +56,25 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
     SSH tunnel there. With Tailscale, recommend
     `dashboard.bind = 10.254.254.1 tailscale` (dummy NIC for Hermes, Tailscale for the
     browser).
-12. **Never run `deploy`, `rollback` or `restore`.** Those are the person's decisions, made
+11a. For a gbrain install:
+    - Before the first setup, ask the person for the https address MCP connectors will use
+      and write it as `dashboard.public_url` (e.g. `https://<host>.<tailnet>.ts.net:8443`)
+      into `talaria.conf`; setup stops without it.
+    - **The agent never sees provider keys; the person adds them.** Tell the person to add
+      them (e.g. `OPENROUTER_API_KEY=…`) to `~gbrain/.config/talaria/gbrain.env` themselves,
+      in their own terminal and editor as the service user, then restart `gbrain.service`
+      (gbrain picks up a changed key only after a restart). Never read, print, `cat`,
+      `grep` or copy that file, and never ask for a key in the chat. The same file holds
+      the admin token (`GBRAIN_ADMIN_BOOTSTRAP_TOKEN`); the same rules apply. Model tiers
+      are gbrain's own config (`gbrain config`); with a non-Anthropic provider the person
+      sets them to that provider's model ids (README, "gbrain").
+    - Public access is Tailscale Serve and Funnel, configured by the person as root (README:
+      "Public MCP endpoints with Tailscale Serve and Funnel"). Show the commands; never run
+      them. Explain that only the connector paths become public and that `/register` lets
+      anyone create a pending client the person must approve.
+    - The person logs in to `/admin`, adds the connectors in claude.ai or ChatGPT and
+      approves them there; local agents get scoped tokens from `/admin`.
+12. **Never run `deploy`, `rollback`, `restore` or `maintain`.** Those are the person's decisions, made
     in Telegram.
 
 Exit codes: 0 done · 10 a person must act · 1 stop or error.

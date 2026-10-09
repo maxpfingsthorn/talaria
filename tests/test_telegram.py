@@ -244,9 +244,9 @@ def test_help_text_exact():
 
 def test_update_command_spawns_the_offer(bot):
     ctx, api, b = bot
-    b.handle(upd(1, "/update v0.6.0"))
-    assert api.sent() == ["Checking what Talaria v0.6.0 would change. I will send the result."]
-    assert spawned(ctx) == [[str(ctx.paths.bin_link), "update", "v0.6.0", "--offer"]]
+    b.handle(upd(1, "/update v0.7.0"))
+    assert api.sent() == ["Checking what Talaria v0.7.0 would change. I will send the result."]
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "update", "v0.7.0", "--offer"]]
     assert ctx.sh.called("systemd-run")[0][4].startswith("--unit=talaria-update-")
 
 
@@ -268,8 +268,8 @@ def test_versions_differ(bot2):
                           "Hermes v1, running.\n\nClawvisor: " + relay.VERSIONS]
     b.handle(cb("clawvisor|ap:v0.9.10"))
     assert calls(api, "answerCallbackQuery")[0]["text"] == relay.VERSIONS
-    b.handle(upd(2, "/update v0.6.0"))
-    assert spawned(ctx) == [[str(ctx.paths.bin_link), "update", "v0.6.0", "--offer"]]
+    b.handle(upd(2, "/update v0.7.0"))
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "update", "v0.7.0", "--offer"]]
     assert ["button", "ap:v0.9.10"] not in ex(b.hub, "clawvisor").ops()
 
 
@@ -447,10 +447,10 @@ def test_button_for_an_unreachable_app(bot):
 
 def test_update_button(bot):
     ctx, api, b = bot
-    b.handle(cb("hub|up:v0.6.0"))
-    assert spawned(ctx) == [[str(ctx.paths.bin_link), "self-update", "v0.6.0"]]
+    b.handle(cb("hub|up:v0.7.0"))
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "self-update", "v0.7.0"]]
     assert calls(api, "answerCallbackQuery")[0]["text"] == "Updating"
-    assert calls(api, "editMessageReplyMarkup") == [status_markup("⬆️ Updating Talaria to v0.6.0…")]
+    assert calls(api, "editMessageReplyMarkup") == [status_markup("⬆️ Updating Talaria to v0.7.0…")]
 
 
 def test_status_button_tap_does_nothing(bot):

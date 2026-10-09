@@ -218,3 +218,24 @@ def cv_env(_base_env):
     seed_hub_conf(HUB)
     as_user("git", "config", "--global", "--add", "safe.directory", "*", user=user)
     return AppEnv(user=user, app="clawvisor", src=_base_env["src"], telegram=_base_env["tg"])
+
+
+@pytest.fixture(scope="session")
+def gb_env(_base_env):
+    """A third app user, gbtest, running gbrain under the same hub, from fake releases
+    (tests/e2e/fake_release.py) instead of GitHub."""
+    from tests.e2e.fake_release import FakeReleases
+    rel = FakeReleases(WORK / "www")
+    rel.publish("0.60.1.0", 1)
+    user = "gbtest"
+    r = sh(_base_env["src"] / "bin/talaria", "setup", "--dev", "--app", "gbrain",
+           "--user", user, check=False)
+    assert r.returncode == 10, r.stdout
+    sh("bash", "-c", root_block(r.stdout))
+    wait_for(lambda: bus_ready(user))
+    wait_for(lambda: bus_ready(HUB))
+    seed_hub_conf(HUB)
+    as_user("git", "config", "--global", "--add", "safe.directory", "*", user=user)
+    yield {"app": AppEnv(user=user, app="gbrain", src=_base_env["src"],
+                         telegram=_base_env["tg"]), "rel": rel}
+    rel.shutdown()

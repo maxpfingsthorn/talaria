@@ -5,6 +5,8 @@ on rootless podman. Opinionated.
 
 Setting this up with a coding agent? Point it at [`AGENT_SETUP.md`](AGENT_SETUP.md).
 
+Talaria manages Hermes, [Clawvisor](#clawvisor) and [gbrain](#gbrain), each in its own account under one bot.
+
 ## What it does
 
 - Finds new Hermes releases and pulls them, pinned by digest and checked against the
@@ -39,7 +41,7 @@ through a published host address (see [Clawvisor](#clawvisor)).
 - Linux with systemd user units and linger (tested on Ubuntu 24.04).
 - Rootless podman ≥ 4.9 with Quadlet.
 - `git`, `python3` ≥ 3.10, GNU `tar`, `gzip`, `sudo`.
-- amd64 or arm64.
+- amd64 or arm64 (gbrain: amd64 only; it publishes no arm64 Linux build).
 - Hermes ≥ v2026.6.5 (existing installs older than that are refused).
 - SELinux in enforcing mode is not supported.
 
@@ -97,7 +99,7 @@ pairing.
 - For the hub:
   - `~/.local/share/talaria` and `~/.local/bin/talaria` (the same release tag as the apps);
   - `~/.config/talaria/hub.conf` (registered apps, check time) and `.env` with the bot token;
-  - `talaria-check.timer` and `talaria-telegram.service`.
+  - `talaria-check.timer`, `talaria-maintain.timer` and `talaria-telegram.service`.
 - For the app's account:
   - `~/.local/share/talaria` (this repo at a release tag) and `~/.local/bin/talaria`;
   - `~/.config/talaria/` (`talaria.conf`, `hermes.env` with the dashboard password);
@@ -167,8 +169,9 @@ user, in your own terminal (never through an agent): `talaria login-link`.
 ## Configuration
 
 `~/.config/talaria/talaria.conf` of the service user, `key = value`. Defaults below are
-Hermes's; a Clawvisor install (`app = clawvisor`) gets its own defaults for `data_dir`,
-`dashboard.port`, `repo`, `image`, `min_release` and `backup.exclude`.
+Hermes's; a Clawvisor or gbrain install (`app = clawvisor`, `app = gbrain`) gets its own defaults
+for `data_dir`, `dashboard.port`, `repo`, `image`, `min_release`, `backup.exclude`,
+`check.days` and `maintenance.time`.
 
 | Key | Default |
 |---|---|
@@ -183,6 +186,8 @@ Hermes's; a Clawvisor install (`app = clawvisor`) gets its own defaults for `dat
 | `backup.exclude` | `.cache .npm home/.cache home/.npm backups` (`backups/config` is always kept) |
 | `disk.floor_gb` | `6` |
 | `check.time` | not used since v0.5 (see the hub's `hub.conf`) |
+| `check.days` | every day (gbrain: `mon thu`); space-separated `mon` … `sun`: the days the hub's daily timer looks for this app's releases. `/check` always looks. Empty = every day |
+| `maintenance.time` | none (gbrain: `01:30`); `HH:MM` local time: start of a two-hour window in which Talaria runs the app's maintenance once (gbrain: `gbrain dream`). Empty turns it off |
 | `host_loopback` | `false` (`true`: the container may reach the host's loopback at `10.0.2.2`; needs `slirp4netns`) |
 | `add_hosts` | (none; space-separated `name:ip` pairs, e.g. `clawvisor:10.254.254.1`) |
 
@@ -322,6 +327,110 @@ Google OAuth login (it needs an https redirect) is out of scope; use the one-tim
 login link instead. Adopting an existing Clawvisor install is also out of scope —
 only a fresh install is supported.
 
+## gbrain
+
+Talaria can manage [gbrain](https://github.com/garrytan/gbrain), an agent memory "brain"
+with an MCP server, the way it manages Hermes and Clawvisor. That covers release
+detection, a rehearsal on a copy, Telegram approval, backup, deploy, verify, and
+rollback of image and data together. gbrain runs in its own service account under the
+same bot:
+
+```bash
+bin/talaria setup --plan --app gbrain --user gbrain
+bin/talaria setup --app gbrain --user gbrain
+```
+
+- **`dashboard.public_url` is required.** It is the https address MCP connectors use,
+  port included, for example `dashboard.public_url = https://<host>.<tailnet>.ts.net:8443`.
+  It becomes gbrain's `--public-url`, which is its OAuth issuer. Setup stops without it.
+- **Image.** gbrain publishes no container image. Talaria downloads the release's
+  `gbrain-linux-x64` and checks its SHA-256 against the digest GitHub publishes for that
+  asset. When `gh` is installed and logged in for the service account, Talaria also checks
+  the build provenance (`gh attestation verify`). Otherwise setup prints a `NOTE` and only
+  the digest is checked. Talaria then builds a local image from a pinned distroless base.
+- **Storage.** gbrain keeps its data in PGLite (embedded Postgres) in `~gbrain/gbrain-data`,
+  mode 0700, because some PGLite files inside it are world-readable. Only one process can
+  open the brain at a time. Rehearsal copies, backups and maintenance therefore stop the
+  server for a moment. The rehearsal never starts the new server: it runs
+  `gbrain doctor --json` (schema version) and recalls a marker page that setup wrote, on
+  the copy, offline and without your keys.
+- **Admin token.** Setup generates `GBRAIN_ADMIN_BOOTSTRAP_TOKEN` in
+  `~gbrain/.config/talaria/gbrain.env` (mode 0600), and you log in to `/admin` with it.
+  Treat it like a password: never paste it into a chat or an agent's context.
+- **Provider keys** (embeddings, synthesis, the dream cycle) are yours to add, in your own
+  terminal as the service user: put them in the app env file
+  `~<user>/.config/talaria/gbrain.env`, for example `OPENROUTER_API_KEY=…` (or
+  `OPENAI_API_KEY=…`, `ANTHROPIC_API_KEY=…`, any provider gbrain supports), then run
+  `systemctl --user restart gbrain.service`. gbrain picks up a changed key only after a
+  restart. Talaria never asks for provider keys and never prints them.
+- **Model tiers** (utility, reasoning, deep, subagent) are gbrain's own configuration
+  (`gbrain config`), not Talaria's. gbrain's defaults call Anthropic directly, so with
+  another provider set the tiers to that provider's model ids. To choose embedding models
+  for an existing brain, stop gbrain first, because the command needs the brain to itself.
+  As the service user:
+
+  ```bash
+  systemctl --user stop gbrain.service
+  podman run --rm --read-only --userns=keep-id:uid=65532,gid=65532 \
+    -v ~/gbrain-data:/data:Z -e HOME=/data -e GBRAIN_HOME=/data \
+    --env-file ~/.config/talaria/gbrain.env localhost/gbrain:current \
+    embeddings enable --embedding-model <provider:model>
+  systemctl --user start gbrain.service
+  ```
+- **Update cadence.** gbrain releases several times a day. By default
+  (`check.days = mon thu`) the daily timer looks for a gbrain release twice a week.
+  `/check gbrain` looks at any time.
+- **Nightly maintenance.** Each night, from `maintenance.time` (default `01:30`, local
+  time), Talaria stops gbrain, runs `gbrain dream` once in a one-off container, and starts
+  gbrain again. The dream cycle has network access and your provider keys; without keys it
+  runs only its file-based phases. Expect minutes of downtime. The run is skipped while
+  another Talaria operation runs or a change is interrupted. Success is silent. A failure
+  sends one message, and the next night retries. The hub's `talaria-maintain.timer` checks
+  every 15 minutes whether a window is due. `maintenance.time =` (empty) turns
+  maintenance off.
+- Out of scope: Postgres, gbrain's autopilot daemon, adopting an existing gbrain install,
+  and gbrain's own `self-upgrade` (Talaria turns its update checks off).
+
+### Who reaches what
+
+| Path | Who | Where |
+|---|---|---|
+| `/mcp`, `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource` (and `…/mcp`), `/authorize`, `/token`, `/register`, `/revoke` | cloud MCP connectors (claude.ai, ChatGPT) | public, port 8443 |
+| everything, including `/admin` and `/metrics` | you, and local agents on the host or tailnet | tailnet only, port 10000 (or the published address) |
+
+Cloud connectors use OAuth: they register themselves (dynamic client registration) and
+you approve each one in `/admin`. **With registration open, anyone who reaches
+`/register` can create a client.** It stays *pending*, and nothing is granted until you
+approve it. Approve only clients you just added yourself. Local agents (Hermes, Claude
+Code, Codex) get scoped tokens that you mint in `/admin`, and use the tailnet port or the
+published address.
+
+A connector's consent link points at the public port (`https://<host>.<tailnet>.ts.net:8443/admin/?oauth_request=…`),
+which does not serve `/admin`. Open the same link with port `10000` instead of `8443` to
+approve it over your tailnet.
+
+### Public MCP endpoints with Tailscale Serve and Funnel
+
+Talaria does not configure Tailscale. For any app with a public MCP endpoint, publish the
+app on loopback (`dashboard.bind = loopback`, the default) or on its Tailscale address.
+Then, as root, once (`<port>` is the app's `dashboard.port`, 3131 for gbrain):
+
+```bash
+# public: exactly the connector paths, on 8443
+for p in /mcp /.well-known/oauth-authorization-server /.well-known/oauth-protected-resource \
+         /authorize /token /register /revoke; do
+  tailscale funnel --bg --https=8443 --set-path "$p" "http://127.0.0.1:<port>$p"
+done
+# tailnet only: the whole server, including its admin UI, on 10000
+tailscale serve --bg --https=10000 http://127.0.0.1:<port>
+tailscale funnel status
+```
+
+Funnel must be allowed for the node in your tailnet policy, and it only works on ports
+443, 8443 and 10000. **Funnel applies per port: never funnel a port that also serves a
+private app.** `tailscale funnel status` should list only the paths above as public.
+Set `dashboard.public_url = https://<host>.<tailnet>.ts.net:8443` and run setup again.
+
 ## Security
 
 | Party | Trust |
@@ -332,6 +441,7 @@ only a fresh install is supported.
 | Upstream images and their output | untrusted beyond digest and revision checks |
 | This repository | trusted as cloned; install from the canonical URL at a tag |
 | The hub account (`talaria`) | holds the bot token; may run only `talaria op …` as each app |
+| gbrain's public connector paths (Tailscale Funnel) | untrusted; DCR clients stay pending until you approve them in /admin |
 
 - The agent cannot reach the updater: Talaria's files are outside the container's only
   mount, and the container sees only its data and the dashboard password.
@@ -417,7 +527,7 @@ bot is not left polling alongside the hub's; and it stops if the old bot is stil
 As the hub (`talaria`):
 
 ```bash
-systemctl --user disable --now talaria-check.timer talaria-telegram.service
+systemctl --user disable --now talaria-check.timer talaria-maintain.timer talaria-telegram.service
 rm ~/.config/systemd/user/talaria-*
 rm -r ~/.local/share/talaria ~/.local/bin/talaria ~/.config/talaria
 systemctl --user daemon-reload
@@ -447,7 +557,7 @@ supplies everything that differs between the apps Talaria can manage: release
 discovery and image fetch, health and data-version checks, quadlet template
 variables, secret setup and the texts shown to you. `ctx.app` is the adapter in
 use; `talaria.apps.get(name)` looks one up by the `app` key in `talaria.conf`.
-`talaria/apps/hermes.py` and `talaria/apps/clawvisor.py` are the adapters today.
+`talaria/apps/hermes.py`, `talaria/apps/clawvisor.py` and `talaria/apps/gbrain.py` are the adapters today. `talaria/maintain.py` (app side) and `talaria/hubmaintain.py` (hub timer) run maintenance windows.
 
 One hub account per host runs the Telegram bot and the daily timer (`talaria/telegram.py`,
 `talaria/hubcheck.py`, `talaria/hubupdate.py`); `hub.conf` makes an account the hub

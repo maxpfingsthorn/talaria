@@ -66,14 +66,14 @@ def test_registry_and_attributes():
         "~/gbrain-data", 3131, 3131, GH, "v0.60.116.0", (), False)
     assert (a.has_maintenance, a.copy_stopped, a.default_check_days,
             a.default_maintenance_time, a.prepare_summary, a.before_start_error) == (
-        True, True, ("mon", "thu"), "03:30", "admin token", "the brain check before start failed")
+        True, True, ("mon", "thu"), "01:30", "admin token", "the brain check before start failed")
 
 
 def test_conf_defaults(tmp_path):
     c = load_conf(Paths(tmp_path, "gbrain"))
     assert (c.data_dir, c.dashboard_port, c.repo, c.min_release, c.check_days,
             c.maintenance_time, c.backup_exclude) == (
-        tmp_path / "gbrain-data", 3131, GH, "v0.60.116.0", ("mon", "thu"), "03:30", ())
+        tmp_path / "gbrain-data", 3131, GH, "v0.60.116.0", ("mon", "thu"), "01:30", ())
 
 
 def test_release_tags_have_four_numbers():

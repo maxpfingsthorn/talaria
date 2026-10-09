@@ -158,7 +158,7 @@ class Gbrain(App):
     copy_stopped = True               # PGLite's files are consistent only at rest (spike §8)
     has_maintenance = True            # gbrain dream
     default_check_days = ("mon", "thu")   # several releases a day (spec §5.1)
-    default_maintenance_time = "03:30"
+    default_maintenance_time = "01:30"
 
     def is_release(self, tag: str) -> bool:
         return bool(TAG.match(tag))

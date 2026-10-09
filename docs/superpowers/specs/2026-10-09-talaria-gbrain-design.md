@@ -96,7 +96,7 @@ adapter may supply a default (gbrain: `mon thu`).
 
 ### 5.2 Maintenance window
 New optional adapter hook `maintenance(ctx)` and `talaria.conf` key
-`maintenance.time` (gbrain default `03:30`; empty disables). The hub's timer runs
+`maintenance.time` (gbrain default `01:30`; the window plus the dream timeout of 1 h ends before the default check.time 04:30; empty disables). The hub's timer runs
 `op maintain` for apps with a hook at their time (a second hub timer, or the existing
 timer firing more often — the plan decides). `op maintain` runs under the app's op lock
 (never concurrent with deploy/rollback/backup): stop the service, run the hook (gbrain:

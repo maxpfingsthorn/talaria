@@ -32,7 +32,7 @@
 - R15. **Tailscale docs** use one `tailscale funnel --bg --https=8443 --set-path <p> http://127.0.0.1:<port><p>` per public path, instead of spec §5.3's "`serve …` + `funnel --bg 8443`". In the current CLI a bare port argument is a proxy *target*, not "turn funnel on for this port". The tailnet-only port is `tailscale serve --bg --https=10000 http://127.0.0.1:<port>`.
 - R16. **e2e order**: `test_e2e.py`, `test_e2e_clawvisor.py`, `test_e2e_gbrain.py`, `test_e2e_hub.py`. The hub's test_03 stops the main hub's bot, so gbrain must run before it.
 - R17. **One-off containers** are named `talaria-gbrain-oneoff` and are removed (`rm -f`) before and after each run. Timeouts: dream 3600 s, everything else 300 s.
-- R18. **gbrain defaults**: title `gbrain`, user `gbrain`, data `~/gbrain-data`, port 3131 (container 3131), repo `https://github.com/garrytan/gbrain`, `min_release = v0.60.116.0`, `check.days = mon thu`, `maintenance.time = 03:30`, `backup_exclude = ()`, `can_adopt = False`, amd64 only.
+- R18. **gbrain defaults**: title `gbrain`, user `gbrain`, data `~/gbrain-data`, port 3131 (container 3131), repo `https://github.com/garrytan/gbrain`, `min_release = v0.60.116.0`, `check.days = mon thu`, `maintenance.time = 01:30`, `backup_exclude = ()`, `can_adopt = False`, amd64 only.
 - R19. `op` protocol stays 1: `maintain` is an additive op. An older app answers `maintain` with exit 2, which R11 keeps quiet.
 
 ## Global Constraints

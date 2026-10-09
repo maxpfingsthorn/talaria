@@ -40,10 +40,10 @@ jobs:
       - run: grep -n XDG /etc/environment || true; sudo sed -i '/^XDG_/d' /etc/environment
       - run: >-
           TALARIA_E2E=1 uv run pytest -m e2e -v -x tests/e2e/test_e2e.py
-          tests/e2e/test_e2e_clawvisor.py tests/e2e/test_e2e_hub.py
+          tests/e2e/test_e2e_clawvisor.py tests/e2e/test_e2e_gbrain.py tests/e2e/test_e2e_hub.py
       - if: failure()
         run: |
-          for u in talaria hermes cvtest hubadopt hermes2 hub2 hermes3; do
+          for u in talaria hermes cvtest gbtest hubadopt hermes2 hub2 hermes3; do
             id -u "$u" >/dev/null 2>&1 || continue
             echo "=== $u"; sudo journalctl --no-pager -n 200 _UID=$(id -u "$u") || true
             sudo -u "$u" -H ls -la "/home/$u/.local/state/talaria" || true

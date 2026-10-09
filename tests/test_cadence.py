@@ -53,9 +53,9 @@ def test_bad_values_are_errors_even_at_runtime(tmp_path, line, msg):
 def test_adapter_defaults_apply_unless_set(tmp_path, monkeypatch):
     cv = apps.get("clawvisor")
     monkeypatch.setattr(cv, "default_check_days", ("mon", "thu"))
-    monkeypatch.setattr(cv, "default_maintenance_time", "03:30")
+    monkeypatch.setattr(cv, "default_maintenance_time", "01:30")
     c = conf_with(tmp_path, "app = clawvisor\n", app="clawvisor")
-    assert (c.check_days, c.maintenance_time) == (("mon", "thu"), "03:30")
+    assert (c.check_days, c.maintenance_time) == (("mon", "thu"), "01:30")
     c = conf_with(tmp_path, "app = clawvisor\ncheck.days =\nmaintenance.time =\n", app="clawvisor")
     assert (c.check_days, c.maintenance_time) == ((), "")
 
