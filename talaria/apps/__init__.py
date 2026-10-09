@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from talaria.apps.base import App
 
-NAMES = ("hermes", "clawvisor")
+NAMES = ("hermes", "clawvisor", "gbrain")
 
 
 def get(name: str) -> App:
@@ -11,5 +11,8 @@ def get(name: str) -> App:
         return APP
     if name == "clawvisor":
         from talaria.apps.clawvisor import APP
+        return APP
+    if name == "gbrain":
+        from talaria.apps.gbrain import APP
         return APP
     raise ValueError(f"unknown app: {name!r}")

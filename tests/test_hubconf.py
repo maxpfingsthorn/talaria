@@ -49,7 +49,7 @@ def test_keys_and_secrets(tmp_path):
     ("colour = red", "unknown key in"),
     ("apps = hermes", "'hermes' is not <app>:<user>"),
     ("apps = hub:talaria", "'hub:talaria' is not <app>:<user>"),
-    ("apps = nope:x", "'nope:x' is not <app>:<user> with app one of hermes, clawvisor"),
+    ("apps = nope:x", "'nope:x' is not <app>:<user> with app one of hermes, clawvisor, gbrain"),
     ("apps = hermes:bad;name", "not a valid account name: 'bad;name'"),
     ("apps = hermes:a hermes:b", "hermes is registered twice"),
     ("apps = hermes:a clawvisor:a", "the account a is registered twice"),

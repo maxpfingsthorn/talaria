@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--user")
     s.add_argument("--adopt", metavar="UNIT")
     s.add_argument("--dev", action="store_true")
-    s.add_argument("--app", help="hermes (default) or clawvisor")
+    s.add_argument("--app", help="hermes (default), clawvisor or gbrain")
     s.add_argument("--as-service", action="store_true", help=argparse.SUPPRESS)
     s.add_argument("--hub", default="talaria", help="the hub's account (default talaria)")
     s.add_argument("--as-hub", action="store_true", help=argparse.SUPPRESS)

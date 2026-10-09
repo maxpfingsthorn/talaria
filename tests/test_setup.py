@@ -167,19 +167,19 @@ def test_operator_phase_rejects_an_unknown_app(tmp_path, capsys):
                               app="bogus")
     assert rc == 1
     assert capsys.readouterr().out == (
-        "STOP: unknown app: 'bogus'; choose one of hermes, clawvisor\n")
+        "STOP: unknown app: 'bogus'; choose one of hermes, clawvisor, gbrain\n")
 
 
 def test_setup_dispatch_rejects_an_unknown_app_before_doing_anything(capsys):
     assert setup.setup(args(app="bogus")) == 1
     assert capsys.readouterr().out == (
-        "STOP: unknown app: 'bogus'; choose one of hermes, clawvisor\n")
+        "STOP: unknown app: 'bogus'; choose one of hermes, clawvisor, gbrain\n")
 
 
 def test_setup_dispatch_rejects_an_unknown_app_as_service_too(capsys):
     assert setup.setup(args(app="bogus", as_service=True)) == 1
     assert capsys.readouterr().out == (
-        "STOP: unknown app: 'bogus'; choose one of hermes, clawvisor\n")
+        "STOP: unknown app: 'bogus'; choose one of hermes, clawvisor, gbrain\n")
 
 
 def _captured_dispatch(monkeypatch, a):
