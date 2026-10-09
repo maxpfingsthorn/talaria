@@ -9,8 +9,8 @@ import subprocess
 import sys
 import traceback
 
-from talaria import (__version__, backup, check, deploy, history, lock, rollback,
-                     service, state, status)
+from talaria import (__version__, backup, check, deploy, history, lock, maintain,
+                     rollback, service, state, status)
 from talaria.backup import ID_RE
 from talaria.ctx import make_ctx
 from talaria.notify import Message
@@ -59,6 +59,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--timer", action="store_true")
     c.add_argument("--report", action="store_true", help=argparse.SUPPRESS)    # hub: /check
     c.add_argument("--talaria", action="store_true", help=argparse.SUPPRESS)   # hub: /check talaria
+    m = sub.add_parser("maintain")
+    m.add_argument("--timer", action="store_true")
     for name in ("rehearse", "deploy", "reject"):
         sub.add_parser(name).add_argument("tag", type=_release)
     r = sub.add_parser("rollback")
@@ -151,7 +153,7 @@ def _manual_backup(ctx) -> None:
 
 def _locked(ctx, args) -> None:
     cmd = args.cmd
-    if cmd == "check" or cmd == "rehearse" or cmd == "history":
+    if cmd in ("check", "rehearse", "history", "maintain"):
         st = state.load(ctx.paths)
         try:
             if cmd == "check":
@@ -161,6 +163,8 @@ def _locked(ctx, args) -> None:
                     check.check(ctx, st)
             elif cmd == "rehearse":
                 check.rehearse_tag(ctx, st, args.tag)
+            elif cmd == "maintain":
+                maintain.run(ctx, st, args.timer)
             else:
                 history.commit(ctx, st, "manual")
         finally:
@@ -181,7 +185,7 @@ def run_locked(ctx, args) -> int:
         with lock.op_lock(ctx.paths):
             _locked(ctx, args)
     except lock.Busy:
-        if args.cmd == "check" and args.timer:
+        if args.cmd in ("check", "maintain") and getattr(args, "timer", False):
             return 0
         ctx.notify.send(Message("Busy: another operation is running. Try again in a minute."))
         return EXIT_BUSY

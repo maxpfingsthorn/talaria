@@ -17,7 +17,7 @@ from talaria.shell import CommandError
 from talaria.tags import semver_newer
 
 PROTOCOL = 1
-OPS = ("status", "backups", "check", "deploy", "reject", "rollback", "restore", "button",
+OPS = ("status", "backups", "check", "maintain", "deploy", "reject", "rollback", "restore", "button",
        "hello", "interrupted", "self-update", "quadlet")
 STALE = "Out of date — send /status"
 
@@ -59,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("status", "backups", "hello", "interrupted"):
         add(name)
     add("check").add_argument("--timer", action="store_true")
+    add("maintain").add_argument("--timer", action="store_true")
     for name in ("deploy", "reject"):
         add(name).add_argument("tag", type=cli._release)
     add("rollback").add_argument("mode", choices=("describe", "confirm"))
@@ -164,6 +165,8 @@ def _run(ctx, args, out) -> int:
                       rollback.describe_restore_buttons(ctx, args.id))
     if o == "check":
         ns = argparse.Namespace(cmd="check", timer=args.timer)
+    elif o == "maintain":
+        ns = argparse.Namespace(cmd="maintain", timer=args.timer)
     elif o == "deploy":
         ns = argparse.Namespace(cmd="deploy", tag=args.tag, timer=False)
     elif o == "rollback":
