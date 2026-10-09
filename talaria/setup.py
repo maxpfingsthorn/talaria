@@ -516,6 +516,8 @@ def service_phase(ctx, args) -> int:
         return 1
     for line in prepared:
         say("OK", line)
+    for note in ctx.app.setup_notes(ctx):
+        say("NOTE", note)
 
     if ctx.conf.dashboard_bind.split() == ["loopback"] and which("tailscale"):
         say("OK", "Tailscale found: optionally set dashboard.bind = tailscale in talaria.conf "
@@ -536,6 +538,12 @@ def service_phase(ctx, args) -> int:
                     return 1
             changed = units.install_units(ctx)
             images.retag(ctx, "current", state.load(p)["current"])
+            try:
+                for line in ctx.app.initialize(ctx):
+                    say("OK", line)
+            except ValueError as e:
+                say("STOP", str(e))
+                return 1
             if changed or not service.is_active(ctx):
                 service.stop(ctx)
                 service.start(ctx)

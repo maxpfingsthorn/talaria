@@ -6,7 +6,7 @@ import sqlite3
 import stat
 from pathlib import Path
 
-from talaria import disk
+from talaria import disk, service
 from talaria.backup import excluded
 from talaria.images import RevisionMismatch
 from talaria.notify import Message
@@ -102,10 +102,18 @@ def rehearse(ctx, st: dict, tag: str, commit: str) -> None:
     stage.mkdir(mode=0o700)
     copy = stage / "data"
     try:
+        # an app whose files are only consistent at rest (gbrain's PGLite) is stopped
+        # for the copy; seconds of downtime
+        stopped = ctx.app.copy_stopped and service.is_active(ctx)
+        if stopped:
+            service.stop(ctx)
         try:
             copy_data(data, copy, ctx.conf.backup_exclude)
         except (OSError, shutil.Error, sqlite3.Error) as e:
             raise Transient(f"could not copy the data dir: {str(e)[:300]}") from None
+        finally:
+            if stopped:
+                service.start(ctx)
         report = ctx.app.rehearse(ctx, st, image, copy, stage)
     finally:
         shutil.rmtree(stage, ignore_errors=True)
