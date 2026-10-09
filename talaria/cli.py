@@ -195,7 +195,7 @@ def run_locked(ctx, args) -> int:
         ctx.notify.send(Message("Busy: another operation is running. Try again in a minute."))
         return EXIT_BUSY
     except Exception as e:
-        traceback.print_exc(file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)  # pragma: no mutate  (stderr is the default)
         ctx.notify.send(Message(f"talaria {args.cmd} failed unexpectedly: {e}"))
         return 1
     return 0

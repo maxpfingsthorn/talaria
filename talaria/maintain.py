@@ -54,7 +54,7 @@ def run(ctx, st: dict, timer: bool) -> None:
             return
         was_active = True
     else:                                   # a manual run neither uses up a night nor
-        day = None                          # starts an app that was stopped on purpose
+        day = None  # pragma: no mutate  (falsy either way); a manual run starts no stopped app
         was_active = service.is_active(ctx)
     why = interrupted(ctx, st)
     if why:
@@ -70,7 +70,7 @@ def run(ctx, st: dict, timer: bool) -> None:
         reason = app.maintenance(ctx)
     except Exception as e:                  # the app must come back whatever the hook did
         reason = f"{type(e).__name__}: {e}"
-    down = None
+    down = None  # pragma: no mutate  (falsy either way)
     if was_active:
         try:
             service.start(ctx)

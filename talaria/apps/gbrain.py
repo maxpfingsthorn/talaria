@@ -90,7 +90,7 @@ def last_line(r) -> str:
 def file_sha256(path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
+        for chunk in iter(lambda: f.read(1 << 20), b""):   # pragma: no mutate  (read size)
             h.update(chunk)
     return h.hexdigest()
 
@@ -115,7 +115,7 @@ def parse_schema(out: str) -> int:
         if isinstance(c, dict) and c.get("name") == "schema_version":
             if c.get("status") != "ok":
                 raise ValueError(f"schema_version is {c.get('status')}: {c.get('message')}")
-            m = re.search(r"Version (\d+)", str(c.get("message") or ""))
+            m = re.search(r"Version (\d+)", str(c.get("message") or ""))  # pragma: no mutate  (any non-matching fallback)
             if not m:
                 raise ValueError(f"schema_version names no version: {c.get('message')}")
             return int(m[1])
@@ -195,7 +195,7 @@ class Gbrain(App):
                      None)
         if asset is None:
             raise Transient(f"release assets of {tag} are not published yet")
-        digest = str(asset.get("digest") or "")
+        digest = str(asset.get("digest") or "")      # pragma: no mutate  (any non-matching fallback fails the regex)
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
             raise RevisionMismatch(f"{tag}: {ASSET} failed verification (the release publishes "
                                    "no sha256 digest)")
@@ -274,7 +274,7 @@ class Gbrain(App):
         if not ctx.conf.dashboard_public_url:
             raise ValueError(NEEDS_URL)
         data = ctx.conf.data_dir
-        data.mkdir(mode=0o700, parents=True, exist_ok=True)
+        data.mkdir(mode=0o700, parents=True, exist_ok=True)  # pragma: no mutate  (chmod below sets the mode)
         os.chmod(data, 0o700)              # some PGLite files are 0644 (spike §2)
         env = parse_kv(ctx.paths.app_env.read_text()) if ctx.paths.app_env.exists() else {}
         if env.get(TOKEN_KEY):
