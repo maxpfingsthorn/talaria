@@ -155,7 +155,10 @@ def _locked(ctx, args) -> None:
         st = state.load(ctx.paths)
         try:
             if cmd == "check":
-                check.check(ctx, st)
+                if getattr(args, "timer", False) and not check.due_today(ctx):
+                    history.commit(ctx, st, "daily")      # the snapshot stays daily
+                else:
+                    check.check(ctx, st)
             elif cmd == "rehearse":
                 check.rehearse_tag(ctx, st, args.tag)
             else:

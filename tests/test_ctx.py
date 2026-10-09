@@ -154,7 +154,7 @@ def test_make_ctx_sets_app_and_paths_app_from_conf(tmp_path, monkeypatch):
     # so load_conf never has to read an attribute off the sentinel "app" object below.
     (tmp_path / ".config/talaria/talaria.conf").write_text(
         "app = other\ndata_dir = ~/x\ndashboard.port = 1\nrepo = x\nimage = x\n"
-        "min_release = x\nbackup.exclude = x\n")
+        "min_release = x\nbackup.exclude = x\ncheck.days =\nmaintenance.time =\n")
     c = ctxmod.make_ctx()
     assert c.paths.app == "other"
     assert c.app is sentinel

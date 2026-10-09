@@ -204,3 +204,8 @@ def test_quadlet_host_loopback(app):
     assert line in on and line not in off and "${" not in on
     assert on.replace(line, "") == off
     assert on.index("[Container]") < on.index(line) < on.index("[Service]")
+
+
+def test_clawvisor_quadlet_golden():
+    assert units.render_quadlet(_fixed_ctx("clawvisor")) == \
+        (GOLDEN / "default.clawvisor.container").read_text()

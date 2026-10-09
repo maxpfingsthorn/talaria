@@ -21,6 +21,10 @@ class App:
     fetch_error = "fetch failed"            # core prefix when ctx.app.fetch() raises CommandError
     before_start_error = "before_start failed"   # core prefix when ctx.app.before_start() raises
     prepare_summary = "secrets"             # what ctx.app.prepare() generates, for PLAN texts
+    copy_stopped = False                    # stop the service while the rehearsal copies its data
+    has_maintenance = False                 # the app has a maintenance() hook (spec 2026-10-09 §5.2)
+    default_check_days: tuple = ()          # talaria.conf check.days default; () = every day
+    default_maintenance_time = ""           # talaria.conf maintenance.time default; "" = none
 
     def is_release(self, tag: str) -> bool:
         raise NotImplementedError
@@ -89,3 +93,17 @@ class App:
     def initial_conf(self, ctx) -> str:
         """Contents written to a fresh talaria.conf."""
         raise NotImplementedError
+
+    def maintenance(self, ctx) -> str | None:
+        """Runs with the service stopped, under the op lock (talaria.maintain). Returns a
+        failure line (shown as untrusted text) or None."""
+        raise NotImplementedError
+
+    def initialize(self, ctx) -> list[str]:
+        """Setup, after the current image is tagged and before the start: create the app's
+        data if missing. Idempotent. Returns OK-line texts; raises ValueError to stop."""
+        return []
+
+    def setup_notes(self, ctx) -> list[str]:
+        """NOTE-line texts for setup (printed after the prepare lines)."""
+        return []

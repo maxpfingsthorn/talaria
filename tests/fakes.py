@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from talaria import apps
@@ -80,3 +83,19 @@ def make_test_ctx(tmp_path, app="hermes", **overrides) -> Ctx:
               app=apps.get(app))
     ctx.clock = clock
     return ctx
+
+
+@contextmanager
+def local_tz(name: str = "UTC"):
+    """Run with the process's local time zone set to `name` (talaria.ctx.local_now)."""
+    old = os.environ.get("TZ")
+    os.environ["TZ"] = name
+    time.tzset()
+    try:
+        yield
+    finally:
+        if old is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = old
+        time.tzset()

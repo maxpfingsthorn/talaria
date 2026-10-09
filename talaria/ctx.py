@@ -67,6 +67,11 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def local_now(ctx) -> datetime:
+    """ctx.now() in the host's local time zone (systemd timers fire in local time)."""
+    return ctx.now().astimezone()
+
+
 def http_get(url: str, timeout: float = 5.0) -> tuple[int, bytes]:
     try:
         with urllib.request.urlopen(url, timeout=timeout) as r:

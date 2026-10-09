@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 import sys
 from urllib.parse import urlsplit
 from dataclasses import dataclass, field
@@ -32,6 +33,24 @@ def _bool(v: str) -> bool:
     return v.lower() in ("1", "true", "yes", "on")
 
 
+DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+_TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def check_days(value: tuple, where) -> tuple:
+    """check.days: weekday names, any case; () means every day."""
+    out = tuple(d.lower() for d in value)
+    for d in out:
+        if d not in DAYS:
+            raise ValueError(f"check.days: {d!r} is not one of {' '.join(DAYS)} in {where}")
+    return out
+
+
+def check_time_of_day(value: str, key: str, where) -> None:
+    if value and not _TIME.match(value):
+        raise ValueError(f"{key} must be HH:MM (24-hour) or empty, got {value!r} in {where}")
+
+
 @dataclass
 class Conf:
     data_dir: Path
@@ -49,6 +68,8 @@ class Conf:
     add_hosts: tuple = ()
     disk_floor_gb: float = 6.0
     check_time: str = "04:30"
+    check_days: tuple = ()            # app: days the timer looks for releases; () = every day
+    maintenance_time: str = ""        # app: start of the maintenance window; "" = none
     # test-only keys (spec §10)
     registry_tls_verify: bool = True
     min_release: str = "v2026.6.5"
@@ -85,6 +106,7 @@ _KEYS = {
     "backup.keep": ("backup_keep", int),
     "backup.exclude": ("backup_exclude", "list"), "add_hosts": ("add_hosts", "list"),
     "disk.floor_gb": ("disk_floor_gb", float),
+    "check.days": ("check_days", "list"), "maintenance.time": ("maintenance_time", str),
     "check.time": ("check_time", str), "registry_tls_verify": ("registry_tls_verify", "bool"),
     "min_release": ("min_release", str), "settle_seconds": ("settle_seconds", int),
     "telegram_api": ("telegram_api", str),
@@ -194,6 +216,12 @@ def load_conf(paths, strict: bool = False) -> Conf:
         conf.min_release = app.min_release
     if "backup_exclude" not in seen:
         conf.backup_exclude = app.backup_exclude
+    if "check_days" not in seen:
+        conf.check_days = app.default_check_days
+    if "maintenance_time" not in seen:
+        conf.maintenance_time = app.default_maintenance_time
+    conf.check_days = check_days(conf.check_days, paths.conf_file)
+    check_time_of_day(conf.maintenance_time, "maintenance.time", paths.conf_file)
     conf.telegram_token, conf.telegram_user_id = read_telegram_env(paths.env_file)
     return conf
 

@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 from talaria import history
+from talaria.conf import DAYS
+from talaria.ctx import local_now
 from talaria.notify import Message
 from talaria.rehearse import Permanent, Transient, rehearse
 from talaria.rollback import interrupted
 from talaria.shell import CommandError
 from talaria.tags import pick_candidate, releases
+
+
+def due_today(ctx) -> bool:
+    """The timer's release check runs only on the app's check.days (empty: every day).
+    /check (no --timer) always checks."""
+    days = ctx.conf.check_days
+    return not days or DAYS[local_now(ctx).weekday()] in days
 
 
 def _run_rehearsal(ctx, st, tag: str, commit: str) -> None:

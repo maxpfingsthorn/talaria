@@ -17,6 +17,11 @@ def test_base_class_defaults():
     assert app.before_start(None, {}) == (None, [])
     assert (app.fetch_error, app.before_start_error, app.prepare_summary) == (
         "fetch failed", "before_start failed", "secrets")
+    assert (app.copy_stopped, app.has_maintenance, app.default_check_days,
+            app.default_maintenance_time) == (False, False, (), "")
+    assert app.initialize(None) == [] and app.setup_notes(None) == []
+    with pytest.raises(NotImplementedError):
+        app.maintenance(None)
 
 
 def test_hermes_overrides_the_core_wording_texts():

@@ -1,0 +1,31 @@
+# Managed by Talaria. Re-run `talaria setup` after changing talaria.conf.
+[Unit]
+Description=Clawvisor (managed by Talaria)
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+ContainerName=clawvisor
+Image=localhost/clawvisor:current
+Pull=never
+ReadOnly=true
+UserNS=keep-id:uid=65532,gid=65532
+Volume=/home/talaria-fixture/clawvisor-data:/data:Z
+Environment=CONFIG_FILE=/data/config.yaml SERVER_HOST=0.0.0.0 DATABASE_DRIVER=sqlite
+Environment=SQLITE_PATH=/data/clawvisor.db VAULT_KEY_FILE=/data/vault.key
+Environment=CLAWVISOR_RELAY_KEY_FILE=/data/daemon-ed25519.key CLAWVISOR_RELAY_E2E_KEY_FILE=/data/daemon-x25519.key
+Environment=CLAWVISOR_DAEMON_DATA_DIR=/data CLAWVISOR_CONTAINER=1 MAX_USERS=1
+Environment=CLAWVISOR_AUTO_UPDATE_ENABLED=false
+Environment=HOME=/data
+EnvironmentFile=/home/talaria-fixture/.config/talaria/clawvisor.env
+PublishPort=127.0.0.1:25297:25297
+
+[Service]
+ExecCondition=/bin/sh -c 'test ! -e "/home/talaria-fixture/.local/state/talaria/changing"'
+
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target
