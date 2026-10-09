@@ -56,6 +56,7 @@ def test_tail_keeps_the_last_lines_and_the_last_2000_chars():
     assert gb.tail(r, 3) == "line28\nline29\nerr"
     big = Result(0, "x" * 5000, "")
     assert gb.tail(big) == "x" * 2000
+    assert gb.tail(Result(0, "".join(f"l{i}\n" for i in range(30)), "")).splitlines()[0] == "l10"
 
 
 def test_last_line_prefers_stderr_then_stdout_and_cuts_at_300():
@@ -94,6 +95,8 @@ def test_redact_longest_first_and_only_values_of_four_or_more(tmp_path):
     ctx.paths.app_env.parent.mkdir(parents=True, exist_ok=True)
     ctx.paths.app_env.write_text("A=abcd\nB=abcdef\nC=xyz\n")
     assert gb._redact(ctx, "abcdef abcd xyz") == "*** *** xyz"
+    ctx.paths.app_env.write_text("A=bbbb\nB=abbbbc\n")      # longest first, not alphabetical
+    assert gb._redact(ctx, "abbbbc") == "***"
 
 
 # --- release digest and fetch -------------------------------------------------------------

@@ -279,7 +279,7 @@ class Gbrain(App):
         env = parse_kv(ctx.paths.app_env.read_text()) if ctx.paths.app_env.exists() else {}
         if env.get(TOKEN_KEY):
             return []
-        write_env_value(ctx.paths.app_env, TOKEN_KEY, _secrets.token_urlsafe(32))
+        write_env_value(ctx.paths.app_env, TOKEN_KEY, _secrets.token_urlsafe(32))  # pragma: no mutate  (token_urlsafe(None) is the same 32 bytes; length pinned by test)
         return [f"admin token generated in {ctx.paths.app_env} ({TOKEN_KEY})"]
 
     def setup_notes(self, ctx) -> list[str]:
