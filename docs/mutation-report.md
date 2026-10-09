@@ -1,57 +1,111 @@
 # Mutation testing report
 
-Date: 2026-10-07 · Commit: 1620728 + this report (v0.5.0, hub) · Tool: mutmut 3.8.0 (Python 3.12)
+Date: 2026-10-09 · Commit: fd1ff3b + this report (v0.6.0, gbrain) · Tool: mutmut 3.8.0 (Python 3.12)
 
-**Score: 96.8 %** (threshold 85 %). 9,829 mutants: 9,512 killed, 7 timeouts (counted as
-killed), 310 survived, 0 without tests, 0 suspicious. Scoring is honest:
+**Score: 96.8 %** (threshold 85 %). 11,361 mutants: 10,980 killed, 12 timeouts (counted as
+killed), 367 survived, 0 without tests, 0 suspicious. Scoring is honest:
 `tests/mutation_score.py` counts no-tests and suspicious mutants as survivors. The full run
-was made once on the final code; an earlier full run on the pre-fix code (9,971 mutants,
-94.6 %) was used to find the hub-module survivors listed below.
+was made once on the final code, after an earlier full run on the pre-fix code (11,412
+mutants, 95.9 %) that was used to find the gbrain, maintenance and routing survivors listed
+below. (mutmut keeps results of unchanged functions across runs even when tests change, so
+the `mutants/` directory was removed before each full run.)
 
 | Module | Mutants | Killed | Timeout | Survived |
 |---|---|---|---|---|
-| `talaria.setup` | 1678 | 1630 | 0 | 48 |
-| `talaria.telegram` | 826 | 825 | 1 | 0 |
-| `talaria.cli` | 654 | 599 | 0 | 55 |
+| `talaria.setup` | 1752 | 1687 | 0 | 65 |
+| `talaria.telegram` | 880 | 873 | 3 | 4 |
+| `talaria.cli` | 823 | 758 | 0 | 65 |
+| `talaria.apps.gbrain` | 751 | 748 | 3 | 0 |
 | `talaria.rollback` | 578 | 578 | 0 | 0 |
+| `talaria.op` | 574 | 574 | 0 | 0 |
 | `talaria.adopt` | 567 | 550 | 0 | 17 |
-| `talaria.op` | 553 | 553 | 0 | 0 |
 | `talaria.apps.clawvisor` | 546 | 525 | 2 | 19 |
 | `talaria.apps.hermes` | 392 | 392 | 0 | 0 |
+| `talaria.conf` | 324 | 296 | 0 | 28 |
 | `talaria.deploy` | 271 | 271 | 0 | 0 |
-| `talaria.conf` | 243 | 219 | 0 | 24 |
+| `talaria.hubupdate` | 238 | 235 | 0 | 3 |
 | `talaria.images` | 235 | 228 | 0 | 7 |
 | `talaria.notify` | 234 | 219 | 0 | 15 |
-| `talaria.hubupdate` | 222 | 222 | 0 | 0 |
-| `talaria.rehearse` | 220 | 202 | 0 | 18 |
+| `talaria.rehearse` | 228 | 210 | 0 | 18 |
+| `talaria.relay` | 223 | 214 | 0 | 9 |
 | `talaria.selfupdate` | 208 | 208 | 0 | 0 |
-| `helpers.confdiff` | 206 | 202 | 0 | 4 |
 | `talaria.backup` | 206 | 181 | 0 | 25 |
-| `talaria.hubexec` | 181 | 181 | 0 | 0 |
-| `talaria.relay` | 178 | 178 | 0 | 0 |
+| `helpers.confdiff` | 206 | 202 | 0 | 4 |
+| `talaria.hubexec` | 198 | 194 | 0 | 4 |
+| `talaria.hubcheck` | 181 | 174 | 0 | 7 |
 | `talaria.history` | 174 | 170 | 0 | 4 |
-| `talaria.check` | 161 | 158 | 0 | 3 |
+| `talaria.check` | 166 | 163 | 0 | 3 |
+| `talaria.units` | 138 | 133 | 0 | 5 |
 | `talaria.status` | 136 | 129 | 0 | 7 |
-| `talaria.units` | 131 | 124 | 0 | 7 |
+| `talaria.maintain` | 111 | 111 | 0 | 0 |
 | `talaria.containers` | 107 | 105 | 0 | 2 |
+| `talaria.hubconf` | 102 | 99 | 0 | 3 |
 | `talaria.restore` | 102 | 102 | 0 | 0 |
 | `talaria.service` | 98 | 96 | 2 | 0 |
-| `talaria.hubconf` | 91 | 91 | 0 | 0 |
-| `talaria.ctx` | 77 | 61 | 0 | 16 |
+| `talaria.ctx` | 85 | 70 | 0 | 15 |
 | `helpers.dbopen` | 76 | 72 | 0 | 4 |
 | `talaria.upstream` | 74 | 60 | 0 | 14 |
-| `talaria.hubcheck` | 65 | 65 | 0 | 0 |
 | `talaria.state` | 64 | 62 | 0 | 2 |
 | `helpers.migrate` | 63 | 62 | 0 | 1 |
-| `talaria.tags` | 57 | 55 | 0 | 2 |
+| `talaria.tags` | 57 | 56 | 0 | 1 |
 | `talaria.retention` | 48 | 48 | 0 | 0 |
 | `talaria.shell` | 44 | 39 | 0 | 5 |
 | `talaria.disk` | 41 | 28 | 2 | 11 |
+| `talaria.hubmaintain` | 35 | 35 | 0 | 0 |
 | `talaria.marker` | 15 | 15 | 0 | 0 |
-| `talaria.apps.__init__` | 7 | 7 | 0 | 0 |
+| `talaria.apps.__init__` | 10 | 10 | 0 | 0 |
+| `talaria.__init__` | 0 | 0 | 0 | 0 |
+| `talaria.__main__` | 0 | 0 | 0 | 0 |
+| `talaria.lock` | 0 | 0 | 0 | 0 |
+| `talaria.apps.base` | 0 | 0 | 0 | 0 |
 
 `service`'s 2 timeouts are pre-existing. `deploy`, `rollback`, `restore` and `marker` have 0
 survivors.
+
+## What changed in v0.6.0 (gbrain)
+
+New modules and their survivors (from the table above):
+
+| Module | Mutants | Survivors |
+|---|---|---|
+| `talaria.apps.gbrain` | 751 | 0 (3 timeouts) |
+| `talaria.maintain` | 111 | 0 |
+| `talaria.hubmaintain` | 35 | 0 |
+
+The first full run had 69 survivors in `talaria.apps.gbrain`, 5 in `talaria.maintain`
+and 1 in `talaria.hubmaintain`. The 29 tests in `tests/test_gbrain_survivors.py` pin what the
+behavioural tests did not: exact timeouts and `check=False` flags (`gh auth status`,
+`podman rm`, `podman build`, the version run), the 12-character digest cut, the last line of
+a failed attestation, the exact `parse_schema` reasons, longest-first redaction of env
+values, a stale build directory, the build directory's mode and its cleanup when it has
+vanished, the recorded commit in `reacquire`, the data directory mounted by `initialize`,
+`window_start` dropping seconds and microseconds, the context passed to the post-start
+check, and the app name in relayed buttons and commands. The same file pins the changed
+routing in `cli._locked` and `cli.run_locked` (a missing `timer` attribute, a plain
+`check` of an app with maintenance, Busy for the owner versus silence for the timer).
+`rollback`, `restore`, `marker` and `deploy` remain at 0 survivors.
+
+New `# pragma: no mutate` lines, each with its reason next to the code:
+- `gbrain.file_sha256`: the read size of the checksum loop (same hash).
+- `gbrain.parse_schema`: the `or ""` fallback of the version message (any non-matching
+  string raises the same error).
+- `gbrain._digest`: the `or ""` fallback of the digest (any non-matching string fails the
+  same regex).
+- `gbrain.prepare`: the `mode` of `data.mkdir` (the `chmod` right below sets it) and
+  `token_urlsafe(32)` (`None` means the same 32 bytes; the length is pinned by a test).
+- `maintain.run`: `day = None` and `down = None` (falsy either way).
+- `cli.run_locked`: `traceback.print_exc(file=sys.stderr)` (stderr is the default); the same
+  call in `hubmaintain.maintain`.
+
+Survivors in changed functions outside the new modules that were not chased (older code,
+as in the sections below): `cli.run_locked` and `cli._locked` `getattr(args, "timer", None)`
+variants (`None` equals `False`), `setup.service_phase` (65, arguments to stubbed
+collaborators in the fresh-install path), `rehearse.rehearse` (18, error-text cuts and
+`rmtree` flags), `units.render_quadlet` (`title=` is not part of the golden Quadlets).
+
+The e2e job now also runs gbrain (`tests/e2e/test_e2e_gbrain.py`): fake releases served from
+a static web server and a static C program standing in for the gbrain binary, between the
+Clawvisor and the hub tests. It is not part of the mutation run.
 
 ## What changed in v0.5.0 (hub)
 
