@@ -116,7 +116,7 @@ def test_fetch_clears_a_stale_build_dir_and_builds_in_a_private_one(tmp_path, mo
     orig = ctx.sh.rules[1][1]            # the podman build handler of gctx
 
     def build(argv, input):
-        modes.append((stat.S_IMODE(os.stat(work).st_mode), os.listdir(work)))
+        modes.append((stat.S_IMODE(os.stat(work).st_mode), sorted(os.listdir(work))))
         return orig(argv, input)
     ctx.sh.on("podman", "build", fn=build)
     ctx.app.fetch(ctx, TAG, "abc")
