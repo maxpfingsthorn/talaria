@@ -14,7 +14,7 @@ PAIR = ("ACTION REQUIRED: in a private chat with your bot, send within 15 minute
         "  /pair CODE2345\n")
 UNITS = [["systemctl", "--user", "daemon-reload"],
          ["systemctl", "--user", "enable", "--now", "talaria-check.timer",
-          "talaria-telegram.service"]]
+          "talaria-maintain.timer", "talaria-telegram.service"]]
 RESTART = [["systemctl", "--user", "restart", "talaria-telegram.service"]]
 
 
@@ -73,7 +73,7 @@ def test_pairing_then_units_and_bot(tmp_path, paired, capsys):
     assert cmds == UNITS + RESTART
     assert parse_kv(ctx.paths.env_file.read_text())["TALARIA_TELEGRAM_USER_ID"] == "42"
     assert paired == [(ctx.conf.telegram_api, TOKEN)]
-    assert sorted(p.name for p in ctx.paths.units_dir.iterdir()) == list(units.TALARIA_UNITS)
+    assert sorted(p.name for p in ctx.paths.units_dir.iterdir()) == list(units.HUB_UNITS)
 
 
 def test_rerun_unchanged_does_not_restart_the_bot(tmp_path, paired, capsys):

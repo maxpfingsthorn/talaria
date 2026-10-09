@@ -1,0 +1,9 @@
+[Unit]
+Description=Talaria: maintenance window check
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=false
+
+[Install]
+WantedBy=timers.target

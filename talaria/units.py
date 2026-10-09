@@ -5,6 +5,8 @@ import re
 from string import Template
 
 TALARIA_UNITS = ("talaria-check.service", "talaria-check.timer", "talaria-telegram.service")
+HUB_UNITS = ("talaria-check.service", "talaria-check.timer", "talaria-maintain.service",
+             "talaria-maintain.timer", "talaria-telegram.service")
 
 _ADD_HOST_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,62}")
 
@@ -52,9 +54,9 @@ def render_quadlet(ctx) -> str:
 HUB_TITLE = "new"     # "Talaria: check for new releases": the hub checks every app
 
 
-def _render(ctx, title: str) -> dict[str, str]:
+def _render(ctx, title: str, names=TALARIA_UNITS) -> dict[str, str]:
     return {name: _tpl(ctx, name).substitute(check_time=ctx.conf.check_time, title=title)
-            for name in TALARIA_UNITS}
+            for name in names}
 
 
 def render_units(ctx) -> dict[str, str]:
@@ -63,7 +65,7 @@ def render_units(ctx) -> dict[str, str]:
 
 
 def render_hub_units(ctx) -> dict[str, str]:
-    return _render(ctx, HUB_TITLE)
+    return _render(ctx, HUB_TITLE, HUB_UNITS)
 
 
 def _write(path, text: str) -> bool:

@@ -196,7 +196,7 @@ def run_locked(ctx, args) -> int:
     return 0
 
 
-HUB_CMDS = ("set-token", "bot", "relay", "check", "status", "self-update", "update")
+HUB_CMDS = ("set-token", "bot", "relay", "check", "status", "self-update", "update", "maintain")
 TRANSITIONAL_CMDS = ("bot", "relay", "check", "self-update", "update")
 
 
@@ -219,6 +219,9 @@ def _hub_main(hub, args) -> int:
         if args.talaria:
             return hubcheck.check_talaria(hub)
         return hubcheck.check(hub, timer=args.timer, report=args.report)
+    if cmd == "maintain":
+        from talaria import hubmaintain
+        return hubmaintain.maintain(hub, timer=args.timer)
     from talaria import hubupdate
     if cmd == "self-update":
         return hubupdate.self_update(hub, args.tag)

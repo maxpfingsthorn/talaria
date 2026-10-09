@@ -79,7 +79,7 @@ def test_install_hub_units_reports_changes(tmp_path):
     ctx = Ctx(paths=Paths(tmp_path), conf=HubConf(), sh=FakeShell().on("systemctl"), notify=None)
     assert units.install_hub_units(ctx) is True
     assert units.install_hub_units(ctx) is False
-    assert sorted(p.name for p in ctx.paths.units_dir.iterdir()) == list(units.TALARIA_UNITS)
+    assert sorted(p.name for p in ctx.paths.units_dir.iterdir()) == list(units.HUB_UNITS)
     ctx.conf.check_time = "05:00"
     assert units.install_hub_units(ctx) is True
     assert ctx.sh.calls == [["systemctl", "--user", "daemon-reload"]] * 3

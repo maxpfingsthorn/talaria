@@ -424,7 +424,7 @@ def hub_phase(ctx, args, api=None) -> int:
         return rc
     changed = units.install_hub_units(ctx)
     ctx.sh.run(["systemctl", "--user", "enable", "--now", "talaria-check.timer",
-                "talaria-telegram.service"])
+                "talaria-maintain.timer", "talaria-telegram.service"])
     # a new app or new units: the bot must see them (an update restarts it itself, last)
     if (changed or added) and not getattr(args, "no_restart", False):  # pragma: no mutate  (None == False; the flag itself is pinned by test_gatefix)
         ctx.sh.run(["systemctl", "--user", "restart", "talaria-telegram.service"])
