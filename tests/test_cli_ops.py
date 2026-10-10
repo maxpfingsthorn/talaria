@@ -287,3 +287,14 @@ def test_main_keeps_existing_xdg_runtime_dir(run, monkeypatch):
     monkeypatch.setattr(cli.status, "status_text", lambda c: "S")
     main("status")
     assert os.environ["XDG_RUNTIME_DIR"] == "/custom"
+
+
+def test_manual_backup_refused_while_interrupted(run, capsys):
+    from talaria import backup, marker
+    ctx, main = run
+    ctx.sh.on("systemctl")
+    marker.write(ctx.paths, "deploy", "b", {"tag": "t", "id": "i"}, ctx.now())
+    assert main("backup") != 0
+    err = capsys.readouterr().err
+    assert "Backup refused" in err and "/rollback CONFIRM" in err
+    assert backup.list_backups(ctx) == [] and ctx.sh.calls == []

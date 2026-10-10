@@ -41,10 +41,12 @@ def interrupted(ctx, st) -> str | None:
 
 def needs_resume(ctx, st) -> bool:
     """An interrupted op without a marker left data and image consistent: it changed
-    nothing yet, or it was a rollback/restore whose swap had finished."""
+    nothing yet, it was a rollback/restore whose swap had finished, or no restore
+    target is left."""
     op = st.get("op")
     return bool(op) and marker.read(ctx.paths) is None and (
-        not op.get("changed") or op["op"] in ("rollback", "restore"))
+        not op.get("changed") or op["op"] in ("rollback", "restore")
+        or target(ctx, st) is None)     # nothing left to restore: start and check what is there
 
 
 def resume(ctx) -> str | None:
@@ -113,6 +115,10 @@ def _swap(ctx, b, image: dict, op: str, revert: tuple[str, dict]) -> str | None:
     restore_data(ctx, b)
     st = state.load(ctx.paths)
     st["current"], st["previous"], st["last_deploy"] = image, None, None
+    # the swap is done and the marker goes next: a crash from here on resumes via needs_resume
+    st["op"] = {"op": "restore" if op == "restore" else "rollback", "backup": b.id,
+                "changed": True,
+                "started": (st.get("op") or {}).get("started") or ctx.now().isoformat()}
     state.save(ctx.paths, st)
     images.retag(ctx, "current", image)
     marker.clear(ctx.paths)

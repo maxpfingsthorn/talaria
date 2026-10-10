@@ -65,9 +65,9 @@ def deploy(ctx, tag: str) -> None:
         ctx.notify.send(Message(f"Deploy of {tag} failed before changing anything: {e}. "
                                 f"{ctx.app.title} was started again."))
         return
+    marker.write(ctx.paths, "deploy", b.id, old, ctx.now())   # before changed=True
     st["op"].update(backup=b.id, changed=True)
     state.save(ctx.paths, st)
-    marker.write(ctx.paths, "deploy", b.id, old, ctx.now())
     _crash_point("after_marker")
     try:
         reason, details = ctx.app.before_start(ctx, p)

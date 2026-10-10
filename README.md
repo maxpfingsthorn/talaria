@@ -362,7 +362,7 @@ bin/talaria setup --app gbrain --user gbrain
   terminal as the service user: put them in the app env file
   `~<user>/.config/talaria/gbrain.env`, for example `OPENROUTER_API_KEY=…` (or
   `OPENAI_API_KEY=…`, `ANTHROPIC_API_KEY=…`, any provider gbrain supports), then run
-  `systemctl --user restart gbrain.service`. gbrain picks up a changed key only after a
+  `sudo -u <user> XDG_RUNTIME_DIR=/run/user/$(id -u <user>) systemctl --user restart gbrain.service`. gbrain picks up a changed key only after a
   restart. Talaria never asks for provider keys and never prints them.
 - **Model tiers** (utility, reasoning, deep, subagent) are gbrain's own configuration
   (`gbrain config`), not Talaria's. gbrain's defaults call Anthropic directly, so with
@@ -373,15 +373,16 @@ bin/talaria setup --app gbrain --user gbrain
   to an Anthropic default. An MCP client's `whoami` shows `chat_llm` as `ok` once it works.
   To choose embedding models
   for an existing brain, stop gbrain first, because the command needs the brain to itself.
-  As the service user:
+  Run these as the service user (from another account, with `sudo -u <user>` and the
+  `XDG_RUNTIME_DIR` shown, which rootless podman and `systemctl --user` need):
 
   ```bash
-  systemctl --user stop gbrain.service
-  podman run --rm --read-only --userns=keep-id:uid=65532,gid=65532 \
-    -v ~/gbrain-data:/data:Z -e HOME=/data -e GBRAIN_HOME=/data \
-    --env-file ~/.config/talaria/gbrain.env localhost/gbrain:current \
+  sudo -u <user> XDG_RUNTIME_DIR=/run/user/$(id -u <user>) systemctl --user stop gbrain.service
+  sudo -u <user> XDG_RUNTIME_DIR=/run/user/$(id -u <user>) podman run --rm --read-only --userns=keep-id:uid=65532,gid=65532 \
+    -v ~<user>/gbrain-data:/data:Z -e HOME=/data -e GBRAIN_HOME=/data \
+    --env-file ~<user>/.config/talaria/gbrain.env localhost/gbrain:current \
     embeddings enable --embedding-model <provider:model>
-  systemctl --user start gbrain.service
+  sudo -u <user> XDG_RUNTIME_DIR=/run/user/$(id -u <user>) systemctl --user start gbrain.service
   ```
 - **Update cadence.** gbrain releases several times a day. By default
   (`check.days = mon thu`) the daily timer looks for a gbrain release twice a week.
@@ -484,18 +485,21 @@ Known limitations:
 
 If a rollback itself fails, Hermes stays stopped and the file
 `~/.local/state/talaria/changing` exists (it keeps systemd from starting Hermes on
-half-changed data). As the service user:
+half-changed data). As the service user (`sudo -u <user>` from another account):
 
 1. `talaria backups` and pick a backup.
 2. `talaria restore <id> --confirm`.
 3. If that fails too:
    ```bash
-   systemctl --user stop hermes.service
+   sudo -u <user> XDG_RUNTIME_DIR=/run/user/$(id -u <user>) systemctl --user stop hermes.service
    mv <data_dir> <data_dir>.broken && mkdir <data_dir>
-   tar -xzf ~/.local/state/talaria/backups/<id>.tar.gz -C <data_dir>
-   rm ~/.local/state/talaria/changing
-   systemctl --user start hermes.service
+   tar -xzf ~<user>/.local/state/talaria/backups/<id>.tar.gz -C <data_dir>
+   rm ~<user>/.local/state/talaria/changing
+   sudo -u <user> XDG_RUNTIME_DIR=/run/user/$(id -u <user>) systemctl --user start hermes.service
    ```
+4. Send `/rollback CONFIRM` in the bot. It finds nothing left to restore, starts the app,
+   checks it and clears the interrupted state; until then Talaria refuses new changes
+   and `talaria backup`.
 
 ## Removing the sudo rules
 

@@ -342,3 +342,18 @@ def test_after_start_failure_rolls_back(tmp_path, monkeypatch):
     deploy.deploy(ctx, "v2026.9.24")
     assert load(ctx)["current"] == CUR
     assert "failed during deploy: schema mismatch" in ctx.notify.sent[-1].text
+
+
+def test_deploy_writes_marker_before_changed(tmp_path, monkeypatch):
+    ctx = ops_ctx(tmp_path, monkeypatch)
+    real = state.save
+
+    def save(paths, st):
+        real(paths, st)
+        if (st.get("op") or {}).get("changed"):
+            raise Killed()
+
+    monkeypatch.setattr(deploy.state, "save", save)
+    with pytest.raises(Killed):
+        deploy.deploy(ctx, "v2026.9.24")
+    assert marker.read(ctx.paths)["op"] == "deploy"

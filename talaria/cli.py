@@ -156,17 +156,22 @@ def login_link(ctx) -> int:
     return 0
 
 
-def _manual_backup(ctx) -> None:
+def _manual_backup(ctx) -> int:
     st = state.load(ctx.paths)
+    why = rollback.interrupted(ctx, st)
+    if why:
+        print(f"Backup refused: {why}.", file=sys.stderr)
+        return 1
     service.stop(ctx)
     try:
         b = backup.create(ctx, "manual", st.get("current"))
     finally:
         service.start(ctx)
     print(b.id)
+    return 0
 
 
-def _locked(ctx, args) -> None:
+def _locked(ctx, args) -> int | None:
     cmd = args.cmd
     if cmd in ("check", "rehearse", "history", "maintain"):
         st = state.load(ctx.paths)
@@ -191,7 +196,7 @@ def _locked(ctx, args) -> None:
     elif cmd == "restore":
         rollback.restore_cmd(ctx, args.id)
     elif cmd == "backup":
-        _manual_backup(ctx)
+        return _manual_backup(ctx)
 
 
 def run_locked(ctx, args) -> int:
@@ -203,7 +208,7 @@ def run_locked(ctx, args) -> int:
             return 0
     try:
         with lock.op_lock(ctx.paths):
-            _locked(ctx, args)
+            return _locked(ctx, args) or 0
     except lock.Busy:
         if args.cmd in ("check", "maintain") and getattr(args, "timer", False):
             return 0
@@ -213,7 +218,6 @@ def run_locked(ctx, args) -> int:
         traceback.print_exc(file=sys.stderr)  # pragma: no mutate  (stderr is the default)
         ctx.notify.send(Message(f"talaria {args.cmd} failed unexpectedly: {e}"))
         return 1
-    return 0
 
 
 HUB_CMDS = ("set-token", "bot", "relay", "check", "status", "self-update", "update", "maintain")

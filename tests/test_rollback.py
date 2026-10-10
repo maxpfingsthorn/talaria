@@ -626,3 +626,56 @@ def test_failed_recovery_rollback_offers_no_restore(tmp_path, monkeypatch):
     assert ctx.notify.sent[-1].text == ("Rollback failed: broken. Hermes is stopped. "
                                         "Manual recovery: see README, section 'Manual recovery'.")
     assert ctx.notify.sent[-1].commands == []
+
+
+def test_killed_auto_rollback_is_resumable(tmp_path, monkeypatch):
+    ctx = _ops(tmp_path, monkeypatch, check_results=["broken"])
+    calls = []
+
+    def check(c):
+        calls.append(1)
+        if len(calls) == 1:
+            return "broken"
+        raise KeyboardInterrupt()           # the auto-rollback's own check is killed
+
+    monkeypatch.setattr(rollback.service, "post_start_check", check)
+    monkeypatch.setattr(deploy.service, "post_start_check", check)
+    with pytest.raises(KeyboardInterrupt):
+        deploy.deploy(ctx, "v2026.9.24")
+    st = load(ctx)
+    assert st["op"]["op"] == "rollback" and marker.read(ctx.paths) is None
+    assert rollback.needs_resume(ctx, st) is True
+    monkeypatch.setattr(rollback.service, "post_start_check", lambda c: None)
+    rollback.rollback_cmd(ctx)
+    assert "running again" in ctx.notify.sent[-1].text
+    assert load(ctx)["op"] is None
+
+
+def test_leftover_op_without_target_resumes(tmp_path, monkeypatch):
+    ctx = _ops(tmp_path, monkeypatch)
+    st = load(ctx)
+    st["op"] = {"op": "deploy", "tag": "v2026.9.24", "backup": "b", "changed": True,
+                "started": "x"}
+    st["last_deploy"] = None
+    state.save(ctx.paths, st)
+    assert marker.read(ctx.paths) is None
+    assert rollback.needs_resume(ctx, load(ctx)) is True
+    assert "Nothing to roll back" not in rollback.describe(ctx)
+    assert "/rollback CONFIRM" in rollback.describe(ctx)
+    rollback.rollback_cmd(ctx)
+    assert "running again" in ctx.notify.sent[-1].text
+    assert load(ctx)["op"] is None
+    assert ["systemctl", "--user", "start", "hermes.service"] in ctx.sh.calls
+
+
+def test_swap_keeps_started_and_restore_name(tmp_path, monkeypatch):
+    ctx = _ops(tmp_path, monkeypatch)
+    b = backup.create(ctx, "x", CUR)
+    st = load(ctx)
+    st["op"] = {"op": "restore", "backup": b.id, "changed": True, "started": "S"}
+    state.save(ctx.paths, st)
+    monkeypatch.setattr(rollback.service, "post_start_check",
+                        lambda c: (_ for _ in ()).throw(KeyboardInterrupt()))
+    with pytest.raises(KeyboardInterrupt):
+        rollback._swap(ctx, b, CUR, "restore", (b.id, CUR))
+    assert load(ctx)["op"] == {"op": "restore", "backup": b.id, "changed": True, "started": "S"}
