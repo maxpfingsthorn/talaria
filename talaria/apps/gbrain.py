@@ -35,7 +35,7 @@ SCHEMA_FILE = ".talaria-schema"
 INIT_FILE = ".talaria-init"
 TOKEN_KEY = "GBRAIN_ADMIN_BOOTSTRAP_TOKEN"
 NEEDS_URL = ("gbrain needs dashboard.public_url in talaria.conf: the https address MCP "
-             "connectors reach it at, e.g. https://<host>.<tailnet>.ts.net:8443 (README: gbrain)")
+             "connectors reach it at, e.g. https://<host>.<tailnet>.ts.net (README: gbrain)")
 
 
 def github_repo(repo: str) -> str | None:
@@ -383,7 +383,7 @@ class Gbrain(App):
         return ("# Talaria settings; see README.\napp = gbrain\n"
                 f"data_dir = {self.default_data_dir}\n"
                 "# required: the https address MCP connectors use, e.g.\n"
-                "# dashboard.public_url = https://<host>.<tailnet>.ts.net:8443\n")
+                "# dashboard.public_url = https://<host>.<tailnet>.ts.net\n")
 
 
 APP = Gbrain()

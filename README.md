@@ -341,7 +341,8 @@ bin/talaria setup --app gbrain --user gbrain
 ```
 
 - **`dashboard.public_url` is required.** It is the https address MCP connectors use,
-  port included, for example `dashboard.public_url = https://<host>.<tailnet>.ts.net:8443`.
+  for example `dashboard.public_url = https://<host>.<tailnet>.ts.net` (include the port
+  only if it is not 443).
   It becomes gbrain's `--public-url`, which is its OAuth issuer. Setup stops without it.
 - **Image.** gbrain publishes no container image. Talaria downloads the release's
   `gbrain-linux-x64` and checks its SHA-256 against the digest GitHub publishes for that
@@ -365,7 +366,12 @@ bin/talaria setup --app gbrain --user gbrain
   restart. Talaria never asks for provider keys and never prints them.
 - **Model tiers** (utility, reasoning, deep, subagent) are gbrain's own configuration
   (`gbrain config`), not Talaria's. gbrain's defaults call Anthropic directly, so with
-  another provider set the tiers to that provider's model ids. To choose embedding models
+  another provider set the tiers to that provider's model ids. **Also pin `chat_model` and
+  `expansion_model`** in the brain's config file (`~gbrain/gbrain-data/.gbrain/config.json`,
+  for example `"chat_model": "openrouter:<model>"`) and restart gbrain: automatic
+  extraction and synthesis check only these file pins, not the tiers, and otherwise fall back
+  to an Anthropic default. An MCP client's `whoami` shows `chat_llm` as `ok` once it works.
+  To choose embedding models
   for an existing brain, stop gbrain first, because the command needs the brain to itself.
   As the service user:
 
@@ -395,7 +401,7 @@ bin/talaria setup --app gbrain --user gbrain
 
 | Path | Who | Where |
 |---|---|---|
-| `/mcp`, `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource` (and `…/mcp`), `/authorize`, `/token`, `/register`, `/revoke` | cloud MCP connectors (claude.ai, ChatGPT) | public, port 8443 |
+| `/mcp`, `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource` (and `…/mcp`), `/authorize`, `/token`, `/register`, `/revoke` | cloud MCP connectors (claude.ai, ChatGPT) | public, port 443 |
 | everything, including `/admin` and `/metrics` | you, and local agents on the host or tailnet | tailnet only, port 10000 (or the published address) |
 
 Cloud connectors use OAuth: they register themselves (dynamic client registration) and
@@ -405,8 +411,8 @@ approve it. Approve only clients you just added yourself. Local agents (Hermes, 
 Code, Codex) get scoped tokens that you mint in `/admin`, and use the tailnet port or the
 published address.
 
-A connector's consent link points at the public port (`https://<host>.<tailnet>.ts.net:8443/admin/?oauth_request=…`),
-which does not serve `/admin`. Open the same link with port `10000` instead of `8443` to
+A connector's consent link points at the public address (`https://<host>.<tailnet>.ts.net/admin/?oauth_request=…`),
+which does not serve `/admin`. Open the same link with `:10000` after the host name to
 approve it over your tailnet.
 
 ### Public MCP endpoints with Tailscale Serve and Funnel
@@ -416,10 +422,10 @@ app on loopback (`dashboard.bind = loopback`, the default) or on its Tailscale a
 Then, as root, once (`<port>` is the app's `dashboard.port`, 3131 for gbrain):
 
 ```bash
-# public: exactly the connector paths, on 8443
+# public: exactly the connector paths, on 443
 for p in /mcp /.well-known/oauth-authorization-server /.well-known/oauth-protected-resource \
          /authorize /token /register /revoke; do
-  tailscale funnel --bg --https=8443 --set-path "$p" "http://127.0.0.1:<port>$p"
+  tailscale funnel --bg --https=443 --set-path "$p" "http://127.0.0.1:<port>$p"
 done
 # tailnet only: the whole server, including its admin UI, on 10000
 tailscale serve --bg --https=10000 http://127.0.0.1:<port>
@@ -429,7 +435,11 @@ tailscale funnel status
 Funnel must be allowed for the node in your tailnet policy, and it only works on ports
 443, 8443 and 10000. **Funnel applies per port: never funnel a port that also serves a
 private app.** `tailscale funnel status` should list only the paths above as public.
-Set `dashboard.public_url = https://<host>.<tailnet>.ts.net:8443` and run setup again.
+Use 443: claude.ai's connector check did not reach a funnel on 8443. If 443 already
+serves a private app (for example Clawvisor via `tailscale serve`), move that app to another
+tailnet-only port first (`tailscale serve --https=443 off`, then `--https=<other port>`, and
+update its `dashboard.public_url`). Set `dashboard.public_url = https://<host>.<tailnet>.ts.net`
+and run setup again.
 
 ## Security
 

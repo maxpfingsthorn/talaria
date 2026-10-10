@@ -58,7 +58,7 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
     browser).
 11a. For a gbrain install:
     - Before the first setup, ask the person for the https address MCP connectors will use
-      and write it as `dashboard.public_url` (e.g. `https://<host>.<tailnet>.ts.net:8443`)
+      and write it as `dashboard.public_url` (e.g. `https://<host>.<tailnet>.ts.net`, port 443; see README: gbrain)
       into `talaria.conf`; setup stops without it.
     - **The agent never sees provider keys; the person adds them.** Tell the person to add
       them (e.g. `OPENROUTER_API_KEY=…`) to `~gbrain/.config/talaria/gbrain.env` themselves,

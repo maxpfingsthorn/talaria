@@ -438,7 +438,7 @@ def test_initial_conf_and_ready_text(tmp_path):
     assert ctx.app.initial_conf(ctx) == (
         "# Talaria settings; see README.\napp = gbrain\ndata_dir = ~/gbrain-data\n"
         "# required: the https address MCP connectors use, e.g.\n"
-        "# dashboard.public_url = https://<host>.<tailnet>.ts.net:8443\n")
+        "# dashboard.public_url = https://<host>.<tailnet>.ts.net\n")
     assert ctx.app.ready_text(ctx) == (
         f"gbrain is running at http://127.0.0.1:3131 (admin UI /admin; its token is "
         f"GBRAIN_ADMIN_BOOTSTRAP_TOKEN in {ctx.paths.app_env}). MCP connectors use {URL}/mcp "
