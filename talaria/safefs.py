@@ -19,10 +19,10 @@ def write_text(path: Path, text: str, mode: int = 0o600) -> None:
     try:
         fd = os.open(tmp, _NOFOLLOW_NEW, mode)
         with os.fdopen(fd, "w") as f:
+            os.fchmod(f.fileno(), mode)  # on the fd: the umask may have narrowed the creation mode
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
-        os.chmod(tmp, mode)  # the umask may have narrowed the creation mode
         os.replace(tmp, path)
     except BaseException:
         try:

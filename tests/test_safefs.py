@@ -82,3 +82,15 @@ def test_copy_regular_refuses_a_planted_destination_link(tmp_path):
     with pytest.raises(OSError):
         safefs.copy_regular(tmp_path / "s", tmp_path / "out")
     assert (tmp_path / "victim").read_text() == "keep"
+
+
+def test_write_text_mode_survives_a_restrictive_umask_without_path_chmod(tmp_path, monkeypatch):
+    def no_chmod(*a, **k):
+        raise AssertionError("path-based chmod")
+    monkeypatch.setattr(safefs.os, "chmod", no_chmod)
+    old = os.umask(0o077)
+    try:
+        safefs.write_text(tmp_path / "f", "1", mode=0o644)
+    finally:
+        os.umask(old)
+    assert (tmp_path / "f").stat().st_mode & 0o777 == 0o644
