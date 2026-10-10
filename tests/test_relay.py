@@ -122,3 +122,23 @@ def test_main_refuses_an_unknown_app_or_no_op(h, capsys):
     ex(h, "hermes").on("check")
     assert relay.main(h, "hermes", ["check", "--timer"]) == 0
     assert ex(h, "hermes").ops() == [["check", "--timer"]]
+
+
+def _hello_with(tmp_path, monkeypatch, **fields):
+    monkeypatch.setattr(relay, "__version__", "0.6.1")
+    h = make_hub(tmp_path)
+    ex(h, "hermes").on("hello", lines=[{"v": 1, "kind": "hello", "protocol": relay.PROTOCOL,
+                                        **fields}])
+    return relay.hello(h.apps["hermes"])
+
+
+def test_hello_flags_version_skew(tmp_path, monkeypatch):
+    assert _hello_with(tmp_path, monkeypatch, version="0.6.0") == relay.VERSIONS
+
+
+def test_hello_same_version_is_fine(tmp_path, monkeypatch):
+    assert _hello_with(tmp_path, monkeypatch, version="0.6.1") is None
+
+
+def test_hello_without_version_is_protocol_only(tmp_path, monkeypatch):
+    assert _hello_with(tmp_path, monkeypatch) is None

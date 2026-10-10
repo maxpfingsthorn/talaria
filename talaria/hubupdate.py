@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-from talaria import __version__, lock
+from talaria import __version__, lock, relay
 from talaria.hubexec import NoAnswer, Unreachable
 from talaria.notify import Message
 from talaria.selfupdate import fetch_tag
@@ -91,7 +91,8 @@ def self_update(hub, tag: str) -> int:
 
 def _self_update(hub, tag: str) -> int:
     ctx = hub.ctx
-    if not hub.transitional:      # in transitional mode the hub's install is the app's
+    retry = tag == f"v{__version__}"   # the hub already runs it: only lagging apps need it
+    if not hub.transitional and not retry:      # in transitional mode the hub's install is the app's
         d = str(ctx.paths.install_dir)
         try:
             prev = ctx.sh.run(["git", "-C", d, "rev-parse", "HEAD"]).stdout.strip()
@@ -118,7 +119,7 @@ def _self_update(hub, tag: str) -> int:
             return _stop(ctx, f"Talaria {tag}: the hub's setup {why}; the previous version "
                               f"was restored{both} and the apps were not updated. Details "
                               "in the journal.")
-    results = [_update_app(e, tag) for e in hub.apps.values()]
+    results = [_update_app(e, tag) for e in hub.apps.values() if not retry or relay.lagging(e)]
     ctx.sh.run(["systemctl", "--user", "restart", "talaria-telegram.service"], check=False)
     ctx.notify.send(Message(f"Talaria {tag} installed: " + " · ".join(t for _, t in results)))
     return 0 if all(ok for ok, _ in results) else 1

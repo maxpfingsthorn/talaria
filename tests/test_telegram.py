@@ -263,6 +263,7 @@ def test_quick_errors_name_the_app(bot):
 def test_versions_differ(bot2):
     ctx, api, b = bot2
     b.mismatch = {"clawvisor"}
+    ex(b.hub, "clawvisor").on("hello", lines=[hello(protocol=2, app="clawvisor")])
     for text in ("/backups clawvisor", "/approve clawvisor v0.9.10", "/status"):
         b.handle(upd(1, text))
     assert api.sent() == [relay.VERSIONS, relay.VERSIONS,
@@ -674,3 +675,43 @@ def test_bare_check_never_shows_the_picker(bot2):
     ctx, api, b = bot2
     b.handle(upd(1, "/check"))
     assert "Which app?" not in api.sent() and telegram.read_form("/check", []) is None
+
+
+def test_mismatch_heals_on_next_command(bot):
+    ctx, api, b = bot
+    b.mismatch = {"hermes"}
+    assert b.app_command("hermes", "/status", []) == ("Hermes v1, running.", [])
+    assert b.mismatch == set()
+
+
+def test_mismatch_stays_while_hello_still_differs(bot):
+    ctx, api, b = bot
+    b.mismatch = {"hermes"}
+    ex(b.hub, "hermes").on("hello", rc=2)
+    assert b.app_command("hermes", "/status", []) == relay.VERSIONS
+    assert b.mismatch == {"hermes"}
+
+
+def test_mismatch_heals_on_button(bot):
+    ctx, api, b = bot
+    b.mismatch = {"hermes"}
+    ex(b.hub, "hermes").on("button", lines=[line("button", toast="ok")])
+    b.on_button("hermes|x")
+    assert b.mismatch == set()
+
+
+def test_update_same_version_allowed_when_lagging(bot):
+    ctx, api, b = bot
+    tag = f"v{__version__}"
+    b.handle(upd(1, f"/update {tag}"))
+    assert api.sent() == [NOT_NEWER.format(tag=tag, cur=__version__)]
+    b.mismatch = {"hermes"}
+    b.handle(upd(2, f"/update {tag}"))
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "update", tag, "--offer"]]
+
+
+def test_update_button_same_version_allowed_when_lagging(bot):
+    ctx, api, b = bot
+    b.mismatch = {"hermes"}
+    b.handle(cb(f"hub|up:v{__version__}"))
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "self-update", f"v{__version__}"]]

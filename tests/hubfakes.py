@@ -1,6 +1,6 @@
 # tests/hubfakes.py
 """Fakes for the hub side: an executor answering `op` calls from rules, and a Hub."""
-from talaria import apps
+from talaria import __version__, apps
 from talaria.hubexec import AppEntry, Hub
 from tests.fakes import make_test_ctx
 
@@ -24,7 +24,7 @@ def message(text, blocks=(), commands=(), buttons=()):
 
 def hello(protocol=1, app="hermes"):
     return line("hello", protocol=protocol, app=app, title=apps.get(app).title,
-                version="0.5.0")
+                version=__version__)
 
 
 class FakeExecutor:

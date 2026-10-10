@@ -101,14 +101,29 @@ class Bot:
         self.ctx.sh.run(["systemd-run", "--user", "--collect", "--quiet", f"--unit={unit}",
                          str(self.ctx.paths.bin_link), *argv])
 
+    def _update_allowed(self, tag: str) -> str | None:
+        """None if `tag` may be installed: newer, or the hub's own version while an app lags."""
+        if semver_newer(tag, f"v{__version__}") or (tag == f"v{__version__}" and self.mismatch):
+            return None
+        return NOT_NEWER.format(tag=tag, cur=__version__)
+
+    def _still_mismatched(self, app: str) -> bool:
+        """An app flagged at startup is probed again: it may have been updated since."""
+        if app not in self.mismatch:
+            return False
+        if relay.hello(self.hub.apps[app]) is None:
+            self.mismatch.discard(app)
+            return False
+        return True
+
     def dispatch(self, cmd: str, args: list[str]):
         nu = f"Not understood. Commands: {HELP}"
         if cmd == "/status" and not args:
             return relay.status_all(self.hub, self.mismatch)
         if cmd == "/update":
             if len(args) == 1 and SEMVER.match(args[0]):
-                if not semver_newer(args[0], f"v{__version__}"):
-                    return NOT_NEWER.format(tag=args[0], cur=__version__)
+                if (no := self._update_allowed(args[0])):
+                    return no
                 self.spawn("update", "update", args[0], "--offer")
                 return f"Checking what Talaria {args[0]} would change. I will send the result."
             return nu
@@ -140,7 +155,7 @@ class Bot:
         return "Which app?", [[(e.title, f"hub|w:{n}:{form}") for n, e in self.hub.apps.items()]]
 
     def app_command(self, app: str, cmd: str, args: list[str]):
-        if app in self.mismatch:
+        if self._still_mismatched(app):
             return relay.VERSIONS
         e, a = self.hub.apps[app], apps.get(app)
         if cmd == "/status" and not args:
@@ -171,13 +186,13 @@ class Bot:
     def hub_button(self, rest: str) -> tuple[str, str | None]:
         kind, _, arg = rest.partition(":")
         if kind == "up" and SEMVER.match(arg):
-            if not semver_newer(arg, f"v{__version__}"):
-                return NOT_NEWER.format(tag=arg, cur=__version__), None
+            if (no := self._update_allowed(arg)):
+                return no, None
             self.spawn("update", "self-update", arg)
             return "Updating", f"⬆️ Updating Talaria to {arg}…"
         if kind == "ofr" and SEMVER.match(arg):
-            if not semver_newer(arg, f"v{__version__}"):
-                return NOT_NEWER.format(tag=arg, cur=__version__), None
+            if (no := self._update_allowed(arg)):
+                return no, None
             self.spawn("update", "update", arg, "--offer")
             return "Checking", f"🔎 Checking what Talaria {arg} would change…"
         if kind == "w":
@@ -203,7 +218,7 @@ class Bot:
             return self.hub_button(rest)
         if not sep or app not in self.hub.apps:
             return STALE, OUT_OF_DATE
-        if app in self.mismatch:
+        if self._still_mismatched(app):
             return relay.VERSIONS, None
         e = self.hub.apps[app]
         try:

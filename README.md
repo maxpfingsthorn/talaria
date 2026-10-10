@@ -526,7 +526,9 @@ the apps refuse releases older than v0.5.0 (the first with a hub interface). If 
 account's previous version is restored and its setup re-run (units re-rendered, the app
 restarted if needed); an app whose update failed keeps its version, and
 its commands answer "Talaria versions differ on this host; run /update" until an update
-succeeds.
+succeeds (the bot re-checks the app on each command, so it needs no restart afterwards).
+The daily check repeats that notice for a lagging app. `/update vX.Y.Z` with the version
+the hub already runs is accepted while an app lags, and updates only the lagging apps.
 
 ### Moving from v0.4
 

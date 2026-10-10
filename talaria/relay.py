@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 import traceback
 
+from talaria import __version__
 from talaria.hubexec import NoAnswer, Unreachable
 from talaria.notify import Message
 from talaria.op import PROTOCOL
@@ -74,11 +75,18 @@ def hello(entry) -> str | None:
         return unreachable_text(entry.title)
     except NoAnswer:
         return no_answer_text(entry.title)
-    if any(d.get("kind") == "hello" and d.get("protocol") == PROTOCOL for d in lines):
-        return None
+    h = next((d for d in lines if d.get("kind") == "hello" and d.get("protocol") == PROTOCOL), None)
+    if h is not None:
+        v = h.get("version")  # absent before v0.5: protocol is all there is to compare
+        return VERSIONS if isinstance(v, str) and v != __version__ else None
     if entry.executor.returncode and getattr(entry.executor, "stderr_line", ""):
         return f"{VERSIONS} ({failed_text(entry, 'hello')})"
     return VERSIONS
+
+
+def lagging(entry) -> bool:
+    """The app answers, but not with this hub's version (unreachable apps are not "lagging")."""
+    return (hello(entry) or "").startswith(VERSIONS)
 
 
 def status_all(hub, mismatch=frozenset()) -> str:
