@@ -10,6 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from talaria.ctx import Paths
 from talaria import adopt, apps, images, lock, rehearse, service, state, telegram, units
 from talaria.conf import check_bind, load_conf, parse_kv, write_env_value
 from talaria.disk import NOT_RENAMABLE, renamable
@@ -225,6 +226,14 @@ def import_telegram(ctx, stream) -> int:
     return 0
 
 
+def _registered_users() -> tuple:
+    """The accounts in this home's hub.conf (empty unless setup runs as the hub)."""
+    p = Paths(Path.home())
+    if not p.hub_conf.exists():
+        return ()
+    return tuple(u for _, u in load_hub_conf(p).apps)
+
+
 def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subprocess.call,
                    linger_dir=Path("/var/lib/systemd/linger"), app="hermes",
                    explicit_app=True, move=None) -> int:
@@ -241,6 +250,10 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
             return 1
     if user == hub:
         say("STOP", f"{hub} is the hub's account; the app needs an account of its own (--user)")
+        return 1
+    if operator == hub or operator in _registered_users():
+        say("STOP", f"{operator} is the hub's or an app's account; run setup from your own "
+                    "login account")
         return 1
     if prerequisites(sh):
         return 10
@@ -433,6 +446,13 @@ def hub_phase(ctx, args, api=None) -> int:
     return 0
 
 
+def _append_line(path, line: str) -> None:
+    """Append a line, first ending an unterminated last line."""
+    text = path.read_text()
+    with open(path, "a") as f:
+        f.write(("\n" if text and not text.endswith("\n") else "") + line + "\n")
+
+
 def service_phase(ctx, args) -> int:
     p = ctx.paths
     requested = getattr(args, "app", None)
@@ -449,6 +469,8 @@ def service_phase(ctx, args) -> int:
     ensure_dir(p.state_dir)
     if not p.conf_file.exists():
         p.conf_file.write_text(ctx.app.initial_conf(ctx))
+    elif requested and "app" not in parse_kv(p.conf_file.read_text()):
+        _append_line(p.conf_file, f"app = {requested}")
     if "check.time" in parse_kv(p.conf_file.read_text()):
         say("NOTE", "check.time in talaria.conf is not used any more; set it in the hub's "
                     "hub.conf")
@@ -459,8 +481,7 @@ def service_phase(ctx, args) -> int:
         except ValueError as e:
             say("STOP", str(e))
             return 1
-        with open(p.conf_file, "a") as f:
-            f.write(f"tailscale_ip = {ip}\n")
+        _append_line(p.conf_file, f"tailscale_ip = {ip}")
         ctx.conf.tailscale_ip = ip
     st = state.load(p)
     managed = adopt.is_managed(ctx) and st.get("current") is not None

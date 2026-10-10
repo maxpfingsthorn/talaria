@@ -21,3 +21,10 @@ def test_run_check_false_returns_result():
 
 def test_run_passes_input():
     assert Shell().run(["cat"], input="x").stdout == "x"
+
+
+def test_shell_decodes_invalid_utf8():
+    import sys
+    r = Shell().run([sys.executable, "-c",
+                     "import sys; sys.stdout.buffer.write(b'\\xff')"])
+    assert "�" in r.stdout

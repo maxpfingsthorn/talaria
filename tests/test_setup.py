@@ -620,3 +620,55 @@ def test_move_env_fails_if_either_side_fails(tmp_path):
     ok_writer = [sys.executable, "-c", "import sys; sys.stdin.read()"]
     assert setup.move_env(["false"], ok_writer) == 1
     assert setup.move_env(["echo", "x"], [sys.executable, "-c", "import sys; sys.exit(3)"]) == 1
+
+
+def _tailscale_svc(svc, text):
+    svc.paths.conf_dir.mkdir(parents=True)
+    svc.paths.conf_file.write_text(text)
+    svc.conf.dashboard_bind = "tailscale"
+    svc.sh.on("tailscale", "ip", "-4", out="100.64.0.1\n")
+
+
+def test_tailscale_ip_append_keeps_last_line(svc):
+    _tailscale_svc(svc, "dashboard.bind = tailscale")
+    assert setup.service_phase(svc, args(as_service=True)) == 0
+    assert svc.paths.conf_file.read_text() == \
+        "dashboard.bind = tailscale\ntailscale_ip = 100.64.0.1\n"
+
+
+def test_app_seeded_from_flag_when_conf_has_no_app(tmp_path, monkeypatch, capsys):
+    from talaria.ctx import Paths, make_ctx
+    monkeypatch.setattr("pathlib.Path.home", classmethod(lambda cls: tmp_path))
+    p = Paths(tmp_path)
+    p.conf_dir.mkdir(parents=True)
+    p.conf_file.write_text("dashboard.public_url = https://h.example.ts.net")
+    ctx = make_ctx(app="gbrain", strict=True)
+    assert ctx.conf.app == "gbrain" and ctx.paths.app == "gbrain"
+    setup._append_line(p.conf_file, "app = gbrain")
+    assert p.conf_file.read_text() == \
+        "dashboard.public_url = https://h.example.ts.net\napp = gbrain\n"
+    assert make_ctx(app="hermes", strict=True).conf.app == "gbrain"   # conf now decides
+
+
+def test_service_phase_writes_the_seeded_app(svc, capsys):
+    svc.paths.conf_dir.mkdir(parents=True)
+    svc.paths.conf_file.write_text("backup.keep = 4")
+    assert setup.service_phase(svc, args(as_service=True, app="hermes")) == 0
+    assert "app = hermes" in parse_kv(svc.paths.conf_file.read_text()).values() \
+        or parse_kv(svc.paths.conf_file.read_text())["app"] == "hermes"
+    assert "STOP" not in capsys.readouterr().out
+
+
+def test_operator_cannot_be_hub_or_app(monkeypatch, tmp_path, capsys):
+    from talaria.ctx import Paths
+    sh, _, _ = op_env(monkeypatch, tmp_path)
+    monkeypatch.setattr("pathlib.Path.home", classmethod(lambda cls: tmp_path / "h"))
+    ld = tmp_path / "linger"
+    for op in ("talaria", "gbrain"):
+        p = Paths(tmp_path / "h")
+        p.conf_dir.mkdir(parents=True, exist_ok=True)
+        p.hub_conf.write_text("apps = gbrain:gbrain\n")
+        rc = setup.operator_phase(sh, args(user="hermes"), getpwnam=lambda n: PW, operator=op,
+                                  linger_dir=ld)
+        assert rc == 1
+        assert "run setup from your own login account" in capsys.readouterr().out

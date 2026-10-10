@@ -129,3 +129,11 @@ def test_hub_conf_bad_known_value_still_errors_at_runtime(tmp_path):
     p = home(tmp_path, "colour = red\napps = hermes\n")
     with pytest.raises(ValueError, match="not <app>:<user>"):
         load_hub_conf(p)
+
+
+@pytest.mark.parametrize("t", ["25:00", "4.30", "4:30"])
+def test_check_time_validated(tmp_path, t):
+    p = home(tmp_path, f"check.time = {t}\n")
+    with pytest.raises(ValueError, match="check.time"):
+        load_hub_conf(p, strict=True)
+    assert load_hub_conf(p).check_time == t     # the runtime keeps loading it

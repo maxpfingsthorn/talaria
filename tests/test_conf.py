@@ -221,3 +221,58 @@ def test_setup_loads_strictly(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "STOP: unknown key in" in out and out.rstrip().endswith("colour")
     ctxmod.make_ctx()   # the runtime path is tolerant
+
+
+def _conf(tmp_path, text):
+    p = Paths(tmp_path)
+    p.conf_dir.mkdir(parents=True, exist_ok=True)
+    p.conf_file.write_text(text)
+    return p
+
+
+@pytest.mark.parametrize("ip", ["0.0.0.0", "8.8.8.8", '100.64.0.1"x', "100.64.0.01", "x"])
+def test_tailscale_ip_validated(tmp_path, ip):
+    p = _conf(tmp_path, f"tailscale_ip = {ip}\n")
+    with pytest.raises(ValueError, match="tailscale_ip"):
+        load_conf(p, strict=True)
+
+
+def test_tailscale_ip_in_cgnat_range_is_ok(tmp_path):
+    p = _conf(tmp_path, "tailscale_ip = 100.100.1.2\n")
+    assert load_conf(p, strict=True).tailscale_ip == "100.100.1.2"
+
+
+@pytest.mark.parametrize("text,key", [
+    ("host_loopback = maybe\n", "host_loopback"),
+    ("backup.keep = 3\nbackup.keep = 4\n", "backup.keep"),
+    ("dashboard.port = 99999\n", "dashboard.port"),
+    ("dashboard.port = 0\n", "dashboard.port"),
+    ("data_dir = relative/dir\n", "data_dir"),
+    ("registry_tls_verify = nope\n", "registry_tls_verify"),
+])
+def test_strict_conf_rejects(tmp_path, text, key):
+    with pytest.raises(ValueError, match=key):
+        load_conf(_conf(tmp_path, text), strict=True)
+
+
+def test_strict_conf_accepts_valid_forms(tmp_path):
+    p = _conf(tmp_path, "host_loopback = TRUE\ndata_dir = ~/d\ndashboard.port = 65535\n")
+    c = load_conf(p, strict=True)
+    assert c.host_loopback and c.dashboard_port == 65535
+    assert load_conf(_conf(tmp_path, "data_dir = /srv/d\n"), strict=True).data_dir == Path("/srv/d")
+
+
+def test_bom_is_stripped_in_both_modes(tmp_path):
+    p = _conf(tmp_path, "﻿backup.keep = 7\n")
+    assert load_conf(p, strict=True).backup_keep == 7
+    assert load_conf(p).backup_keep == 7
+    assert parse_kv("﻿a = 1\n") == {"a": "1"}
+
+
+def test_runtime_load_accepts_v060_quirks(tmp_path):
+    p = _conf(tmp_path, "host_loopback = maybe\nbackup.keep = 3\nbackup.keep = 4\n"
+                        "dashboard.port = 99999\ndata_dir = relative/dir\n"
+                        "tailscale_ip = 8.8.8.8\n")
+    c = load_conf(p)
+    assert (c.host_loopback, c.backup_keep, c.dashboard_port) == (False, 4, 99999)
+    assert c.data_dir == Path("relative/dir") and c.tailscale_ip == "8.8.8.8"

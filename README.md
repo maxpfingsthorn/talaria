@@ -10,7 +10,8 @@ Talaria manages Hermes, [Clawvisor](#clawvisor) and [gbrain](#gbrain), each in i
 ## What it does
 
 - Finds new Hermes releases and pulls them, pinned by digest and checked against the
-  release's git commit.
+  release's git commit. These checks compare the download with what the same release
+  publishes (integrity, not an independent signature).
 - **Rehearses the migration on a throwaway copy** of your data and reports what would
   change: config version, database version, which migrations ran, a config diff.
 - **Waits for your approval** on Telegram: one bot per host for every app Talaria manages.
@@ -191,6 +192,10 @@ for `data_dir`, `dashboard.port`, `repo`, `image`, `min_release`, `backup.exclud
 | `host_loopback` | `false` (`true`: the container may reach the host's loopback at `10.0.2.2`; needs `slirp4netns`) |
 | `add_hosts` | (none; space-separated `name:ip` pairs, e.g. `clawvisor:10.254.254.1`) |
 
+Comments must be on their own line (`# …`); a trailing `# …` becomes part of the value.
+Booleans are `true` or `false`. Setup also rejects a key given twice, a port outside
+1-65535, a relative `data_dir` and a `tailscale_ip` outside `100.64.0.0/10`.
+
 Run setup again after changing it. An unknown key stops setup (naming the key) but is only
 warned about at runtime, so a key added for a newer Talaria does not cut an older install
 off; still update first, then add new keys.
@@ -317,7 +322,8 @@ In all three, the two service users never share a podman network.
 
 Clawvisor keeps everything in SQLite (WAL mode, one connection); it publishes no
 container image, so Talaria downloads each release's binary, checks its SHA-256
-against the published checksums, and builds a local image from a pinned distroless
+against the checksums the same release publishes (an integrity check, not an
+independent signature), and builds a local image from a pinned distroless
 base. Its log tables (`audit_log`, `gateway_request_log`, `runtime_events`) are
 never pruned upstream and grow without bound — `/status` reports the data
 directory's size so you notice before disk space runs out; Talaria itself does
@@ -347,7 +353,8 @@ bin/talaria setup --app gbrain --user gbrain
 - **Image.** gbrain publishes no container image. Talaria downloads the release's
   `gbrain-linux-x64` and checks its SHA-256 against the digest GitHub publishes for that
   asset. When `gh` is installed and logged in for the service account, Talaria also checks
-  the build provenance (`gh attestation verify`). Otherwise setup prints a `NOTE` and only
+  the build provenance (`gh attestation verify`), which is the only check beyond
+  same-release integrity. Otherwise setup prints a `NOTE` and only
   the digest is checked. Talaria then builds a local image from a pinned distroless base.
 - **Storage.** gbrain keeps its data in PGLite (embedded Postgres) in `~gbrain/gbrain-data`,
   mode 0700, because some PGLite files inside it are world-readable. Only one process can
@@ -451,7 +458,7 @@ and run setup again.
 | The paired Telegram account | trusted |
 | Your login account and coding agents running as it | fully trusted, through the sudo rule |
 | The Hermes agent, its data dir and everything in it | untrusted |
-| Upstream images and their output | untrusted beyond digest and revision checks |
+| Upstream images and their output | untrusted beyond digest and revision checks (integrity against what the same release publishes, not an independent signature) |
 | This repository | trusted as cloned; install from the canonical URL at a tag |
 | The hub account (`talaria`) | holds the bot token; may run only `talaria op …` as each app |
 | gbrain's public connector paths (Tailscale Funnel) | untrusted; DCR clients stay pending until you approve them in /admin |

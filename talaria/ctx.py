@@ -121,16 +121,17 @@ class Ctx:
 
 
 def make_ctx(app: str | None = None, strict: bool = False) -> Ctx:
-    """`app` seeds the app to use when talaria.conf does not exist yet (a fresh install
-    picked with `talaria setup --app ...`). An existing conf file is read as it is, so a
-    conf without an `app` key stays `hermes` and setup can catch a contradicting --app."""
+    """`app` seeds the app to use when talaria.conf does not exist yet or has no `app` key
+    (`talaria setup --app ...`). A conf that sets `app` is read as it is, so setup can
+    catch a contradicting --app."""
     from talaria import apps
-    from talaria.conf import load_conf
+    from talaria.conf import load_conf, parse_kv
     from talaria.notify import TelegramNotifier
     from talaria.shell import Shell
 
     seed = Paths(Path.home())
-    if app and not seed.conf_file.exists():
+    if app and (not seed.conf_file.exists()
+                or "app" not in parse_kv(seed.conf_file.read_text())):
         seed = Paths(Path.home(), app)
     conf = load_conf(seed, strict)
     paths = Paths(Path.home(), conf.app)

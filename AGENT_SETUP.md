@@ -43,7 +43,9 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
     themselves, in their own terminal, as the service user, and use the link directly.
     The dashboard must be opened over HTTPS or an SSH tunnel to `http://127.0.0.1:<port>`
     (plain http to another address logs out at once); see the README's Clawvisor section.
-11. For a Clawvisor install that Hermes must reach, ask the person which networking
+11. Tell the person to run setup from their own login account with `--app X --user X`
+    (never from an app account or the hub account; setup stops if you do).
+    For a Clawvisor install that Hermes must reach, ask the person which networking
     option from the README's Clawvisor section to use: dummy NIC (recommended; needs
     root, so the person runs that snippet), Tailscale, or host loopback (no root, but
     exposes all host-loopback services to the Hermes container). Edit only the
@@ -57,9 +59,10 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
     `dashboard.bind = 10.254.254.1 tailscale` (dummy NIC for Hermes, Tailscale for the
     browser).
 11a. For a gbrain install:
-    - Before the first setup, ask the person for the https address MCP connectors will use
-      and write it as `dashboard.public_url` (e.g. `https://<host>.<tailnet>.ts.net`, port 443; see README: gbrain)
-      into `talaria.conf`; setup stops without it.
+    - Run setup first: it writes `talaria.conf` and STOPs asking for `dashboard.public_url`.
+      Ask the person for the https address MCP connectors will use, add it as
+      `dashboard.public_url` (e.g. `https://<host>.<tailnet>.ts.net`, port 443; see README:
+      gbrain) to `talaria.conf`, and run setup again.
     - **The agent never sees provider keys; the person adds them.** Tell the person to add
       them (e.g. `OPENROUTER_API_KEY=…`) to `~gbrain/.config/talaria/gbrain.env` themselves,
       in their own terminal and editor as the service user, then restart `gbrain.service`

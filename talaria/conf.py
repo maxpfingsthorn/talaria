@@ -11,7 +11,7 @@ from pathlib import Path
 
 def parse_kv(text: str) -> dict[str, str]:
     out: dict[str, str] = {}
-    for line in text.splitlines():
+    for line in text.removeprefix("\ufeff").splitlines():
         s = line.strip()
         if not s or s.startswith("#") or "=" not in s:
             continue
@@ -31,6 +31,37 @@ def read_telegram_env(path: Path) -> tuple[str, int]:
 
 def _bool(v: str) -> bool:
     return v.lower() in ("1", "true", "yes", "on")
+
+
+_BOOLS = ("1", "true", "yes", "on", "0", "false", "no", "off")
+_TAILSCALE_NET = ipaddress.IPv4Network("100.64.0.0/10")
+
+
+def check_tailscale_ip(value: str, where) -> None:
+    """tailscale_ip: empty, or an IPv4 address in the CGNAT range Tailscale assigns from."""
+    if not value:
+        return
+    try:
+        ip = ipaddress.IPv4Address(value)
+        ok = ip in _TAILSCALE_NET and str(ip) == value
+    except ValueError:
+        ok = False
+    if not ok:
+        raise ValueError(f"tailscale_ip must be an IPv4 address in 100.64.0.0/10, "
+                         f"got {value!r} in {where}")
+
+
+def _check_strict_lines(text: str, where) -> None:
+    """Setup-only checks of the raw file: a key given twice (the last would win silently)."""
+    seen = set()
+    for line in text.removeprefix("\ufeff").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#") or "=" not in s:
+            continue
+        k = s.split("=", 1)[0].strip()
+        if k in seen:
+            raise ValueError(f"{k} is set twice in {where}")
+        seen.add(k)
 
 
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -167,6 +198,15 @@ def _as_path(paths, v: str) -> Path:
     return paths.home / v[2:] if v.startswith("~/") else Path(v)
 
 
+def _check_strict_value(key: str, kind, v: str, where) -> None:
+    if kind == "bool" and v.lower() not in _BOOLS:
+        raise ValueError(f"{key} must be true or false, got {v!r} in {where}")
+    if kind == "path" and not (v.startswith("/") or v.startswith("~/")):
+        raise ValueError(f"{key} must be an absolute path or start with ~/, got {v!r} in {where}")
+    if key == "dashboard.port" and not 1 <= int(v) <= 65535:
+        raise ValueError(f"dashboard.port must be 1 to 65535, got {v!r} in {where}")
+
+
 def unknown_key(where, key: str, strict: bool) -> None:
     """Setup refuses a key this Talaria does not know; everything else warns and goes on,
     so a key added for a newer Talaria cannot cut an older install off."""
@@ -179,7 +219,10 @@ def load_conf(paths, strict: bool = False) -> Conf:
     conf = Conf(data_dir=paths.home / "hermes-data", app=paths.app)
     seen = set()
     if paths.conf_file.exists():
-        kv = parse_kv(paths.conf_file.read_text())
+        text = paths.conf_file.read_text()
+        kv = parse_kv(text)
+        if strict:
+            _check_strict_lines(text, paths.conf_file)
         if "repo" in kv and "hermes_repo" in kv:
             raise ValueError(f"set only one of repo / hermes_repo in {paths.conf_file}")
         for k, v in kv.items():
@@ -187,6 +230,8 @@ def load_conf(paths, strict: bool = False) -> Conf:
                 unknown_key(paths.conf_file, k, strict)
                 continue
             attr, kind = _KEYS[k]
+            if strict:
+                _check_strict_value(k, kind, v, paths.conf_file)
             if kind == "path":
                 val = _as_path(paths, v)
             elif kind == "list":
@@ -199,6 +244,8 @@ def load_conf(paths, strict: bool = False) -> Conf:
             seen.add(attr)
     from talaria import apps
     app = apps.get(conf.app)
+    if strict:
+        check_tailscale_ip(conf.tailscale_ip, paths.conf_file)
     check_bind(conf.dashboard_bind, paths.conf_file, conf.tailscale_ip)
     conf.dashboard_public_url = check_public_url(conf.dashboard_public_url, paths.conf_file)
     if paths.conf_file.exists() and conf.backup_keep < 1:

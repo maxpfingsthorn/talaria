@@ -209,3 +209,9 @@ def test_quadlet_host_loopback(app):
 def test_clawvisor_quadlet_golden():
     assert units.render_quadlet(_fixed_ctx("clawvisor")) == \
         (GOLDEN / "default.clawvisor.container").read_text()
+
+
+@pytest.mark.parametrize("ip", ["8.8.8.8", "1.2.3.4' ; x", "0.0.0.0"])
+def test_quadlet_refuses_an_invalid_tailscale_ip(ip):
+    with pytest.raises(ValueError, match="tailscale_ip"):
+        units.render_quadlet(_fixed_ctx(dashboard_bind="tailscale", tailscale_ip=ip))

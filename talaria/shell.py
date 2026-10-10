@@ -25,7 +25,7 @@ class Shell:
             timeout: float | None = None) -> Result:
         argv = [str(a) for a in argv]
         p = subprocess.run(argv, input=input, capture_output=True, text=True,
-                           timeout=timeout)
+                           errors="replace", timeout=timeout)
         r = Result(p.returncode, p.stdout, p.stderr)
         if check and r.returncode != 0:
             raise CommandError(argv, r)

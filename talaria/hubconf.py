@@ -5,7 +5,7 @@ import os
 import re
 from dataclasses import dataclass, field
 
-from talaria.conf import parse_kv, read_telegram_env, unknown_key
+from talaria.conf import check_time_of_day, parse_kv, read_telegram_env, unknown_key
 
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")   # goes into a root shell block
 RESERVED = ("hub", "talaria")        # "hub": button prefix of the hub itself; "talaria": /check talaria
@@ -57,6 +57,8 @@ def load_hub_conf(paths, strict: bool = False) -> HubConf:
                 unknown_key(paths.hub_conf, k, strict)
                 continue
             setattr(conf, _KEYS[k], parse_apps(v, paths.hub_conf) if k == "apps" else v)
+    if strict:   # the runtime keeps loading whatever v0.6.0 accepted
+        check_time_of_day(conf.check_time, "check.time", paths.hub_conf)
     conf.telegram_token, conf.telegram_user_id = read_telegram_env(paths.env_file)
     return conf
 
