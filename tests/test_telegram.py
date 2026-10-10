@@ -1,7 +1,8 @@
 # tests/test_telegram.py
 import pytest
 
-from talaria import relay, telegram
+from talaria import __version__, relay, telegram
+from talaria.telegram import NOT_NEWER
 from talaria.hubexec import NoAnswer, Unreachable
 from talaria.notify import ApiError
 from tests.fakes import make_test_ctx
@@ -196,7 +197,7 @@ def test_which_app_button_runs_the_read_form_never_a_confirm(bot2):
 
 
 @pytest.mark.parametrize("data", ["hub|w:nope:status", "hub|w:hermes:deploy", "hub|w:hermes:check", "hub|w:hermes:restore:../x",
-                                  "hub|w:hermes:status:x", "hub|x", "hub|up:latest"])
+                                  "hub|w:hermes:status:x", "hub|x", "hub|up:latest", "hub|ofr:latest"])
 def test_bad_hub_buttons(bot2, data):
     ctx, api, b = bot2
     b.handle(cb(data))
@@ -451,6 +452,23 @@ def test_update_button(bot):
     assert spawned(ctx) == [[str(ctx.paths.bin_link), "self-update", "v0.7.0"]]
     assert calls(api, "answerCallbackQuery")[0]["text"] == "Updating"
     assert calls(api, "editMessageReplyMarkup") == [status_markup("⬆️ Updating Talaria to v0.7.0…")]
+
+
+def test_ofr_button_spawns_offer(bot):
+    ctx, api, b = bot
+    b.handle(cb("hub|ofr:v9.9.9"))
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "update", "v9.9.9", "--offer"]]
+    assert calls(api, "answerCallbackQuery")[0]["text"] == "Checking"
+    assert calls(api, "editMessageReplyMarkup") == [
+        status_markup("🔎 Checking what Talaria v9.9.9 would change…")]
+
+
+def test_ofr_button_refuses_not_newer(bot):
+    ctx, api, b = bot
+    b.handle(cb(f"hub|ofr:v{__version__}"))
+    assert spawned(ctx) == []
+    assert calls(api, "answerCallbackQuery")[0]["text"] == NOT_NEWER.format(
+        tag=f"v{__version__}", cur=__version__)
 
 
 def test_status_button_tap_does_nothing(bot):

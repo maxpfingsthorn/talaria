@@ -117,21 +117,21 @@ pairing.
 | `/status` | every app: version and state, free disk, data size, pending update, interrupted change |
 | `/check` | look for new releases now, for every app and for Talaria itself; always ends with a summary, even when nothing is new |
 | `/check <app>` | the same for one app |
-| `/check talaria` | only the Talaria release: the update offer if there is a newer one, else "Talaria vX is current." |
+| `/check talaria` | only the Talaria release: the release notice if there is a newer one, else "Talaria vX is current." |
 | `/approve [app] <tag>` | deploy the pending update |
 | `/reject [app] <tag>` | never offer this release again |
 | `/rollback [app]` | describe what a rollback would restore, and how old the backup is |
 | `/rollback [app] CONFIRM` | roll back |
 | `/backups [app]` | list backups |
 | `/restore [app] <id>` / `/restore [app] <id> CONFIRM` | describe / restore a backup |
-| `/update <version>` | show which apps a Talaria update would restart, with an **Update** button |
+| `/update <version>` | show which apps a Talaria update would restart, with an **Update** button (what the daily notice's **What would vX change?** button does) |
 
 With one app registered, the app name is optional. With several, a command without one
 answers "Which app?" with a button per app (not `/check`, which checks everything); the button runs the read-only or describe
 form (status, rollback description), never a confirm.
 
 The bot registers these commands with Telegram, so they appear under the **Menu**
-button in your chat (and nowhere else). Update offers come with **Approve** and
+button in your chat (and nowhere else). The daily Talaria release notice only says a release is available, with a **What would vX change?** button; nothing runs on any app until you tap it (or send `/update vX`), and then the restart check and the **Update** button follow. App update offers come with **Approve** and
 **Reject** buttons; `/rollback` and `/restore <id>` answer with a confirm button, so
 you never have to type `CONFIRM`. Each button names what it acts on and is checked
 against the current state: an old button is refused instead of acting on something

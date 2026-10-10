@@ -175,6 +175,11 @@ class Bot:
                 return NOT_NEWER.format(tag=arg, cur=__version__), None
             self.spawn("update", "self-update", arg)
             return "Updating", f"⬆️ Updating Talaria to {arg}…"
+        if kind == "ofr" and SEMVER.match(arg):
+            if not semver_newer(arg, f"v{__version__}"):
+                return NOT_NEWER.format(tag=arg, cur=__version__), None
+            self.spawn("update", "update", arg, "--offer")
+            return "Checking", f"🔎 Checking what Talaria {arg} would change…"
         if kind == "w":
             app, _, form = arg.partition(":")
             what, _, rid = form.partition(":")

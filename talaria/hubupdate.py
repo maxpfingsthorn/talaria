@@ -34,6 +34,15 @@ def offer(hub, tag: str) -> int:
     return 0
 
 
+def announce(hub, tag: str) -> int:
+    """The daily notice: runs nothing on any app. What would restart is looked up only after
+    the owner taps (`update <tag> --offer`)."""
+    hub.ctx.notify.send(Message(
+        f"Talaria {tag} is available (installed v{__version__}).",
+        buttons=[[(f"What would {tag} change?", f"hub|ofr:{tag}")]]))
+    return 0
+
+
 def start_update(hub, tag: str) -> int:
     ctx = hub.ctx
     ctx.sh.run(["systemd-run", "--user", "--collect", "--quiet",

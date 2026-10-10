@@ -50,19 +50,23 @@ def test_unreachable_app_is_reported(h2):
                                         "missing); run setup again")
 
 
-def test_new_talaria_release_is_offered_once_with_dry_runs(h2):
+def test_new_talaria_release_is_announced_once(h2):
     h2.latest = "v99.0.0"
-    ex(h2, "hermes").on("self-update", lines=[dict(reply("would restart: no"), restart=False)])
-    ex(h2, "clawvisor").on("self-update", lines=[dict(reply("would restart: yes"), restart=True)])
     hubcheck.check(h2, timer=True)
     hubcheck.check(h2, timer=True)
     offers = [m for m in h2.ctx.notify.sent if m.text.startswith("Talaria v99.0.0")]
     assert len(offers) == 1
-    assert offers[0].text == (f"Talaria v99.0.0 is available (installed v{__version__}). "
-                              "Hermes would restart: no · Clawvisor would restart: yes")
-    assert offers[0].buttons == [[("Update Talaria to v99.0.0", "hub|up:v99.0.0")]]
-    assert ("call", ["self-update", "v99.0.0", "--dry-run"], 900) in ex(h2, "hermes").calls
     assert json.loads(h2.ctx.paths.hub_state.read_text()) == {"talaria_notified": "v99.0.0"}
+
+
+def test_timer_offer_runs_no_app_code(h2):
+    h2.latest = "v99.0.0"
+    hubcheck.check(h2, timer=True)
+    for n in h2.apps:
+        assert not any("self-update" in argv for _, argv, _ in ex(h2, n).calls)
+    (m,) = [m for m in h2.ctx.notify.sent if m.text.startswith("Talaria v99.0.0")]
+    assert m.text == f"Talaria v99.0.0 is available (installed v{__version__})."
+    assert m.buttons == [[("What would v99.0.0 change?", "hub|ofr:v99.0.0")]]
 
 
 @pytest.mark.parametrize("latest", [None, f"v{__version__}", "v0.0.1"])
@@ -163,15 +167,12 @@ def test_timer_stays_silent_when_nothing_is_new(h2):
     assert not any(a[2] == ("status",) for a in h2.log)
 
 
-def test_check_talaria_offers_a_newer_release(h2):
+def test_check_talaria_announces_a_newer_release(h2):
     h2.latest = "v99.0.0"
-    for n in h2.apps:
-        ex(h2, n).on("self-update", lines=[dict(reply("x"), restart=True)])
     assert hubcheck.check_talaria(h2) == 0
     (m,) = h2.ctx.notify.sent
-    assert m.text == (f"Talaria v99.0.0 is available (installed v{__version__}). "
-                      "Hermes would restart: yes · Clawvisor would restart: yes")
-    assert m.buttons == [[("Update Talaria to v99.0.0", "hub|up:v99.0.0")]]
+    assert m.text == f"Talaria v99.0.0 is available (installed v{__version__})."
+    assert m.buttons == [[("What would v99.0.0 change?", "hub|ofr:v99.0.0")]]
     assert not [a for a in h2.log if a[2][0] in ("hello", "check")]
 
 

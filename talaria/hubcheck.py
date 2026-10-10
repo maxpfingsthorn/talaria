@@ -91,7 +91,7 @@ def check_talaria(hub) -> int:
 
 
 def talaria_release(hub, force: bool = False) -> str:
-    """"new" (offered), "current", or "failed" (the lookup did not work). `force`: offer
+    """"new" (announced), "current", or "failed" (the lookup did not work). `force`: offer
     again a release that was offered before."""
     ctx = hub.ctx
     try:
@@ -103,7 +103,7 @@ def talaria_release(hub, force: bool = False) -> str:
     st = load_state(ctx.paths)
     if st.get("talaria_notified") == latest and not force:
         return "current"
-    hubupdate.offer(hub, latest)
+    hubupdate.announce(hub, latest)
     st["talaria_notified"] = latest
     write_json_atomic(ctx.paths.hub_state, st)
     return "new"
