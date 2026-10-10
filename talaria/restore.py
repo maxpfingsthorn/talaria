@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 from pathlib import Path
 
 from talaria.backup import verify
@@ -31,20 +32,36 @@ def _step_rename_new(ctx, new: Path, data: Path) -> None:
     os.rename(new, data)
 
 
-def _move_missing(src: Path, dst: Path) -> None:
+def _plain_dirs(root: Path, parent: Path) -> bool:
+    """Every existing component from root down to parent is a real directory."""
+    cur = root
+    for part in parent.relative_to(root).parts:
+        cur = cur / part
+        try:
+            st = os.lstat(cur)
+        except FileNotFoundError:
+            return True
+        if not stat.S_ISDIR(st.st_mode):
+            return False
+    return True
+
+
+def _move_missing(src: Path, dst: Path, root: Path | None = None) -> None:
     if not os.path.lexists(src):
         return
     if not os.path.lexists(dst):
+        if root is not None and not _plain_dirs(root, dst.parent):
+            return  # the agent may have planted a link; do not carry this path over
         dst.parent.mkdir(parents=True, exist_ok=True)
         os.rename(src, dst)
     elif src.is_dir() and not src.is_symlink() and dst.is_dir() and not dst.is_symlink():
         for child in src.iterdir():
-            _move_missing(child, dst / child.name)
+            _move_missing(child, dst / child.name, root)
 
 
 def _step_move_excluded(ctx, old: Path, data: Path) -> None:
     for ex in ctx.conf.backup_exclude:
-        _move_missing(old / ex, data / ex)
+        _move_missing(old / ex, data / ex, data)
 
 
 class RestoreError(Exception):

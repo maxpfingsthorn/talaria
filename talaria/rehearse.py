@@ -7,7 +7,7 @@ import subprocess
 import stat
 from pathlib import Path
 
-from talaria import disk, service
+from talaria import disk, safefs, service
 from talaria.backup import excluded
 from talaria.images import RevisionMismatch
 from talaria.notify import Message
@@ -45,7 +45,7 @@ def copy_data(src: Path, dst: Path, excludes) -> None:
                 skip.append(n)
         return skip
 
-    shutil.copytree(src, dst, symlinks=True, ignore=ignore)
+    shutil.copytree(src, dst, symlinks=True, ignore=ignore, copy_function=safefs.copy_regular)
     for root, dirs, files in os.walk(dst):
         for f in files:
             p = Path(root) / f

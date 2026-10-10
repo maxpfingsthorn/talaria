@@ -180,3 +180,25 @@ def test_undeletable_leftover_after_success_blocks_the_next_restore(tmp_path):
         for p in (old / "ro", d / "ro"):
             if p.exists():
                 p.chmod(0o700)
+
+
+def test_move_excluded_does_not_follow_a_symlinked_parent(tmp_path):
+    data, old, outside = tmp_path / "data", tmp_path / "old", tmp_path / "outside"
+    data.mkdir()
+    outside.mkdir()
+    (data / "home").symlink_to(outside)
+    (old / "home").mkdir(parents=True)
+    (old / "home/.cache").mkdir()
+    (old / "home/.cache/x").write_text("x")
+    restore._move_missing(old / "home/.cache", data / "home/.cache", root=data)
+    assert list(outside.iterdir()) == []
+    assert (old / "home/.cache/x").exists()
+
+
+def test_move_missing_with_root_still_moves_under_real_dirs(tmp_path):
+    data, old = tmp_path / "data", tmp_path / "old"
+    (data / "home").mkdir(parents=True)
+    (old / "home/.cache").mkdir(parents=True)
+    (old / "home/.cache/x").write_text("x")
+    restore._move_missing(old / "home/.cache", data / "home/.cache", root=data)
+    assert (data / "home/.cache/x").read_text() == "x"

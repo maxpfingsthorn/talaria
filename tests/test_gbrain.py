@@ -482,6 +482,28 @@ def test_initialize_failure_stops_and_retries_next_time(tmp_path):
     assert not (ctx.conf.data_dir / ".talaria-init").exists()
 
 
+def test_write_schema_does_not_write_through_a_symlink(tmp_path):
+    data = tmp_path / "data"; data.mkdir()
+    outside = tmp_path / "outside"; outside.write_text("keep\n")
+    (data / ".talaria-schema").symlink_to(outside)
+    gb.write_schema(data, 221)
+    assert outside.read_text() == "keep\n"
+    assert not (data / ".talaria-schema").is_symlink()
+    assert (data / ".talaria-schema").read_text() == "221\n"
+
+
+def test_initialize_replaces_a_dangling_init_symlink(tmp_path):
+    ctx = brain(tmp_path)
+    data = ctx.conf.data_dir
+    outside = tmp_path / "outside-target"
+    (data / ".talaria-init").symlink_to(outside)
+    assert ctx.app.initialize(ctx) != []
+    assert ctx.runs
+    assert not outside.exists()
+    assert not (data / ".talaria-init").is_symlink()
+    assert (data / ".talaria-init").read_text() == "1\n"
+
+
 def test_data_version(tmp_path):
     d = tmp_path / "d"
     d.mkdir()

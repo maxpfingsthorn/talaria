@@ -461,3 +461,14 @@ def test_candidate_message_replaced_and_no_doctor_problems(happy):
                       "Doctor: no new problems.\n"
                       "Replaces the pending v1.5.")
     assert m.untrusted == []
+
+
+def test_copy_data_uses_the_non_following_copy_function(tmp_path, monkeypatch):
+    seen = {}
+
+    def fake(src, dst, **kw):
+        seen.update(kw)
+    monkeypatch.setattr(rehearse.shutil, "copytree", fake)
+    rehearse.copy_data(tmp_path, tmp_path / "dst", ())
+    assert seen["copy_function"] is rehearse.safefs.copy_regular
+

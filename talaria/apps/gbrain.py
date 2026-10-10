@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 from string import Template
 
+from talaria import safefs
 from talaria.apps.base import App
 from talaria.conf import parse_kv, write_env_value
 from talaria.ctx import TooLarge
@@ -123,7 +124,7 @@ def parse_schema(out: str) -> int:
 
 
 def write_schema(data_dir, v: int) -> None:
-    (Path(data_dir) / SCHEMA_FILE).write_text(f"{v}\n")
+    safefs.write_text(Path(data_dir) / SCHEMA_FILE, f"{v}\n", mode=0o644)
 
 
 def _redact(ctx, text: str) -> str:
@@ -294,7 +295,7 @@ class Gbrain(App):
         """First run: a keyless PGLite brain, gbrain's own update checks off, Talaria's
         marker page for the rehearsal's recall, the schema version."""
         data = ctx.conf.data_dir
-        if (data / INIT_FILE).exists():
+        if safefs.is_regular(data / INIT_FILE):
             return []
         image = f"{self.local_image}:current"
         steps = [] if (data / ".gbrain/config.json").exists() else [["init", "--pglite"]]
@@ -309,7 +310,7 @@ class Gbrain(App):
         except ValueError as e:
             raise ValueError(f"gbrain doctor failed after init: {e}") from None
         write_schema(data, v)
-        (data / INIT_FILE).write_text("1\n")
+        safefs.write_text(data / INIT_FILE, "1\n", mode=0o644)
         return [f"gbrain brain initialized in {data} (PGLite, schema {v})"]
 
     @staticmethod

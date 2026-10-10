@@ -74,6 +74,49 @@ def test_login_link_prints_the_link_with_the_bind_ip(tmp_path, monkeypatch, caps
                          "/clawvisor-server", "dashboard", "--no-open")
 
 
+def test_login_link_does_not_follow_a_planted_session_link(tmp_path, monkeypatch):
+    import sys
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    outside = tmp_path / "outside"; outside.write_text("keep")
+    tmp = ctx.conf.data_dir / ".login-link"
+    (tmp / ".clawvisor").mkdir(parents=True)
+    (tmp / ".clawvisor/.local-session").symlink_to(outside)
+    ctx.sh.on("podman", "exec", out="Open: http://localhost:25297/x\n")
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    assert cli.main(["login-link"], make=lambda: ctx) == 0
+    assert outside.read_text() == "keep"
+    assert ctx.sh.called("podman", "exec")
+    assert not os.path.lexists(tmp)
+
+
+def test_login_link_does_not_follow_a_planted_directory_link(tmp_path, monkeypatch):
+    import sys
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    outside = tmp_path / "outside"; outside.mkdir()
+    (ctx.conf.data_dir / ".login-link").symlink_to(outside)
+    ctx.sh.on("podman", "exec", out="Open: http://localhost:25297/x\n")
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    assert cli.main(["login-link"], make=lambda: ctx) == 0
+    assert list(outside.iterdir()) == []
+    assert ctx.sh.called("podman", "exec")
+
+
+def test_login_link_stops_when_the_session_dir_reappears(tmp_path, monkeypatch, capsys):
+    import sys
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    real_mkdir = os.mkdir
+
+    def racing(p, *a, **k):
+        if str(p).endswith(".login-link") and not os.path.lexists(p):
+            real_mkdir(p)
+        return real_mkdir(p, *a, **k)
+    monkeypatch.setattr(os, "mkdir", racing)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    assert cli.main(["login-link"], make=lambda: ctx) == 1
+    assert "STOP: could not prepare the login session" in capsys.readouterr().err
+    assert not ctx.sh.called("podman", "exec")
+
+
 def test_login_link_runs_podman_from_root(tmp_path, monkeypatch):
     """The service user may not be able to enter the caller's cwd; podman would fail."""
     import os

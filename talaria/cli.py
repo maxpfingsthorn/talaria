@@ -106,12 +106,25 @@ def login_link(ctx) -> int:
     # set, and the dashboard command posts to it; the endpoint only answers 127.0.0.1. So
     # write our own session file (no token: the server issues the link) in a throwaway HOME.
     tmp = ctx.conf.data_dir / ".login-link"
+    fds = []
     try:
-        sess = tmp / ".clawvisor"
-        sess.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(tmp, 0o700)
-        os.chmod(sess, 0o700)
-        fd = os.open(sess / ".local-session", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        # the data dir is agent-writable: nothing below follows a planted link
+        if os.path.lexists(tmp):
+            if tmp.is_symlink() or not tmp.is_dir():
+                os.unlink(tmp)
+            else:
+                shutil.rmtree(tmp)
+        try:
+            os.mkdir(tmp, 0o700)
+            flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            fds.append(os.open(tmp, flags))
+            os.mkdir(".clawvisor", 0o700, dir_fd=fds[0])
+            fds.append(os.open(".clawvisor", flags, dir_fd=fds[0]))
+            fd = os.open(".local-session", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                         0o600, dir_fd=fds[1])
+        except OSError:
+            print("STOP: could not prepare the login session", file=sys.stderr)
+            return 1
         with os.fdopen(fd, "w") as f:
             json.dump({"server_url": f"http://localhost:{ctx.app.container_port}",
                        "magic_token": ""}, f)
@@ -121,6 +134,8 @@ def login_link(ctx) -> int:
         print("STOP: podman exec timed out", file=sys.stderr)
         return 1
     finally:
+        for d in fds:
+            os.close(d)
         shutil.rmtree(tmp, ignore_errors=True)
     if r.returncode != 0:
         print("STOP: could not get a login link from Clawvisor", file=sys.stderr)
