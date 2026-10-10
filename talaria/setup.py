@@ -226,10 +226,10 @@ def import_telegram(ctx, stream) -> int:
     return 0
 
 
-def _talaria_account() -> bool:
-    """This login already holds a Talaria config: it is the hub's account or an app's."""
+def _talaria_account() -> Path | None:
+    """The Talaria config that marks this login as the hub's account or an app's, if any."""
     p = Paths(Path.home())
-    return p.hub_conf.exists() or p.conf_file.exists()
+    return next((f for f in (p.hub_conf, p.conf_file) if f.exists()), None)
 
 
 def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subprocess.call,
@@ -249,9 +249,15 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
     if user == hub:
         say("STOP", f"{hub} is the hub's account; the app needs an account of its own (--user)")
         return 1
-    if operator in (hub, user) or _talaria_account():
-        say("STOP", f"{operator} is the hub's or an app's account; run setup from your own "
-                    "login account")
+    marker = _talaria_account()
+    if marker:
+        say("STOP", f"{marker} exists, so this login looks like a Talaria app or hub account; "
+                    "run setup from your own login account (if that file is a leftover from an "
+                    "earlier test, remove it)")
+        return 1
+    if operator in (hub, user):
+        what = "the hub's account" if operator == hub else "the account of the app"
+        say("STOP", f"{operator} is {what}; run setup from your own login account")
         return 1
     if prerequisites(sh):
         return 10

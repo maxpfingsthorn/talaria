@@ -710,3 +710,24 @@ def test_operator_cannot_be_the_app_account_itself(monkeypatch, tmp_path, capsys
                               linger_dir=tmp_path / "linger")
     assert rc == 1
     assert "run setup from your own login account" in capsys.readouterr().out
+
+
+def test_operator_stop_names_the_file_that_triggered_it(monkeypatch, tmp_path, capsys):
+    from talaria.ctx import Paths
+    sh, _, _ = op_env(monkeypatch, tmp_path)
+    home = tmp_path / "h"
+    monkeypatch.setattr("pathlib.Path.home", classmethod(lambda cls: home))
+    p = Paths(home)
+    p.conf_dir.mkdir(parents=True)
+    p.conf_file.write_text("app = hermes\n")
+    kw = dict(getpwnam=lambda n: PW, linger_dir=tmp_path / "linger")
+    assert setup.operator_phase(sh, args(user="hermes"), operator="alice", **kw) == 1
+    out = capsys.readouterr().out
+    assert str(p.conf_file) in out and "leftover" in out
+    p.conf_file.unlink()
+    p.hub_conf.write_text("apps = gbrain:gbrain\n")
+    assert setup.operator_phase(sh, args(user="hermes"), operator="alice", **kw) == 1
+    assert str(p.hub_conf) in capsys.readouterr().out
+    p.hub_conf.unlink()
+    assert setup.operator_phase(sh, args(user="hermes"), operator="hermes", **kw) == 1
+    assert "hermes is the account of the app" in capsys.readouterr().out
