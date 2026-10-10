@@ -3,7 +3,7 @@ import subprocess
 
 import pytest
 
-from talaria import rehearse
+from talaria import rehearse, state
 from talaria.shell import Result
 from tests.fakes import make_test_ctx
 from tests.test_rehearse import IMG, st_with_current
@@ -123,3 +123,26 @@ def test_the_app_is_started_again_when_the_stop_fails(tmp_path, monkeypatch, how
         rehearse.rehearse(ctx, st_with_current(), "v2026.9.24", "c")
     assert ctx.sh.calls == [sc("is-active"), sc("stop"), sc("reset-failed"), sc("start")]
     assert seen == []
+
+
+def test_rehearsal_restart_failure_flags_app(tmp_path, monkeypatch):
+    ctx, seen = rctx(tmp_path, monkeypatch)
+    ctx.sh.on("systemctl", "--user", "start", rc=1, err="Job failed")
+    st = st_with_current()
+    with pytest.raises(rehearse.Transient) as ei:
+        rehearse.rehearse(ctx, st, "v2026.9.24", "c")
+    assert "is not running" in str(ei.value) and "/rollback CONFIRM" in str(ei.value)
+    assert st["op"]["op"] == "rehearse" and st["op"]["changed"] is False
+    assert state.load(ctx.paths)["op"]["op"] == "rehearse"
+
+
+def test_rehearsal_restart_failure_keeps_the_earlier_error(tmp_path, monkeypatch):
+    ctx, seen = rctx(tmp_path, monkeypatch)
+    ctx.sh.on("systemctl", "--user", "start", rc=1, err="Job failed")
+
+    def broken(src, dst, excludes):
+        raise OSError("disk full")
+    monkeypatch.setattr(rehearse, "copy_data", broken)
+    with pytest.raises(rehearse.Transient) as ei:
+        rehearse.rehearse(ctx, st_with_current(), "v2026.9.24", "c")
+    assert "disk full" in str(ei.value) and "is not running" in str(ei.value)

@@ -392,7 +392,9 @@ bin/talaria setup --app gbrain --user gbrain
   gbrain again. The dream cycle has network access and your provider keys; without keys it
   runs only its file-based phases. Expect minutes of downtime. The run is skipped while
   another Talaria operation runs or a change is interrupted. Success is silent. A failure
-  sends one message, and the next night retries. The hub's `talaria-maintain.timer` checks
+  sends one message, and the next night retries. If gbrain is not running afterwards,
+  the message says so and `/rollback CONFIRM` in the bot starts it again (nothing is
+  restored); there is no retry until then. The hub's `talaria-maintain.timer` checks
   every 15 minutes whether a window is due. `maintenance.time =` (empty) turns
   maintenance off.
 - Out of scope: Postgres, gbrain's autopilot daemon, adopting an existing gbrain install,

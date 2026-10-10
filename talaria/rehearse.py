@@ -5,9 +5,10 @@ import shutil
 import sqlite3
 import subprocess
 import stat
+import sys
 from pathlib import Path
 
-from talaria import disk, safefs, service
+from talaria import disk, safefs, service, state
 from talaria.backup import excluded
 from talaria.images import RevisionMismatch
 from talaria.notify import Message
@@ -117,7 +118,18 @@ def rehearse(ctx, st: dict, tag: str, commit: str) -> None:
             raise Transient(f"could not copy the data dir: {str(e)[:300]}") from None
         finally:
             if stopped:
-                service.start(ctx)
+                earlier = sys.exc_info()[1]     # the error this finally is running for
+                try:
+                    service.start(ctx)
+                except Exception as e:
+                    # the bot's /rollback CONFIRM starts it; nothing was changed
+                    st["op"] = {"op": "rehearse", "changed": False,
+                                "started": ctx.now().isoformat()}
+                    state.save(ctx.paths, st)
+                    more = f" Earlier error: {str(earlier)[:300]}." if earlier else ""
+                    raise Transient(f"{ctx.app.title} is not running after the rehearsal copy "
+                                    f"({str(e)[:300]}). Send /rollback CONFIRM to start it "
+                                    f"again.{more}") from None
         report = ctx.app.rehearse(ctx, st, image, copy, stage)
     finally:
         shutil.rmtree(stage, ignore_errors=True)

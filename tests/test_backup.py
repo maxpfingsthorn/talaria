@@ -6,6 +6,7 @@ import tarfile
 import pytest
 
 from talaria import backup, disk
+from talaria.state import ensure_dir
 from tests.fakes import make_test_ctx
 
 
@@ -256,3 +257,27 @@ def test_clawvisor_backup_keeps_adapters_but_not_the_login_session(tmp_path):
     rehearse.copy_data(d, copy, ctx.conf.backup_exclude)
     assert (copy / ".clawvisor/adapters/x.yaml").is_file()
     assert not (copy / ".clawvisor/.local-session").exists()
+
+
+def _age(ctx, files, secs):
+    for f in files:
+        f.write_text("x")
+        os.utime(f, (ctx.clock.t.timestamp() - secs,) * 2)
+
+
+def test_prune_removes_orphan_archives(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    keep = backup.create(ctx, "manual", None)
+    files = [ctx.paths.backups / "orphan.tar.gz", ctx.paths.backups / "orphan2.json.tmp"]
+    _age(ctx, files, 3600)
+    backup.prune(ctx, set())
+    assert not any(f.exists() for f in files) and backup.get(ctx, keep.id)
+
+
+def test_prune_keeps_fresh_orphans(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    ensure_dir(ctx.paths.backups)
+    files = [ctx.paths.backups / "fresh.tar.gz", ctx.paths.backups / "fresh.json.tmp"]
+    _age(ctx, files, 60)
+    backup.prune(ctx, set())
+    assert all(f.exists() for f in files)

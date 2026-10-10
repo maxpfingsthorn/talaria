@@ -63,6 +63,9 @@ def run(ctx, st: dict, timer: bool) -> None:
         return
     if day:
         st["maintenance"] = {"date": day, "ok": False}
+    if was_active:                          # a crash while stopped is recovered by /rollback CONFIRM
+        st["op"] = {"op": "maintain", "changed": False, "started": ctx.now().isoformat()}
+    if day or was_active:
         state.save(ctx.paths, st)           # a crash below must not repeat the run tonight
     try:
         if was_active:
@@ -77,11 +80,18 @@ def run(ctx, st: dict, timer: bool) -> None:
             down = service.post_start_check(ctx)
         except Exception as e:
             down = str(e)
+    if was_active and not down:
+        st["op"] = None
+        state.save(ctx.paths, st)
     if down:
         reason = f"{reason}; then {down}" if reason else down
     if day:
         st["maintenance"]["ok"] = reason is None
-    if reason:
+    if down:
+        ctx.notify.send(Message(f"{app.title} maintenance failed and {app.title} is not "
+                                "running. Send /rollback CONFIRM to start it again; nothing "
+                                "is restored.", untrusted=[("Last error", reason)]))
+    elif reason:
         ctx.notify.send(Message(f"{app.title} maintenance failed. Talaria tries again next "
                                 "night.", untrusted=[("Last error", reason)]))
     elif not timer:

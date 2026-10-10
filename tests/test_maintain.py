@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from talaria import cli, lock, maintain, marker, op, state
+from talaria import cli, lock, maintain, marker, op, rollback, state
 from talaria.shell import Result
 from tests.fakes import local_tz, make_test_ctx
 
@@ -292,3 +292,43 @@ def test_timer_not_due_when_the_night_is_done(mctx, routed, monkeypatch):
     state.save(mctx.paths, st)
     assert cli.main(["maintain", "--timer"], make=lambda: mctx) == 0
     assert routed == []
+
+
+class Died(BaseException):
+    """Process death: not an Exception, so run()'s handler does not catch it."""
+
+
+def test_maintenance_down_gives_recovery_path(mctx):
+    mctx.hook["down"] = "hermes.service is not active"
+    st = st0()
+    maintain.run(mctx, st, timer=True)
+    (m,) = mctx.notify.sent
+    assert "is not running" in m.text and "/rollback CONFIRM" in m.text
+    assert "next night" not in m.text
+    assert m.untrusted == [("Last error", "hermes.service is not active")]
+    assert st["op"]["op"] == "maintain" and st["op"]["changed"] is False
+    assert rollback.needs_resume(mctx, st)
+    assert state.load(mctx.paths)["op"]["op"] == "maintain"
+
+
+def test_maintenance_crash_leaves_resumable_op(mctx):
+    mctx.hook["exc"] = Died()
+    st = st0()
+    with pytest.raises(Died):
+        maintain.run(mctx, st, timer=True)
+    op_ = state.load(mctx.paths)["op"]
+    assert op_["op"] == "maintain" and op_["changed"] is False
+
+
+def test_maintenance_success_clears_op(mctx):
+    st = st0()
+    maintain.run(mctx, st, timer=True)
+    assert st["op"] is None and state.load(mctx.paths)["op"] is None
+
+
+def test_maintenance_hook_fail_but_running(mctx):
+    mctx.hook["reason"] = "dream failed"
+    st = st0()
+    maintain.run(mctx, st, timer=True)
+    assert "tries again next night" in mctx.notify.sent[0].text
+    assert st["op"] is None

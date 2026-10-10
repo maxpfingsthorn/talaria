@@ -121,4 +121,16 @@ def prune(ctx, protect: set) -> list[str]:
         removed.append(b.id)
     for stray in ctx.paths.backups.glob(".*.tmp"):
         stray.unlink(missing_ok=True)
+    # a crash between archive and metadata leaves an archive nothing lists; the age check
+    # keeps a backup that is being written right now
+    cutoff = ctx.now().timestamp() - 600
+    for orphan in [*ctx.paths.backups.glob("*.tar.gz"), *ctx.paths.backups.glob("*.json.tmp")]:
+        if orphan.name.endswith(".tar.gz") and orphan.with_name(
+                orphan.name[:-len(".tar.gz")] + ".json").exists():
+            continue
+        try:
+            if orphan.stat().st_mtime < cutoff:
+                orphan.unlink()
+        except FileNotFoundError:
+            pass
     return removed
