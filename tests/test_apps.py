@@ -138,3 +138,9 @@ def test_generic_rehearse_delegates_to_the_app(tmp_path, monkeypatch):
     m = ctx.notify.sent[-1]
     assert "Line" in m.text and m.untrusted == [("Block", "body")]
     assert m.buttons == [[("Approve v2026.9.24", "ap:v2026.9.24"), ("Reject", "rj:v2026.9.24")]]
+
+
+def test_hermes_initial_conf_names_its_app():
+    from talaria.apps import hermes
+    from talaria.conf import parse_kv
+    assert parse_kv(hermes.APP.initial_conf(None))["app"] == "hermes"

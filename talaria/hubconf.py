@@ -49,7 +49,7 @@ def parse_apps(value: str, where) -> tuple:
     return tuple(out)
 
 
-def load_hub_conf(paths, strict: bool = False) -> HubConf:
+def load_hub_conf(paths, strict: bool = False, checks: bool | None = None) -> HubConf:
     conf = HubConf()
     if paths.hub_conf.exists():
         for k, v in parse_kv(paths.hub_conf.read_text()).items():
@@ -57,8 +57,8 @@ def load_hub_conf(paths, strict: bool = False) -> HubConf:
                 unknown_key(paths.hub_conf, k, strict)
                 continue
             setattr(conf, _KEYS[k], parse_apps(v, paths.hub_conf) if k == "apps" else v)
-    if strict:   # the runtime keeps loading whatever v0.6.0 accepted
-        check_time_of_day(conf.check_time, "check.time", paths.hub_conf)
+    if strict if checks is None else checks:   # the runtime keeps loading whatever v0.6.0 accepted
+        check_time_of_day(conf.check_time, "check.time", paths.hub_conf, systemd=True)
     conf.telegram_token, conf.telegram_user_id = read_telegram_env(paths.env_file)
     return conf
 

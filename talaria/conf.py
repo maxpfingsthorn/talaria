@@ -66,6 +66,7 @@ def _check_strict_lines(text: str, where) -> None:
 
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 _TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+_TIME_SYSTEMD = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d(:[0-5]\d)?$")   # what OnCalendar accepts
 
 
 def check_days(value: tuple, where) -> tuple:
@@ -77,9 +78,10 @@ def check_days(value: tuple, where) -> tuple:
     return out
 
 
-def check_time_of_day(value: str, key: str, where) -> None:
-    if value and not _TIME.match(value):
-        raise ValueError(f"{key} must be HH:MM (24-hour) or empty, got {value!r} in {where}")
+def check_time_of_day(value: str, key: str, where, systemd: bool = False) -> None:
+    if value and not (_TIME_SYSTEMD if systemd else _TIME).match(value):
+        raise ValueError(f"{key} must be {'H:MM or ' if systemd else ''}HH:MM (24-hour) or "
+                         f"empty, got {value!r} in {where}")
 
 
 @dataclass
@@ -215,13 +217,17 @@ def unknown_key(where, key: str, strict: bool) -> None:
     print(f"[talaria] ignoring unknown key in {where}: {key} (newer Talaria?)", file=sys.stderr)
 
 
-def load_conf(paths, strict: bool = False) -> Conf:
+def load_conf(paths, strict: bool = False, checks: bool | None = None) -> Conf:
+    """`strict`: an unknown key is an error. `checks` (default: as strict): the setup-only
+    value checks a person's setup applies; self-update turns them off so it keeps accepting
+    what v0.6.0 accepted."""
+    checks = strict if checks is None else checks
     conf = Conf(data_dir=paths.home / "hermes-data", app=paths.app)
     seen = set()
     if paths.conf_file.exists():
         text = paths.conf_file.read_text()
         kv = parse_kv(text)
-        if strict:
+        if checks:
             _check_strict_lines(text, paths.conf_file)
         if "repo" in kv and "hermes_repo" in kv:
             raise ValueError(f"set only one of repo / hermes_repo in {paths.conf_file}")
@@ -230,7 +236,7 @@ def load_conf(paths, strict: bool = False) -> Conf:
                 unknown_key(paths.conf_file, k, strict)
                 continue
             attr, kind = _KEYS[k]
-            if strict:
+            if checks:
                 _check_strict_value(k, kind, v, paths.conf_file)
             if kind == "path":
                 val = _as_path(paths, v)
@@ -244,7 +250,7 @@ def load_conf(paths, strict: bool = False) -> Conf:
             seen.add(attr)
     from talaria import apps
     app = apps.get(conf.app)
-    if strict:
+    if checks:
         check_tailscale_ip(conf.tailscale_ip, paths.conf_file)
     check_bind(conf.dashboard_bind, paths.conf_file, conf.tailscale_ip)
     conf.dashboard_public_url = check_public_url(conf.dashboard_public_url, paths.conf_file)

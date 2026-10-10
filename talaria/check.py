@@ -4,8 +4,8 @@ from talaria import history
 from talaria.conf import DAYS
 from talaria.ctx import local_now
 from talaria.notify import Message
-from talaria.rehearse import Permanent, Transient, rehearse
-from talaria.rollback import interrupted
+from talaria.rehearse import NeedsRecovery, Permanent, Transient, rehearse
+from talaria.rollback import clear_stale_op, interrupted
 from talaria.shell import CommandError
 from talaria.tags import pick_candidate, releases
 
@@ -24,8 +24,9 @@ def _run_rehearsal(ctx, st, tag: str, commit: str) -> None:
     except Transient as e:
         reason = str(e)
         if (st.get("transient") or {}).get("reason") != reason:
-            ctx.notify.send(Message(f"Could not rehearse {ctx.app.title} {tag}: {reason}. "
-                                    "Talaria retries at the next check."))
+            retry = "" if isinstance(e, NeedsRecovery) else " Talaria retries at the next check."
+            ctx.notify.send(Message(f"Could not rehearse {ctx.app.title} {tag}: "
+                                    f"{reason.rstrip('.')}.{retry}"))
         st["transient"] = {"tag": tag, "reason": reason}
     except Permanent as e:
         if tag not in st["failed"]:
@@ -36,6 +37,7 @@ def _run_rehearsal(ctx, st, tag: str, commit: str) -> None:
 
 def check(ctx, st: dict) -> None:
     history.commit(ctx, st, "daily")
+    clear_stale_op(ctx, st)
     if interrupted(ctx, st):     # /status and the bot's startup notice report it
         return
     try:

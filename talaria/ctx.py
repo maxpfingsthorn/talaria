@@ -120,7 +120,7 @@ class Ctx:
     app: object = None
 
 
-def make_ctx(app: str | None = None, strict: bool = False) -> Ctx:
+def make_ctx(app: str | None = None, strict: bool = False, checks: bool | None = None) -> Ctx:
     """`app` seeds the app to use when talaria.conf does not exist yet or has no `app` key
     (`talaria setup --app ...`). A conf that sets `app` is read as it is, so setup can
     catch a contradicting --app."""
@@ -130,21 +130,24 @@ def make_ctx(app: str | None = None, strict: bool = False) -> Ctx:
     from talaria.shell import Shell
 
     seed = Paths(Path.home())
-    if app and (not seed.conf_file.exists()
-                or "app" not in parse_kv(seed.conf_file.read_text())):
+    # a conf that exists but names no app is a Hermes install (its initial_conf had no `app`
+    # line): --app seeds only an account that has no state yet
+    if app and not seed.state_file.exists() and (
+            not seed.conf_file.exists() or "app" not in parse_kv(seed.conf_file.read_text())):
         seed = Paths(Path.home(), app)
-    conf = load_conf(seed, strict)
+    conf = load_conf(seed, strict, checks)
     paths = Paths(Path.home(), conf.app)
     return Ctx(paths=paths, conf=conf, sh=Shell(), notify=TelegramNotifier(conf),
                app=apps.get(conf.app))
 
 
-def make_hub_ctx(home: Path | None = None, sh=None, strict: bool = False) -> Ctx:
+def make_hub_ctx(home: Path | None = None, sh=None, strict: bool = False,
+                 checks: bool | None = None) -> Ctx:
     """The hub account's ctx: hub.conf instead of talaria.conf, no app."""
     from talaria.hubconf import load_hub_conf
     from talaria.notify import TelegramNotifier
     from talaria.shell import Shell
 
     paths = Paths(Path(home) if home else Path.home())
-    conf = load_hub_conf(paths, strict)
+    conf = load_hub_conf(paths, strict, checks)
     return Ctx(paths=paths, conf=conf, sh=sh or Shell(), notify=TelegramNotifier(conf))

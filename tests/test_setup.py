@@ -672,3 +672,41 @@ def test_operator_cannot_be_hub_or_app(monkeypatch, tmp_path, capsys):
                                   linger_dir=ld)
         assert rc == 1
         assert "run setup from your own login account" in capsys.readouterr().out
+
+
+def test_empty_tailscale_ip_line_is_replaced_not_duplicated(svc):
+    _tailscale_svc(svc, "dashboard.bind = tailscale\ntailscale_ip =\n")
+    assert setup.service_phase(svc, args(as_service=True)) == 0
+    text = svc.paths.conf_file.read_text()
+    assert text.count("tailscale_ip") == 1 and "tailscale_ip = 100.64.0.1" in text
+    assert text.startswith("dashboard.bind = tailscale\n")
+
+
+def test_service_setup_strictness_follows_who_runs_it(tmp_path, monkeypatch):
+    """Self-update (--lock-held) keeps v0.6.0's rules; a person's setup applies the new checks."""
+    from talaria.ctx import Paths
+    monkeypatch.setattr("pathlib.Path.home", classmethod(lambda cls: tmp_path))
+    p = Paths(tmp_path)
+    p.conf_dir.mkdir(parents=True)
+    p.conf_file.write_text("dashboard.bind = loopback\ndashboard.bind = tailscale\n"
+                           "tailscale_ip = 100.64.0.1\n")
+    seen = []
+    monkeypatch.setattr(setup, "service_phase", lambda ctx, a: seen.append(ctx.conf.dashboard_bind) or 0)
+    assert setup.setup(args(as_service=True, lock_held=True)) == 0
+    assert seen == ["tailscale"]
+    assert setup.setup(args(as_service=True)) == 1      # person-run: set twice
+    assert seen == ["tailscale"]
+
+
+def test_operator_cannot_be_the_app_account_itself(monkeypatch, tmp_path, capsys):
+    from talaria.ctx import Paths
+    sh, _, _ = op_env(monkeypatch, tmp_path)
+    home = tmp_path / "h"
+    monkeypatch.setattr("pathlib.Path.home", classmethod(lambda cls: home))
+    p = Paths(home)
+    p.conf_dir.mkdir(parents=True)
+    p.conf_file.write_text("app = gbrain\n")      # an app account, not a login account
+    rc = setup.operator_phase(sh, args(user="hermes"), getpwnam=lambda n: PW, operator="gbrain",
+                              linger_dir=tmp_path / "linger")
+    assert rc == 1
+    assert "run setup from your own login account" in capsys.readouterr().out

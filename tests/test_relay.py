@@ -132,13 +132,29 @@ def _hello_with(tmp_path, monkeypatch, **fields):
     return relay.hello(h.apps["hermes"])
 
 
-def test_hello_flags_version_skew(tmp_path, monkeypatch):
-    assert _hello_with(tmp_path, monkeypatch, version="0.6.0") == relay.VERSIONS
-
-
 def test_hello_same_version_is_fine(tmp_path, monkeypatch):
     assert _hello_with(tmp_path, monkeypatch, version="0.6.1") is None
 
 
 def test_hello_without_version_is_protocol_only(tmp_path, monkeypatch):
     assert _hello_with(tmp_path, monkeypatch) is None
+
+
+def test_hello_version_skew_is_a_note_not_a_mismatch(tmp_path, monkeypatch):
+    t = _hello_with(tmp_path, monkeypatch, version="0.6.0")
+    assert t == relay.SKEW and not t.startswith(relay.VERSIONS)
+
+
+def test_lagging_covers_skew_and_mismatch(tmp_path, monkeypatch):
+    monkeypatch.setattr(relay, "__version__", "0.6.1")
+    h = make_hub(tmp_path)
+    ex(h, "hermes").on("hello", lines=[{"v": 1, "kind": "hello", "protocol": relay.PROTOCOL,
+                                        "version": "0.6.0"}])
+    assert relay.lagging(h.apps["hermes"]) is True
+
+
+def test_status_all_adds_the_skew_note_and_still_asks_the_app(h):
+    ex(h, "hermes").on("status", lines=[reply("Hermes v1, running.")])
+    ex(h, "clawvisor").on("status", lines=[reply("Clawvisor v0.9.10, running.")])
+    out = relay.status_all(h, skewed={"clawvisor"})
+    assert out == f"Hermes v1, running.\n\nClawvisor v0.9.10, running.\n({relay.SKEW})"

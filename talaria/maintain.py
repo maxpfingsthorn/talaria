@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from talaria import service, state
 from talaria.ctx import local_now
 from talaria.notify import Message
-from talaria.rollback import interrupted
+from talaria.rollback import clear_stale_op, interrupted
 
 WINDOW = timedelta(hours=2)
 
@@ -49,6 +49,7 @@ def run(ctx, st: dict, timer: bool) -> None:
             ctx.notify.send(Message(f"{app.title} has no maintenance."))
         return
     if timer:
+        clear_stale_op(ctx, st)
         day = timer_day(ctx, st)
         if day is None:
             return

@@ -155,3 +155,20 @@ def test_update_drives_old_app_protocol(h2):
     ex(h2, "hermes").on("self-update", lines=[reply("Talaria v0.7.0 installed.")])
     assert hubupdate._update_app(h2.apps["hermes"], "v0.7.0") == (True, "Hermes ✓")
     assert [c[1] for c in ex(h2, "hermes").calls] == [["self-update", "v0.7.0"]]
+
+
+def test_retry_with_no_lagging_app_says_so_and_restarts_nothing(h2):
+    tag = f"v{__version__}"
+    for n in ("hermes", "clawvisor"):
+        ex(h2, n).on("hello", lines=[hello(app=n)])
+    assert hubupdate.self_update(h2, tag) == 0
+    assert h2.ctx.notify.texts() == [f"Talaria {tag}: no app lags behind; nothing to do."]
+    assert ["systemctl", "--user", "restart", "talaria-telegram.service"] not in h2.ctx.sh.calls
+
+
+def test_offer_for_the_installed_version_names_the_retry(tmp_path):
+    h = make_hub(tmp_path)
+    ex(h, "hermes").on("hello", lines=[{**hello(), "version": "0.0.1"}])
+    ex(h, "hermes").on("self-update", lines=[dict(reply("would restart: no"), restart=False)])
+    hubupdate.offer(h, f"v{__version__}")
+    assert h.ctx.notify.sent[0].text.startswith(f"Retrying Talaria v{__version__} for apps that lag.")

@@ -679,3 +679,29 @@ def test_swap_keeps_started_and_restore_name(tmp_path, monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         rollback._swap(ctx, b, CUR, "restore", (b.id, CUR))
     assert load(ctx)["op"] == {"op": "restore", "backup": b.id, "changed": True, "started": "S"}
+
+
+def test_failed_deploy_does_not_fall_back_to_an_older_deploys_backup(tmp_path, monkeypatch):
+    """Manual recovery step 4: the marker is gone, last_deploy still names the PREVIOUS deploy."""
+    ctx = _ops(tmp_path, monkeypatch)
+    old = backup.create(ctx, "pre-v2026.9.24", CUR)
+    st = load(ctx)
+    st["last_deploy"] = {"tag": "v2026.9.24", "backup": old.id}
+    st["previous"] = dict(CUR)
+    st["op"] = {"op": "deploy", "tag": "v2026.10.1", "backup": "gone", "changed": True,
+                "started": "x"}
+    state.save(ctx.paths, st)
+    assert marker.read(ctx.paths) is None
+    assert rollback.target(ctx, load(ctx)) is None
+    assert rollback.needs_resume(ctx, load(ctx)) is True
+    assert "left nothing to undo" in rollback.describe(ctx)
+
+
+def test_completed_deploy_op_still_uses_its_own_last_deploy(tmp_path, monkeypatch):
+    ctx = _ops(tmp_path, monkeypatch)
+    st = load(ctx)
+    st["last_deploy"] = {"tag": "v2026.9.24", "backup": "b"}
+    st["previous"] = dict(CUR)
+    st["op"] = {"op": "deploy", "tag": "v2026.9.24", "backup": "b", "changed": True, "started": "x"}
+    state.save(ctx.paths, st)
+    assert rollback.target(ctx, load(ctx)) == ("b", CUR)

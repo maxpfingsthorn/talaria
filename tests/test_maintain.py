@@ -332,3 +332,18 @@ def test_maintenance_hook_fail_but_running(mctx):
     maintain.run(mctx, st, timer=True)
     assert "tries again next night" in mctx.notify.sent[0].text
     assert st["op"] is None
+
+
+def test_timer_clears_a_stale_maintain_op_when_the_app_runs_again(mctx):
+    st = st0()
+    st["op"] = {"op": "maintain", "changed": False, "started": mctx.now().isoformat()}
+    maintain.run(mctx, st, timer=True)
+    assert st["op"] is None and mctx.hook["seen"] != []     # maintenance ran again
+
+
+def test_a_stale_maintain_op_stays_while_the_app_is_down(mctx):
+    mctx.sh.on("systemctl", "--user", "is-active", out="inactive\n")
+    st = st0()
+    st["op"] = {"op": "maintain", "changed": False, "started": mctx.now().isoformat()}
+    maintain.run(mctx, st, timer=True)
+    assert st["op"] is not None and mctx.hook["seen"] == []

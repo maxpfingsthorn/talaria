@@ -39,6 +39,7 @@ def test_fresh_exact(s, capsys):
     assert out == NEW + PW + PULLED + RUNNING
     assert cmds == UNITS + RESTART and rc == 0
     assert s.paths.conf_file.read_text() == ("# Talaria settings; see README.\n"
+                                             "app = hermes\n"
                                              "data_dir = ~/hermes-data\n")
     assert not s.paths.env_file.exists()
     assert (s.paths.conf_dir.stat().st_mode & 0o777) == 0o700

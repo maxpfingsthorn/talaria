@@ -41,11 +41,13 @@ def is_regular(path: Path) -> bool:
 
 def copy_regular(src, dst, *, follow_symlinks: bool = True) -> str:
     """copy_function for shutil.copytree: refuses anything but a regular file at src."""
-    sfd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
+    # O_NONBLOCK: opening a FIFO that was swapped in after the scan must not wait for a writer
+    sfd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         st = os.fstat(sfd)
         if not stat.S_ISREG(st.st_mode):
             raise OSError(f"not a regular file: {src}")
+        os.set_blocking(sfd, True)
         dfd = os.open(dst, _NOFOLLOW_NEW, stat.S_IMODE(st.st_mode))
         try:
             with os.fdopen(os.dup(sfd), "rb") as fin, os.fdopen(dfd, "wb", closefd=False) as fout:

@@ -276,3 +276,18 @@ def test_runtime_load_accepts_v060_quirks(tmp_path):
     c = load_conf(p)
     assert (c.host_loopback, c.backup_keep, c.dashboard_port) == (False, 4, 99999)
     assert c.data_dir == Path("relative/dir") and c.tailscale_ip == "8.8.8.8"
+
+
+def test_runtime_and_service_setup_accept_what_v060_accepted(tmp_path):
+    """strict=True with checks=False (setup --as-service --lock-held) keeps v0.6.0's rules."""
+    from talaria.ctx import Paths
+    from talaria.conf import load_conf
+    p = Paths(tmp_path)
+    p.conf_dir.mkdir(parents=True)
+    p.conf_file.write_text("dashboard.bind = loopback\ndashboard.bind = tailscale\n"
+                           "tailscale_ip = 100.64.0.1\ndata_dir = relative/x\n"
+                           "dashboard.port = 99999\nhost_loopback = maybe\n")
+    with pytest.raises(ValueError):
+        load_conf(p, strict=True)
+    c = load_conf(p, strict=True, checks=False)
+    assert c.dashboard_bind == "tailscale"

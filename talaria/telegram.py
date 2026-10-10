@@ -81,7 +81,8 @@ class Bot:
     def __init__(self, hub, api):
         self.hub, self.ctx, self.api = hub, hub.ctx, api
         self.offset = None
-        self.mismatch: set[str] = set()
+        self.mismatch: set[str] = set()   # protocol differs or hello fails: commands are blocked
+        self.skewed: set[str] = set()     # only the version differs: a note, /update retries
 
     def reply(self, text: str, buttons=None) -> None:
         params = {"chat_id": self.ctx.conf.telegram_user_id, "text": text[:4096]}
@@ -103,23 +104,40 @@ class Bot:
 
     def _update_allowed(self, tag: str) -> str | None:
         """None if `tag` may be installed: newer, or the hub's own version while an app lags."""
-        if semver_newer(tag, f"v{__version__}") or (tag == f"v{__version__}" and self.mismatch):
+        if semver_newer(tag, f"v{__version__}"):
+            return None
+        if tag == f"v{__version__}" and self._lagging():
             return None
         return NOT_NEWER.format(tag=tag, cur=__version__)
+
+    def _lagging(self) -> bool:
+        """Probe the flagged apps again: one may have caught up since the bot started."""
+        for app in sorted(self.mismatch | self.skewed):
+            err = relay.hello(self.hub.apps[app]) or ""
+            self.mismatch.discard(app)
+            self.skewed.discard(app)
+            if err.startswith(relay.VERSIONS):
+                self.mismatch.add(app)
+            elif err.startswith(relay.SKEW):
+                self.skewed.add(app)
+        return bool(self.mismatch or self.skewed)
 
     def _still_mismatched(self, app: str) -> bool:
         """An app flagged at startup is probed again: it may have been updated since."""
         if app not in self.mismatch:
             return False
-        if relay.hello(self.hub.apps[app]) is None:
+        err = relay.hello(self.hub.apps[app])
+        if err is None or err.startswith(relay.SKEW):
             self.mismatch.discard(app)
+            if err:
+                self.skewed.add(app)
             return False
         return True
 
     def dispatch(self, cmd: str, args: list[str]):
         nu = f"Not understood. Commands: {HELP}"
         if cmd == "/status" and not args:
-            return relay.status_all(self.hub, self.mismatch)
+            return relay.status_all(self.hub, self.mismatch, self.skewed)
         if cmd == "/update":
             if len(args) == 1 and SEMVER.match(args[0]):
                 if (no := self._update_allowed(args[0])):
@@ -159,7 +177,8 @@ class Bot:
             return relay.VERSIONS
         e, a = self.hub.apps[app], apps.get(app)
         if cmd == "/status" and not args:
-            return relay.quick(e, ["status"])
+            text, buttons = relay.quick(e, ["status"])
+            return (relay.with_skew(text) if app in self.skewed else text), buttons
         if cmd == "/backups" and not args:
             return relay.quick(e, ["backups"])
         if cmd == "/check" and not args:
@@ -289,7 +308,9 @@ class Bot:
         if self.offset is not None:
             self.api.call("getUpdates", offset=self.offset, timeout=0)
         # spec §4.4: each app's protocol, once per bot start (an update restarts the bot)
-        self.mismatch = {n for n, e in self.hub.apps.items() if (relay.hello(e) or "").startswith(relay.VERSIONS)}
+        probes = {n: relay.hello(e) or "" for n, e in self.hub.apps.items()}
+        self.mismatch = {n for n, h in probes.items() if h.startswith(relay.VERSIONS)}
+        self.skewed = {n for n, h in probes.items() if h.startswith(relay.SKEW)}
         for n, e in self.hub.apps.items():
             if n not in self.mismatch:
                 text, _ = relay.quick(e, ["interrupted"])

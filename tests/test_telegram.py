@@ -277,7 +277,7 @@ def test_versions_differ(bot2):
 
 def test_dispatch_error_is_replied(bot, monkeypatch):
     ctx, api, b = bot
-    monkeypatch.setattr(telegram.relay, "status_all", lambda h, m: 1 / 0)
+    monkeypatch.setattr(telegram.relay, "status_all", lambda *a: 1 / 0)
     b.handle(upd(1, "/status"))
     assert api.sent() == ["Error: division by zero"]
 
@@ -706,6 +706,7 @@ def test_update_same_version_allowed_when_lagging(bot):
     b.handle(upd(1, f"/update {tag}"))
     assert api.sent() == [NOT_NEWER.format(tag=tag, cur=__version__)]
     b.mismatch = {"hermes"}
+    ex(b.hub, "hermes").on("hello", rc=2)
     b.handle(upd(2, f"/update {tag}"))
     assert spawned(ctx) == [[str(ctx.paths.bin_link), "update", tag, "--offer"]]
 
@@ -713,5 +714,36 @@ def test_update_same_version_allowed_when_lagging(bot):
 def test_update_button_same_version_allowed_when_lagging(bot):
     ctx, api, b = bot
     b.mismatch = {"hermes"}
+    ex(b.hub, "hermes").on("hello", rc=2)
     b.handle(cb(f"hub|up:v{__version__}"))
     assert spawned(ctx) == [[str(ctx.paths.bin_link), "self-update", f"v{__version__}"]]
+
+
+def test_version_skew_does_not_block_commands(bot):
+    ctx, api, b = bot
+    b.skewed = {"hermes"}
+    ex(b.hub, "hermes").on("backups", lines=[reply("No backups.")])
+    assert b.app_command("hermes", "/backups", [])[0] == "No backups."
+    text, _ = b.app_command("hermes", "/status", [])
+    assert text == f"Hermes v1, running.\n({relay.SKEW})"
+    ex(b.hub, "hermes").on("button", lines=[line("button", toast="ok")])
+    assert b.on_button("hermes|x")[0] != relay.VERSIONS
+
+
+def test_startup_puts_a_version_skew_in_skewed_not_mismatch(bot):
+    ctx, api, b = bot
+    ex(b.hub, "hermes").on("hello", lines=[{**hello(), "version": "0.0.1"}]).on(
+        "interrupted", lines=[reply("Interrupted deploy v1.")])
+    b.startup()
+    assert b.mismatch == set() and b.skewed == {"hermes"}
+    assert ctx.notify.texts() == ["Interrupted deploy v1."]      # still reported
+    b.handle(upd(1, f"/update v{__version__}"))
+    assert spawned(ctx)       # the retry is offered
+
+
+def test_update_same_version_not_allowed_once_the_app_caught_up(bot):
+    ctx, api, b = bot
+    b.skewed = {"hermes"}          # stale: hello now says equal
+    b.handle(upd(1, f"/update v{__version__}"))
+    assert api.sent() == [NOT_NEWER.format(tag=f"v{__version__}", cur=__version__)]
+    assert b.skewed == set() and spawned(ctx) == []

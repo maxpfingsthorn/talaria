@@ -188,3 +188,14 @@ def test_paths_layout(tmp_path):
         "quadlet": "~/.config/containers/systemd/hermes.container",
         "units_dir": "~/.config/systemd/user"}
     assert (p.helpers_dir / "migrate.py").exists() and (p.templates_dir / "hermes.container").exists()
+
+
+def test_make_ctx_does_not_reseed_an_account_that_has_state(tmp_path, monkeypatch):
+    """A Hermes conf has no `app` key; --app clawvisor must not turn that account into one."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    p = ctxmod.Paths(tmp_path)
+    p.conf_dir.mkdir(parents=True)
+    p.state_dir.mkdir(parents=True)
+    p.conf_file.write_text("data_dir = ~/hermes-data\n")
+    p.state_file.write_text("{}")
+    assert ctxmod.make_ctx(app="clawvisor").conf.app == "hermes"

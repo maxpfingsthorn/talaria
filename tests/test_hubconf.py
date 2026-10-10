@@ -131,9 +131,27 @@ def test_hub_conf_bad_known_value_still_errors_at_runtime(tmp_path):
         load_hub_conf(p)
 
 
-@pytest.mark.parametrize("t", ["25:00", "4.30", "4:30"])
+@pytest.mark.parametrize("t", ["25:00", "4.30"])
 def test_check_time_validated(tmp_path, t):
     p = home(tmp_path, f"check.time = {t}\n")
     with pytest.raises(ValueError, match="check.time"):
         load_hub_conf(p, strict=True)
     assert load_hub_conf(p).check_time == t     # the runtime keeps loading it
+
+
+def test_check_time_accepts_h_mm_like_systemd(tmp_path):
+    from talaria.ctx import Paths
+    p = Paths(tmp_path)
+    p.conf_dir.mkdir(parents=True)
+    p.hub_conf.write_text("check.time = 4:30\n")
+    assert load_hub_conf(p, strict=True).check_time == "4:30"
+
+
+def test_hub_service_setup_skips_the_strict_only_checks(tmp_path):
+    from talaria.ctx import Paths
+    p = Paths(tmp_path)
+    p.conf_dir.mkdir(parents=True)
+    p.hub_conf.write_text("check.time = 25:99\n")
+    with pytest.raises(ValueError):
+        load_hub_conf(p, strict=True)
+    assert load_hub_conf(p, strict=True, checks=False).check_time == "25:99"

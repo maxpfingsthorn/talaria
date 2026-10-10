@@ -22,6 +22,10 @@ class Transient(Exception):
     pass
 
 
+class NeedsRecovery(Transient):
+    """The app was left stopped: the next check skips it until /rollback CONFIRM."""
+
+
 class Permanent(Exception):
     def __init__(self, msg: str, details=()):
         super().__init__(msg)
@@ -60,6 +64,8 @@ def copy_data(src: Path, dst: Path, excludes) -> None:
 
 def _sqlite_copy(src: Path, dst: Path) -> None:
     dst.unlink()
+    if not safefs.is_regular(src):      # a FIFO swapped in since the scan would block sqlite
+        raise OSError(f"not a regular file: {src}")
     # equivalent mutants: sqlite accepts file: URIs without uri=True; PRAGMA is case-insensitive
     s = sqlite3.connect(f"file:{src}?mode=ro", uri=True)  # pragma: no mutate
     d = sqlite3.connect(dst)
@@ -127,7 +133,7 @@ def rehearse(ctx, st: dict, tag: str, commit: str) -> None:
                                 "started": ctx.now().isoformat()}
                     state.save(ctx.paths, st)
                     more = f" Earlier error: {str(earlier)[:300]}." if earlier else ""
-                    raise Transient(f"{ctx.app.title} is not running after the rehearsal copy "
+                    raise NeedsRecovery(f"{ctx.app.title} is not running after the rehearsal copy "
                                     f"({str(e)[:300]}). Send /rollback CONFIRM to start it "
                                     f"again.{more}") from None
         report = ctx.app.rehearse(ctx, st, image, copy, stage)

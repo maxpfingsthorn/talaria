@@ -183,3 +183,10 @@ def test_check_talaria_says_when_current_or_unknown(h2, monkeypatch):
                         lambda sh, repo: (_ for _ in ()).throw(CommandError(["git"], Result(1))))
     hubcheck.check_talaria(h2)
     assert h2.ctx.notify.texts()[-1] == "Talaria: could not look up the latest release."
+
+
+def test_version_skew_does_not_skip_the_apps_check(h2):
+    ex(h2, "clawvisor").on("hello", lines=[{**hello(app="clawvisor"), "version": "0.0.1"}])
+    hubcheck.check(h2, timer=True)
+    assert ("clawvisor", "stream", ("check", "--timer")) in h2.log
+    assert h2.ctx.notify.texts() == ["hermes checked", "clawvisor checked"]

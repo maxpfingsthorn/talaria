@@ -226,12 +226,10 @@ def import_telegram(ctx, stream) -> int:
     return 0
 
 
-def _registered_users() -> tuple:
-    """The accounts in this home's hub.conf (empty unless setup runs as the hub)."""
+def _talaria_account() -> bool:
+    """This login already holds a Talaria config: it is the hub's account or an app's."""
     p = Paths(Path.home())
-    if not p.hub_conf.exists():
-        return ()
-    return tuple(u for _, u in load_hub_conf(p).apps)
+    return p.hub_conf.exists() or p.conf_file.exists()
 
 
 def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subprocess.call,
@@ -251,7 +249,7 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
     if user == hub:
         say("STOP", f"{hub} is the hub's account; the app needs an account of its own (--user)")
         return 1
-    if operator == hub or operator in _registered_users():
+    if operator in (hub, user) or _talaria_account():
         say("STOP", f"{operator} is the hub's or an app's account; run setup from your own "
                     "login account")
         return 1
@@ -428,7 +426,8 @@ def hub_phase(ctx, args, api=None) -> int:
         if args.register:
             app, _, user = args.register.partition(":")  # pragma: no mutate  (rpartition fails the same way: the entry is re-joined and rejected)
             added = register_app(p, app, user)
-        ctx.conf = load_hub_conf(p, strict=True)
+        ctx.conf = load_hub_conf(p, strict=True,
+                                 checks=not getattr(args, "no_restart", False))
     except ValueError as e:
         say("STOP", str(e))
         return 1
@@ -451,6 +450,22 @@ def _append_line(path, line: str) -> None:
     text = path.read_text()
     with open(path, "a") as f:
         f.write(("\n" if text and not text.endswith("\n") else "") + line + "\n")
+
+
+def _set_line(path, key: str, line: str) -> None:
+    """Put `line` where the file already sets `key` (an empty `key =` line); else append."""
+    lines, done = [], False
+    for old in path.read_text().splitlines():
+        if set(parse_kv(old)) == {key}:
+            if not done:
+                lines.append(line)
+            done = True
+        else:
+            lines.append(old)
+    if done:
+        path.write_text("\n".join(lines) + "\n")
+    else:
+        _append_line(path, line)
 
 
 def service_phase(ctx, args) -> int:
@@ -481,7 +496,7 @@ def service_phase(ctx, args) -> int:
         except ValueError as e:
             say("STOP", str(e))
             return 1
-        _append_line(p.conf_file, f"tailscale_ip = {ip}")
+        _set_line(p.conf_file, "tailscale_ip", f"tailscale_ip = {ip}")
         ctx.conf.tailscale_ip = ip
     st = state.load(p)
     managed = adopt.is_managed(ctx) and st.get("current") is not None
@@ -606,8 +621,13 @@ def setup(args) -> int:
         return 1
     if getattr(args, "as_hub", False) or args.as_service:
         try:    # setup is the one strict loader: an unknown key stops it, naming the key
-            ctx = (make_hub_ctx(strict=True) if getattr(args, "as_hub", False)
-                   else make_ctx(app=requested, strict=True))
+            # self-update (--lock-held / --no-restart) keeps accepting what v0.6.0 accepted;
+            # the value checks are for a person's setup
+            if getattr(args, "as_hub", False):
+                ctx = make_hub_ctx(strict=True, checks=not getattr(args, "no_restart", False))
+            else:
+                ctx = make_ctx(app=requested, strict=True,
+                               checks=not getattr(args, "lock_held", False))
         except ValueError as e:
             say("STOP", str(e))
             return 1

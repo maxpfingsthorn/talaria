@@ -231,3 +231,21 @@ def test_check_never_looks_up_talaria_releases(cctx):
     ctx, st = cctx
     check.check(ctx, st)         # FakeShell has no rules: any git call would fail the test
     assert ctx.sh.calls == [] and not hasattr(check, "latest_semver")
+
+
+def test_recovery_needed_text_has_no_retry_promise_and_one_period(cctx):
+    from talaria.rehearse import NeedsRecovery
+    ctx, st = cctx
+    ctx.rehearse_exc = NeedsRecovery("Hermes is not running after the copy (x). Send /rollback CONFIRM to start it again.")
+    check.check(ctx, st)
+    assert ctx.notify.sent[-1].text == (
+        "Could not rehearse Hermes v2026.9.24: Hermes is not running after the copy (x). "
+        "Send /rollback CONFIRM to start it again.")
+
+
+def test_check_clears_a_stale_rehearse_op_once_the_app_runs(cctx, monkeypatch):
+    ctx, st = cctx
+    ctx.sh.on("systemctl", "--user", "is-active", out="active\n")
+    st["op"] = {"op": "rehearse", "changed": False, "started": "x"}
+    check.check(ctx, st)
+    assert st["op"] is None and ctx.rehearsed

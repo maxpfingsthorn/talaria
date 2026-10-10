@@ -26,9 +26,22 @@ def target(ctx, st) -> tuple[str, dict] | None:
     m = marker.read(ctx.paths)
     if m:
         return m["backup"], m["image"]
-    if st.get("last_deploy") and st.get("previous"):
-        return st["last_deploy"]["backup"], st["previous"]
+    last, op = st.get("last_deploy"), st.get("op")
+    if op and op.get("op") == "deploy" and last and op.get("tag") != last["tag"]:
+        return None     # last_deploy belongs to an older deploy: restoring it would skip a version
+    if last and st.get("previous"):
+        return last["backup"], st["previous"]
     return None
+
+
+def clear_stale_op(ctx, st) -> None:
+    """A maintain/rehearse op that changed nothing is cleared when the app runs again
+    (systemd restarted it): the timer would otherwise skip the app for good."""
+    op = st.get("op")
+    if op and op["op"] in ("maintain", "rehearse") and not op.get("changed") \
+            and marker.read(ctx.paths) is None and service.is_active(ctx):
+        st["op"] = None
+        state.save(ctx.paths, st)
 
 
 def interrupted(ctx, st) -> str | None:

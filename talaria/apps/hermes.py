@@ -184,7 +184,7 @@ class Hermes(App):
                 f"{ctx.conf.dashboard_port} (user admin, password in {ctx.paths.app_env})")
 
     def initial_conf(self, ctx) -> str:
-        return f"# Talaria settings; see README.\ndata_dir = {self.default_data_dir}\n"
+        return f"# Talaria settings; see README.\napp = hermes\ndata_dir = {self.default_data_dir}\n"
 
 
 APP = Hermes()

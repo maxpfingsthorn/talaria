@@ -10,6 +10,7 @@ from talaria.notify import Message
 from talaria.op import PROTOCOL
 
 VERSIONS = "Talaria versions differ on this host; run /update"
+SKEW = "Talaria on this app is not at the hub's version; /update retries it"   # a note, nothing blocks
 
 
 def unreachable_text(title: str) -> str:
@@ -78,7 +79,7 @@ def hello(entry) -> str | None:
     h = next((d for d in lines if d.get("kind") == "hello" and d.get("protocol") == PROTOCOL), None)
     if h is not None:
         v = h.get("version")  # absent before v0.5: protocol is all there is to compare
-        return VERSIONS if isinstance(v, str) and v != __version__ else None
+        return SKEW if isinstance(v, str) and v != __version__ else None
     if entry.executor.returncode and getattr(entry.executor, "stderr_line", ""):
         return f"{VERSIONS} ({failed_text(entry, 'hello')})"
     return VERSIONS
@@ -86,11 +87,16 @@ def hello(entry) -> str | None:
 
 def lagging(entry) -> bool:
     """The app answers, but not with this hub's version (unreachable apps are not "lagging")."""
-    return (hello(entry) or "").startswith(VERSIONS)
+    return (hello(entry) or "").startswith((VERSIONS, SKEW))
 
 
-def status_all(hub, mismatch=frozenset()) -> str:
-    blocks = [f"{e.title}: {VERSIONS}" if name in mismatch else quick(e, ["status"])[0]
+def with_skew(text: str) -> str:
+    return f"{text}\n({SKEW})"
+
+
+def status_all(hub, mismatch=frozenset(), skewed=frozenset()) -> str:
+    blocks = [f"{e.title}: {VERSIONS}" if name in mismatch else
+              with_skew(quick(e, ["status"])[0]) if name in skewed else quick(e, ["status"])[0]
               for name, e in hub.apps.items()]
     return "\n\n".join(b for b in blocks if b) or "No apps registered."
 

@@ -44,7 +44,8 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
     The dashboard must be opened over HTTPS or an SSH tunnel to `http://127.0.0.1:<port>`
     (plain http to another address logs out at once); see the README's Clawvisor section.
 11. Tell the person to run setup from their own login account with `--app X --user X`
-    (never from an app account or the hub account; setup stops if you do).
+    (never from an app account or the hub account; setup stops if the login account is the
+    hub, the app user, or already holds a Talaria config).
     For a Clawvisor install that Hermes must reach, ask the person which networking
     option from the README's Clawvisor section to use: dummy NIC (recommended; needs
     root, so the person runs that snippet), Tailscale, or host loopback (no root, but

@@ -29,9 +29,13 @@ def would_restart(entry, tag: str) -> str:
 
 
 def offer(hub, tag: str) -> int:
-    parts = [f"{e.title} would restart: {would_restart(e, tag)}" for e in hub.apps.values()]
+    retry = tag == f"v{__version__}"
+    parts = [f"{e.title} would restart: {would_restart(e, tag)}" for e in hub.apps.values()
+             if not retry or relay.lagging(e)]
+    head = (f"Retrying Talaria {tag} for apps that lag." if retry
+            else f"Talaria {tag} is available (installed v{__version__}).")
     hub.ctx.notify.send(Message(
-        f"Talaria {tag} is available (installed v{__version__}). " + " · ".join(parts),
+        f"{head} " + " · ".join(parts),
         buttons=[[(f"Update Talaria to {tag}", f"hub|up:{tag}")]]))
     return 0
 
@@ -119,7 +123,11 @@ def _self_update(hub, tag: str) -> int:
             return _stop(ctx, f"Talaria {tag}: the hub's setup {why}; the previous version "
                               f"was restored{both} and the apps were not updated. Details "
                               "in the journal.")
-    results = [_update_app(e, tag) for e in hub.apps.values() if not retry or relay.lagging(e)]
+    todo = [e for e in hub.apps.values() if not retry or relay.lagging(e)]
+    if retry and not todo:
+        ctx.notify.send(Message(f"Talaria {tag}: no app lags behind; nothing to do."))
+        return 0
+    results = [_update_app(e, tag) for e in todo]
     ctx.sh.run(["systemctl", "--user", "restart", "talaria-telegram.service"], check=False)
     ctx.notify.send(Message(f"Talaria {tag} installed: " + " · ".join(t for _, t in results)))
     return 0 if all(ok for ok, _ in results) else 1

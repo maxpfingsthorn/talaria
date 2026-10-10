@@ -94,3 +94,27 @@ def test_write_text_mode_survives_a_restrictive_umask_without_path_chmod(tmp_pat
     finally:
         os.umask(old)
     assert (tmp_path / "f").stat().st_mode & 0o777 == 0o644
+
+
+def test_copy_regular_does_not_hang_on_a_fifo(tmp_path):
+    import signal
+    os.mkfifo(tmp_path / "pipe")
+
+    def boom(*a):
+        raise TimeoutError("copy_regular blocked on a FIFO")
+    old = signal.signal(signal.SIGALRM, boom)
+    signal.alarm(5)
+    try:
+        with pytest.raises(OSError) as e:
+            safefs.copy_regular(tmp_path / "pipe", tmp_path / "out")
+        assert "blocked" not in str(e.value)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+    assert not (tmp_path / "out").exists()
+
+
+def test_copy_regular_copy_is_blocking_mode_irrelevant(tmp_path):
+    (tmp_path / "s").write_bytes(b"x" * 300000)
+    safefs.copy_regular(tmp_path / "s", tmp_path / "out")
+    assert (tmp_path / "out").read_bytes() == b"x" * 300000

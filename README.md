@@ -139,7 +139,7 @@ against the current state: an old button is refused instead of acting on somethi
 else. Rollback and restore buttons expire after an hour. After a tap, the buttons are replaced by one status button (for example "✅ Approved — deploying vX"); the report above stays.
 
 You get a message when an update is ready, after a deploy, rollback or restore, when
-something fails, after an interrupted change, and once per new Talaria release (with what it would restart, per app, and an **Update** button).
+something fails, after an interrupted change, and once per new Talaria release (a notice with a **What would vX change?** button; the restart list and the **Update** button follow when you tap it).
 Nothing else.
 
 **A rollback replaces the data with the backup taken before the last deploy.** `/rollback`
@@ -506,9 +506,11 @@ half-changed data). As the service user (`sudo -u <user>` from another account):
    rm ~<user>/.local/state/talaria/changing
    sudo -u <user> XDG_RUNTIME_DIR=/run/user/$(id -u <user>) systemctl --user start hermes.service
    ```
-4. Send `/rollback CONFIRM` in the bot. It finds nothing left to restore, starts the app,
-   checks it and clears the interrupted state; until then Talaria refuses new changes
-   and `talaria backup`.
+4. Send `/rollback` in the bot and read its answer. If it offers to start and check the app
+   ("left nothing to undo"), confirm with `/rollback CONFIRM`: it starts the app and clears
+   the interrupted state. If it offers to restore a backup instead, do not confirm (that
+   would replace the data you just put back); use `/restore` or the shell steps above.
+   Until the interrupted state is cleared, Talaria refuses new changes and `talaria backup`.
 
 ## Removing the sudo rules
 
@@ -519,8 +521,9 @@ it to reach the app.
 
 ## Updating Talaria
 
-The hub checks for new Talaria releases daily and sends which apps an update would
-restart, with an **Update Talaria to vX.Y.Z** button; `/update vX.Y.Z` asks for the same.
+The hub checks for new Talaria releases daily and sends a notice with a **What would
+vX.Y.Z change?** button; tapping it (or `/update vX.Y.Z`) lists which apps the update would
+restart, with an **Update Talaria to vX.Y.Z** button.
 The update runs hub first, then each app, then restarts the bot, and reports per app. From
 a shell, as the hub:
 
@@ -532,10 +535,19 @@ The bot refuses a version that is not newer than the one installed (no downgrade
 the apps refuse releases older than v0.5.0 (the first with a hub interface). If an update fails on an account, that
 account's previous version is restored and its setup re-run (units re-rendered, the app
 restarted if needed); an app whose update failed keeps its version, and
-its commands answer "Talaria versions differ on this host; run /update" until an update
-succeeds (the bot re-checks the app on each command, so it needs no restart afterwards).
-The daily check repeats that notice for a lagging app. `/update vX.Y.Z` with the version
-the hub already runs is accepted while an app lags, and updates only the lagging apps.
+keeps working: `/status` adds a note that it is not at the hub's version, and the daily
+check still runs for it. Only a different protocol (or an app that does not answer `hello`)
+blocks its commands with "Talaria versions differ on this host; run /update" until an
+update succeeds (the bot re-checks the app on each command, so it needs no restart
+afterwards). `/update vX.Y.Z` with the version the hub already runs is accepted while an app
+lags, and updates only the lagging apps; with none lagging it says so.
+
+**v0.6.1.** The step from v0.6.0 to v0.6.1 is still run by v0.6.0's self-update code, so
+the new behaviour of a failed update (previous version restored, its setup re-run, only
+the wanted tag fetched) applies from the update after that. Self-update itself keeps
+accepting every `talaria.conf` and `hub.conf` that v0.6.0 accepted; the stricter value
+checks (duplicate keys, port range, booleans, `tailscale_ip`, `check.time`) apply only
+when a person runs `talaria setup`.
 
 ### Moving from v0.4
 
