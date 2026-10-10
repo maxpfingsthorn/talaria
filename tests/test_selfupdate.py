@@ -1,9 +1,10 @@
 import json
+import subprocess
 
 import pytest
 
 from talaria import lock, selfupdate
-from talaria.shell import CommandError
+from talaria.shell import CommandError, Result
 from tests.fakes import make_test_ctx
 
 
@@ -13,7 +14,7 @@ def test_self_update_checks_out_and_runs_the_new_setup(tmp_path):
     assert selfupdate.self_update(ctx, "v0.2.0") == 0
     d = str(ctx.paths.install_dir)
     assert ctx.sh.calls == [["git", "-C", d, "rev-parse", "HEAD"],
-                            ["git", "-C", d, "fetch", "-q", "--tags", "origin"],
+                            ["git", "-C", d, "fetch", "-q", "origin", "+refs/tags/v0.2.0:refs/tags/v0.2.0"],
                             ["git", "-C", d, "checkout", "-q", "v0.2.0"],
                             [str(ctx.paths.bin_link), "setup", "--as-service", "--lock-held"]]
     assert not ctx.sh.called("systemctl")       # an app install has no bot to restart
@@ -59,6 +60,72 @@ def test_self_update_refuses_while_an_operation_runs(tmp_path, capsys):
                                        "running\n")
 
 
+def _setup_fn(ctx, results, events=None):
+    """Successive results of the app's setup: a Result, or an exception to raise."""
+    it = iter(results)
+
+    def fn(argv, input):
+        r = next(it)
+        if isinstance(r, Exception):
+            raise r
+        return r
+    return fn
+
+
+def test_failed_update_rerenders_with_old_code(tmp_path, capsys):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("git", out="abc\n")
+    ctx.sh.on(str(ctx.paths.bin_link), fn=_setup_fn(ctx, [Result(1, "boom\n"), Result(0, "OK\n")]))
+    assert selfupdate.self_update(ctx, "v0.6.1") == 1
+    d = str(ctx.paths.install_dir)
+    assert ctx.sh.calls[-2:] == [["git", "-C", d, "checkout", "-q", "abc"],
+                                 [str(ctx.paths.bin_link), "setup", "--as-service", "--lock-held"]]
+    assert ctx.sh.timeouts[-1] == 1800
+    err = capsys.readouterr().err
+    assert err.strip() == "self-update to v0.6.1 failed; previous version restored"
+
+
+def test_failed_update_and_failed_rerender(tmp_path, capsys):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("git", out="abc\n")
+    ctx.sh.on(str(ctx.paths.bin_link), fn=_setup_fn(ctx, [Result(1), Result(1)]))
+    assert selfupdate.self_update(ctx, "v0.6.1") == 1
+    err = capsys.readouterr().err
+    assert "previous version restored, but its setup failed too" in err
+    assert "may be stopped" in err and "/status" in err
+
+
+def test_setup_timeout_restores(tmp_path, capsys):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("git", out="abc\n")
+    ctx.sh.on(str(ctx.paths.bin_link), fn=_setup_fn(ctx, [
+        subprocess.TimeoutExpired("x", 1800), Result(0)]))
+    assert selfupdate.self_update(ctx, "v0.6.1") == 1
+    d = str(ctx.paths.install_dir)
+    assert ctx.sh.calls[-2:] == [["git", "-C", d, "checkout", "-q", "abc"],
+                                 [str(ctx.paths.bin_link), "setup", "--as-service", "--lock-held"]]
+    assert "previous version restored" in capsys.readouterr().err
+
+
+def test_rerender_timeout_counts_as_failed(tmp_path, capsys):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("git", out="abc\n")
+    ctx.sh.on(str(ctx.paths.bin_link), fn=_setup_fn(ctx, [
+        subprocess.TimeoutExpired("x", 1800), subprocess.TimeoutExpired("x", 1800)]))
+    assert selfupdate.self_update(ctx, "v0.6.1") == 1
+    assert "its setup failed too" in capsys.readouterr().err
+
+
+def test_fetch_uses_forced_single_tag(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("git").on(str(ctx.paths.bin_link))
+    selfupdate.self_update(ctx, "v0.6.1")
+    d = str(ctx.paths.install_dir)
+    assert ["git", "-C", d, "fetch", "-q", "origin",
+            "+refs/tags/v0.6.1:refs/tags/v0.6.1"] in ctx.sh.calls
+    assert not any("--tags" in c for c in ctx.sh.calls)
+
+
 # ---- dry run ----
 
 def quadlet_reply(text):
@@ -83,7 +150,7 @@ def test_dry_run_commands_exact(dry):
     assert selfupdate.dry_run(ctx, "v0.6.0") is False
     d = str(ctx.paths.install_dir)
     assert list(zip(ctx.sh.calls, ctx.sh.timeouts)) == [
-        (["git", "-C", d, "fetch", "-q", "--tags", "origin"], 600),
+        (["git", "-C", d, "fetch", "-q", "origin", "+refs/tags/v0.6.0:refs/tags/v0.6.0"], 600),
         (["git", "-C", d, "worktree", "prune"], None),
         (["git", "-C", d, "worktree", "add", "-q", "--detach", str(wt), "v0.6.0"], 120),
         ([str(wt / "bin/talaria"), "op", "quadlet"], 120),

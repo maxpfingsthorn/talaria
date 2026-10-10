@@ -300,7 +300,7 @@ def test_failed_setup_restores_even_if_the_restore_fails(tmp_path, capsys):
     ctx.sh.on("git", out="abc\n").on(str(ctx.paths.bin_link), rc=1)
     ctx.sh.on("git", "-C", d, "checkout", "-q", "abc", rc=1)
     assert selfupdate.self_update(ctx, "v0.6.0") == 1
-    assert "previous checkout restored" in capsys.readouterr().err
+    assert "previous version restored" in capsys.readouterr().err
 
 
 def test_dry_run_details(tmp_path, capsys):

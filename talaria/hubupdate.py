@@ -3,12 +3,14 @@ Everything this module uses is imported at load time: `self_update` checks out n
 underneath the running process."""
 from __future__ import annotations
 
+import subprocess
 import sys
 import time
 
 from talaria import __version__, lock
 from talaria.hubexec import NoAnswer, Unreachable
 from talaria.notify import Message
+from talaria.selfupdate import fetch_tag
 from talaria.shell import CommandError
 from talaria.state import ensure_dir
 
@@ -93,20 +95,29 @@ def _self_update(hub, tag: str) -> int:
         d = str(ctx.paths.install_dir)
         try:
             prev = ctx.sh.run(["git", "-C", d, "rev-parse", "HEAD"]).stdout.strip()
-            ctx.sh.run(["git", "-C", d, "fetch", "-q", "--tags", "origin"], timeout=600)
+            fetch_tag(ctx.sh, d, tag)
             ctx.sh.run(["git", "-C", d, "checkout", "-q", tag])
         except CommandError as e:
             return _stop(ctx, f"Talaria {tag} was not installed: the hub could not check it "
                               f"out ({e}). Nothing changed.")
         # no restart here: the bot is restarted last, below
-        r = ctx.sh.run([str(ctx.paths.bin_link), "setup", "--as-hub", "--no-restart"],
-                       check=False, timeout=600)
-        print(r.stdout, end="")
-        if r.returncode != 0:
+        setup = [str(ctx.paths.bin_link), "setup", "--as-hub", "--no-restart"]
+        try:
+            r = ctx.sh.run(setup, check=False, timeout=600)
+            ok, out, why = r.returncode == 0, r.stdout, f"failed (exit {r.returncode})"
+        except subprocess.TimeoutExpired:
+            ok, out, why = False, "", "timed out"
+        print(out, end="")
+        if not ok:
             ctx.sh.run(["git", "-C", d, "checkout", "-q", prev], check=False)
-            return _stop(ctx, f"Talaria {tag}: the hub's setup failed (exit {r.returncode}); "
-                              "the previous version was restored and the apps were not "
-                              "updated. Details in the journal.")
+            try:   # bin_link now runs the old code: it re-renders the old units
+                ok2 = ctx.sh.run(setup, check=False, timeout=600).returncode == 0
+            except subprocess.TimeoutExpired:
+                ok2 = False
+            both = "" if ok2 else " (its setup failed too)"
+            return _stop(ctx, f"Talaria {tag}: the hub's setup {why}; the previous version "
+                              f"was restored{both} and the apps were not updated. Details "
+                              "in the journal.")
     results = [_update_app(e, tag) for e in hub.apps.values()]
     ctx.sh.run(["systemctl", "--user", "restart", "talaria-telegram.service"], check=False)
     ctx.notify.send(Message(f"Talaria {tag} installed: " + " · ".join(t for _, t in results)))

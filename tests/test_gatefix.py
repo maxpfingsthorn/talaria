@@ -21,7 +21,7 @@ def test_app_failed_setup_restores_the_previous_checkout(tmp_path, capsys):
     ctx.sh.on("git").on("git", "-C", d, "rev-parse", "HEAD", out="abc123\n")
     ctx.sh.on(str(ctx.paths.bin_link), rc=1)
     assert selfupdate.self_update(ctx, "v0.6.0") == 1
-    assert ctx.sh.calls[-1] == ["git", "-C", d, "checkout", "-q", "abc123"]
+    assert ctx.sh.calls[-2] == ["git", "-C", d, "checkout", "-q", "abc123"]
     assert "restored" in capsys.readouterr().err
 
 

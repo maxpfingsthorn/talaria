@@ -523,7 +523,8 @@ sudo -u talaria -H ~talaria/.local/bin/talaria self-update vX.Y.Z
 
 The bot refuses a version that is not newer than the one installed (no downgrades), and
 the apps refuse releases older than v0.5.0 (the first with a hub interface). If an update fails on an account, that
-account's previous version is restored; an app whose update failed keeps its version, and
+account's previous version is restored and its setup re-run (units re-rendered, the app
+restarted if needed); an app whose update failed keeps its version, and
 its commands answer "Talaria versions differ on this host; run /update" until an update
 succeeds.
 

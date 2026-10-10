@@ -29,7 +29,7 @@ def test_hub_first_then_each_app_then_the_bot(h2, capsys):
     d = str(h2.ctx.paths.install_dir)
     assert list(zip(h2.ctx.sh.calls, h2.ctx.sh.timeouts)) == [
         (["git", "-C", d, "rev-parse", "HEAD"], None),
-        (["git", "-C", d, "fetch", "-q", "--tags", "origin"], 600),
+        (["git", "-C", d, "fetch", "-q", "origin", "+refs/tags/v0.6.0:refs/tags/v0.6.0"], 600),
         (["git", "-C", d, "checkout", "-q", "v0.6.0"], None),
         ([str(h2.ctx.paths.bin_link), "setup", "--as-hub", "--no-restart"], 600),
         (["systemctl", "--user", "restart", "talaria-telegram.service"], None)]
@@ -68,8 +68,31 @@ def test_hub_setup_failure_stops_before_the_apps(h2):
     h2.ctx.sh.on(str(h2.ctx.paths.bin_link), rc=1, out="STOP: x\n")
     assert hubupdate.self_update(h2, "v0.6.0") == 1
     assert h2.ctx.notify.texts() == ["Talaria v0.6.0: the hub's setup failed (exit 1); the "
-                                     "previous version was restored and the apps were not "
-                                     "updated. Details in the journal."]
+                                     "previous version was restored (its setup failed too) and "
+                                     "the apps were not updated. Details in the journal."]
+    assert not any(e[0] in ("hermes", "clawvisor", "restart") for e in h2.events)
+
+
+@pytest.mark.parametrize("second_fails", [False, True])
+@pytest.mark.parametrize("first", ["rc", "timeout"])
+def test_hub_failed_setup_rerenders(h2, first, second_fails):
+    import subprocess
+    it = iter([Result(1, "STOP: x\n") if first == "rc" else subprocess.TimeoutExpired("x", 600),
+               Result(1) if second_fails else Result(0)])
+
+    def fn(argv, input):
+        r = next(it)
+        if isinstance(r, Exception):
+            raise r
+        return r
+    h2.ctx.sh.on(str(h2.ctx.paths.bin_link), fn=fn)
+    assert hubupdate.self_update(h2, "v0.6.0") == 1
+    d = str(h2.ctx.paths.install_dir)
+    setup = [str(h2.ctx.paths.bin_link), "setup", "--as-hub", "--no-restart"]
+    assert h2.ctx.sh.calls[-2:] == [["git", "-C", d, "checkout", "-q", "abc123"], setup]
+    (text,) = h2.ctx.notify.texts()
+    assert "the previous version was restored" in text
+    assert ("its setup failed too" in text) == second_fails
     assert not any(e[0] in ("hermes", "clawvisor", "restart") for e in h2.events)
 
 
