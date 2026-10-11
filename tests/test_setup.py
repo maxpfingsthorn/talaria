@@ -731,3 +731,20 @@ def test_operator_stop_names_the_file_that_triggered_it(monkeypatch, tmp_path, c
     p.hub_conf.unlink()
     assert setup.operator_phase(sh, args(user="hermes"), operator="hermes", **kw) == 1
     assert "hermes is the account of the app" in capsys.readouterr().out
+
+
+def test_install_fetches_only_the_release_tag_forced(monkeypatch, tmp_path):
+    sh, run, _ = op_env(monkeypatch, tmp_path)
+    assert run(args(user="hermes")) == 0
+    fetches = [c for c in sh.calls if c[0] == "sudo" and "fetch" in c]
+    assert fetches and all("--tags" not in c for c in fetches)
+    assert all(c[-4:] == ["fetch", "-q", "origin", "+refs/tags/v0.1.0:refs/tags/v0.1.0"]
+               for c in fetches)
+
+
+def test_install_at_a_branch_still_fetches_tags(monkeypatch, tmp_path):
+    sh = FakeShell()
+    sh.on("sudo")
+    setup._install(sh, "hermes", "/home/hermes", "https://github.com/o/talaria", "main", True)
+    fetch = [c for c in sh.calls if "fetch" in c]
+    assert len(fetch) == 1 and fetch[0][-4:] == ["fetch", "-q", "--tags", "origin"]

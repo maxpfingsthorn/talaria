@@ -26,7 +26,8 @@ ORIGIN = [(["git", "-C", R, "remote", "get-url", "origin"], None)]
 def install_cmds(sudo, user, install, clone):
     out = [(sudo + ["git", "clone", "-q", "https://github.com/o/talaria", install], 600)] if clone else []
     return out + [
-        (sudo + ["git", "-C", install, "fetch", "-q", "--tags", "origin"], 600),
+        (sudo + ["git", "-C", install, "fetch", "-q", "origin",
+                      "+refs/tags/v0.1.0:refs/tags/v0.1.0"], 600),
         (sudo + ["git", "-C", install, "checkout", "-q", "v0.1.0"], None),
         (sudo + ["mkdir", "-p", f"/home/{user}/.local/bin"], None),
         (sudo + ["ln", "-sfn", f"{install}/bin/talaria", f"/home/{user}/.local/bin/talaria"], None)]

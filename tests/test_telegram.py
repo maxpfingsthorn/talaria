@@ -277,7 +277,7 @@ def test_versions_differ(bot2):
 
 def test_dispatch_error_is_replied(bot, monkeypatch):
     ctx, api, b = bot
-    monkeypatch.setattr(telegram.relay, "status_all", lambda *a: 1 / 0)
+    monkeypatch.setattr(telegram.relay, "status_texts", lambda *a: 1 / 0)
     b.handle(upd(1, "/status"))
     assert api.sent() == ["Error: division by zero"]
 
@@ -711,6 +711,16 @@ def test_update_same_version_allowed_when_lagging(bot):
     assert spawned(ctx) == [[str(ctx.paths.bin_link), "update", tag, "--offer"]]
 
 
+@pytest.mark.parametrize("flag", ["mismatch", "skewed"])
+@pytest.mark.parametrize("exc", [Unreachable("hermes"), NoAnswer("hermes")])
+def test_unreachable_probe_keeps_the_lag_flag(bot, flag, exc):
+    ctx, api, b = bot
+    setattr(b, flag, {"hermes"})
+    ex(b.hub, "hermes").on("hello", exc=exc)
+    assert b._lagging() is True
+    assert getattr(b, flag) == {"hermes"}
+
+
 def test_update_button_same_version_allowed_when_lagging(bot):
     ctx, api, b = bot
     b.mismatch = {"hermes"}
@@ -927,3 +937,43 @@ def test_send_link_api_error_leaves_no_link_in_reply_or_expiry(tmp_path):
     assert b.expiring == []
     assert api.sent() and api.sent()[-1].startswith("Error:")
     assert all(LINKTEXT not in m["text"] and "admin/auth" not in m["text"] for m in calls(api, "sendMessage"))
+
+
+def _gbrain_status(b, text):
+    ex(b.hub, "gbrain").on("status", lines=[reply(text)])
+
+
+def _rows(api):
+    m = calls(api, "sendMessage")[-1]
+    return [k["callback_data"] for r in m.get("reply_markup", {}).get("inline_keyboard", []) for k in r]
+
+
+def test_status_login_row_only_for_running_apps(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    _gbrain_status(b, "gbrain v1 (abc), running.")
+    b.handle(upd(2, "/status"))
+    assert "hub|ln:gbrain" in _rows(api)
+    _gbrain_status(b, "gbrain v1 (abc), not running.")
+    b.handle(upd(3, "/status"))
+    assert "hub|ln:gbrain" not in _rows(api)
+    _gbrain_status(b, "gbrain says something odd")
+    b.handle(upd(4, "/status"))
+    assert "hub|ln:gbrain" not in _rows(api)
+
+
+def test_app_status_login_row_only_when_running(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    _gbrain_status(b, "gbrain v1 (abc), running.")
+    b.handle(upd(2, "/status gbrain"))
+    assert "hub|ln:gbrain" in _rows(api)
+    _gbrain_status(b, "gbrain v1 (abc), not running.")
+    b.handle(upd(3, "/status gbrain"))
+    assert "hub|ln:gbrain" not in _rows(api)
+
+
+def test_status_reprobes_flagged_apps(tmp_path):
+    ctx, api, b = _bot(tmp_path, ("hermes",))
+    b.mismatch = {"hermes"}
+    b.handle(upd(2, "/status"))
+    assert api.sent()[-1] == "Hermes v1, running."
+    assert b.mismatch == set()

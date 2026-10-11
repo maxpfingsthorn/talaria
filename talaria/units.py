@@ -4,7 +4,7 @@ import ipaddress
 import re
 from string import Template
 
-from talaria.conf import check_tailscale_ip
+from talaria.conf import check_ipv4
 
 TALARIA_UNITS = ("talaria-check.service", "talaria-check.timer", "talaria-telegram.service")
 HUB_UNITS = ("talaria-check.service", "talaria-check.timer", "talaria-maintain.service",
@@ -30,7 +30,7 @@ def _tpl(ctx, name: str) -> Template:
 
 def render_quadlet(ctx) -> str:
     c = ctx.conf
-    check_tailscale_ip(c.tailscale_ip, "the Quadlet")   # goes into a shell command line
+    check_ipv4(c.tailscale_ip, "the Quadlet")   # goes into a shell command line
     ips = c.bind_ips
     if not ips or "" in ips:   # an empty address would publish on every interface
         raise ValueError(f"dashboard.bind = {c.dashboard_bind} but no address is known")

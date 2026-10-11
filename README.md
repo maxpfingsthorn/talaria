@@ -471,7 +471,7 @@ done
 tailscale serve --bg --https=10000 http://127.0.0.1:<port>
 # the admin redirect on 443 (Tailscale 1.92+; the serve CLI has no flag for it)
 git clone --branch vX.Y.Z https://github.com/maxpfingsthorn/talaria /root/talaria-vX.Y.Z   # the release you run
-sudo python3 -I /root/talaria-vX.Y.Z/tools/tailscale-admin-redirect.py --host <host>.<tailnet>.ts.net
+python3 -I /root/talaria-vX.Y.Z/tools/tailscale-admin-redirect.py --host <host>.<tailnet>.ts.net
 tailscale funnel status
 ```
 
@@ -480,7 +480,7 @@ service accounts that can edit them, and `-I` keeps the current directory and th
 Python's import path, so nothing a service account can write runs as root. The helper adds
 only `/admin` on 443, as a redirect (`302:https://<host>.<tailnet>.ts.net:10000${REQUEST_URI}`); it
 first saves the previous config as `tailscale-serve.before-admin-redirect.<UTC stamp>.json` in the
-current directory and prints that path. `--undo <file>` shows the current and the restored paths
+current directory and prints that path (it removes the file again if it aborts before applying anything). `--undo <file>` shows the current and the restored paths
 per port, then restores it (only a file that looks like a serve config). `--dry-run` shows the
 plan and writes nothing. It refuses when `/admin` already exists or 443 has no paths yet, and
 aborts if the serve config changes while it runs, so do not change it in the meantime.

@@ -183,6 +183,8 @@ class Bot:
         """Probe the flagged apps again: one may have caught up since the bot started."""
         for app in sorted(self.mismatch | self.skewed):
             err = relay.hello(self.hub.apps[app]) or ""
+            if err and not err.startswith((relay.VERSIONS, relay.SKEW)):
+                continue            # no answer: keep what is known
             self.mismatch.discard(app)
             self.skewed.discard(app)
             if err.startswith(relay.VERSIONS):
@@ -206,9 +208,11 @@ class Bot:
     def dispatch(self, cmd: str, args: list[str]):
         nu = f"Not understood. Commands: {HELP}"
         if cmd == "/status" and not args:
-            text = relay.status_all(self.hub, self.mismatch, self.skewed)
-            rows = [self._login_row(n) for n in self.hub.apps
-                    if apps.get(n).has_login_link and n not in self.mismatch]
+            self._lagging()
+            texts = relay.status_texts(self.hub, self.mismatch, self.skewed)
+            text = "\n\n".join(b for b in texts.values() if b) or "No apps registered."
+            rows = [self._login_row(n) for n, t in texts.items()
+                    if apps.get(n).has_login_link and n not in self.mismatch and relay.is_running(t)]
             return (text, rows) if rows else text
         if cmd == "/login":
             return self.login(args)
@@ -252,7 +256,7 @@ class Bot:
         e, a = self.hub.apps[app], apps.get(app)
         if cmd == "/status" and not args:
             text, buttons = relay.quick(e, ["status"])
-            if a.has_login_link:
+            if a.has_login_link and relay.is_running(text):
                 buttons = [*buttons, self._login_row(app)]
             return (relay.with_skew(text) if app in self.skewed else text), buttons
         if cmd == "/backups" and not args:
