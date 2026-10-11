@@ -101,7 +101,10 @@ def login_link(ctx) -> int:
     try:
         lines = ctx.app.login_link(ctx)
     except LoginRefused as e:
-        print(f"STOP: {e}", file=sys.stderr)
+        msg = str(e)
+        if msg.endswith("; details in the journal"):   # the details were just printed above
+            msg = msg.removesuffix("in the journal") + "above"
+        print(f"STOP: {msg}", file=sys.stderr)
         return 1
     print("\n".join(lines))
     return 0

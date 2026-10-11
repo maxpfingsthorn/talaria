@@ -181,3 +181,20 @@ def test_version_and_login(h):
     assert relay.login(e) == (relay.unreachable_text("Clawvisor"), False)
     ex(h, "clawvisor").on("login-link", exc=NoAnswer("clawvisor"))
     assert relay.login(e) == (relay.no_answer_text("Clawvisor"), False)
+
+
+@pytest.mark.parametrize("text,want", [
+    ("gbrain v1 (abc), running.", True),
+    ("gbrain v1 (abc), running.\nmore", True),
+    ("gbrain v1 (abc), not running.", False),
+    ("gbrain is somewhere", False),
+    ("", False)])
+def test_is_running(text, want):
+    assert relay.is_running(text) is want
+
+
+def test_status_texts_match_status_all(h):
+    ex(h, "hermes").on("status", lines=[reply("Hermes v1, running.")])
+    ex(h, "clawvisor").on("status", lines=[reply("Clawvisor v0.9.10, running.")])
+    assert relay.status_texts(h, {"clawvisor"}) == {
+        "hermes": "Hermes v1, running.", "clawvisor": f"Clawvisor: {relay.VERSIONS}"}

@@ -37,6 +37,20 @@ _BOOLS = ("1", "true", "yes", "on", "0", "false", "no", "off")
 _TAILSCALE_NET = ipaddress.IPv4Network("100.64.0.0/10")
 
 
+def check_ipv4(value: str, where) -> None:
+    """Empty, or a dotted private IPv4 address: safe in a shell line, and never 0.0.0.0, a
+    multicast or a public address (tailscale_ip becomes a PublishPort bind address)."""
+    if not value:
+        return
+    try:
+        ip = ipaddress.IPv4Address(value)
+        ok = str(ip) == value and not (ip.is_unspecified or ip.is_multicast or ip.is_global)
+    except ValueError:
+        ok = False
+    if not ok:
+        raise ValueError(f"tailscale_ip must be a private IPv4 address, got {value!r} in {where}")
+
+
 def check_tailscale_ip(value: str, where) -> None:
     """tailscale_ip: empty, or an IPv4 address in the CGNAT range Tailscale assigns from."""
     if not value:
