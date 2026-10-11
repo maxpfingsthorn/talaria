@@ -31,6 +31,11 @@ Setting this up with a coding agent? Point it at [`AGENT_SETUP.md`](AGENT_SETUP.
 - **Updates itself** the same way: a new Talaria release is offered, never installed unasked.
 - Messages you only for decisions and failures.
 
+<p align="center">
+  <img src="docs/telegram-chat.png" width="480"
+       alt="The Talaria bot in Telegram: after /check it offers gbrain v0.60.175.0 with the rehearsal result (brain schema 237 → 238) and Approve/Reject buttons, reports Hermes and Clawvisor current, then offers Talaria v0.7.1, lists which apps would restart and reports the update installed for Hermes, Clawvisor and gbrain.">
+</p>
+
 Opinionated: one install of each app per host, one dedicated service user per app plus one
 hub account per host, rootless podman with Quadlet, Telegram for approvals.
 
@@ -652,13 +657,15 @@ TALARIA_CONTRACT=1 uv run pytest -m contract tests/contract   # pulls the newest
 uv run mutmut run && uv run mutmut export-cicd-stats && uv run python tests/mutation_score.py
 ```
 
-CI runs unit and end-to-end tests on every push and pull request, and the contract test
-and mutation testing weekly and on release.
+CI runs the unit tests on every push and pull request. The end-to-end tests run on pull
+requests into `main`, on `main` itself, on release tags and on demand (Actions → ci → Run
+workflow). The contract test and mutation testing run weekly and on release; see
+[`docs/mutation-report.md`](docs/mutation-report.md).
 
 Branches: work happens on `develop`. Changes go in through pull requests against `develop`,
-which need green CI (`unit (3.10)`, `unit (3.13)`, `e2e`) and an up-to-date branch; nobody
+which need green unit tests (`unit (3.10)`, `unit (3.13)`) and an up-to-date branch; nobody
 pushes to `develop` or `main` directly. A release is a pull request from `develop` to `main`,
-then a `vX.Y.Z` tag on `main`, which runs CI, mutation testing and the contract test and
-publishes the GitHub release. Release tags cannot be moved or deleted. See [`docs/mutation-report.md`](docs/mutation-report.md).
+which also needs `e2e`, then a `vX.Y.Z` tag on `main`, which runs CI, mutation testing and
+the contract test and publishes the GitHub release. Release tags cannot be moved or deleted.
 
 Licence: MIT.
