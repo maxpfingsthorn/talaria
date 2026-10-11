@@ -31,6 +31,9 @@ def check(hub, timer: bool, report: bool = False) -> int:
     for name, e in hub.apps.items():
         try:
             err = relay.hello(e)
+            if err and err.startswith(relay.SKEW) and timer:
+                hub.ctx.notify.send(Message(f"{e.title}: {err}; send /update v{__version__} "
+                                            "to bring it up to date."))
             if err and not err.startswith(relay.SKEW):     # a version-only skew checks on
                 hub.ctx.notify.send(Message(f"{e.title}: {err}" if err.startswith(relay.VERSIONS) else err))
                 failed.append(e.title)

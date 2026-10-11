@@ -122,11 +122,20 @@ def with_skew(text: str) -> str:
     return f"{text}\n({SKEW})"
 
 
+def status_texts(hub, mismatch=frozenset(), skewed=frozenset()) -> dict[str, str]:
+    """Each app's status block, by app name (empty when the app said nothing)."""
+    return {name: f"{e.title}: {VERSIONS}" if name in mismatch else
+            with_skew(quick(e, ["status"])[0]) if name in skewed else quick(e, ["status"])[0]
+            for name, e in hub.apps.items()}
+
+
+def is_running(text: str) -> bool:
+    """status_text's first line ends `, running.` (and `, not running.` otherwise)."""
+    return text.split("\n", 1)[0].endswith(", running.")
+
+
 def status_all(hub, mismatch=frozenset(), skewed=frozenset()) -> str:
-    blocks = [f"{e.title}: {VERSIONS}" if name in mismatch else
-              with_skew(quick(e, ["status"])[0]) if name in skewed else quick(e, ["status"])[0]
-              for name, e in hub.apps.items()]
-    return "\n\n".join(b for b in blocks if b) or "No apps registered."
+    return "\n\n".join(b for b in status_texts(hub, mismatch, skewed).values() if b) or "No apps registered."
 
 
 def relay(hub, app: str, argv: list[str]) -> int:
