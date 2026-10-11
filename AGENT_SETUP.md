@@ -40,7 +40,8 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
 10. For a Clawvisor install, first login is a one-time link from `talaria login-link`.
     **Never run this command yourself and never show its output in chat, a ticket, or
     anywhere else it could be logged.** Tell the person to run `talaria login-link`
-    themselves, in their own terminal, as the service user, and use the link directly.
+    themselves, in their own terminal, as the service user, or to send `/login clawvisor`
+    to the bot, and use the link directly; the agent runs neither.
     The dashboard must be opened over HTTPS or an SSH tunnel to `http://127.0.0.1:<port>`
     (plain http to another address logs out at once); see the README's Clawvisor section.
 11. Tell the person to run setup from their own login account with `--app X --user X`
@@ -73,10 +74,10 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
       are gbrain's own config (`gbrain config`); with a non-Anthropic provider the person
       sets them to that provider's model ids (README, "gbrain").
     - Public access is Tailscale Serve and Funnel, configured by the person as root (README:
-      "Public MCP endpoints with Tailscale Serve and Funnel"). Show the commands; never run
-      them. Explain that only the connector paths become public and that `/register` lets
+      "Public MCP endpoints with Tailscale Serve and Funnel"). Show the commands (including the
+      `tailscale-admin-redirect.py` helper for `/admin` on 443); never run them. Explain that only the connector paths become public and that `/register` lets
       anyone create a pending client the person must approve.
-    - The person logs in to `/admin`, adds the connectors in claude.ai or ChatGPT and
+    - The person logs in with `/login gbrain` in the bot (or the token in `/admin`), adds the connectors in claude.ai or ChatGPT and
       approves them there; local agents get scoped tokens from `/admin`.
 12. **Never run `deploy`, `rollback`, `restore` or `maintain`.** Those are the person's decisions, made
     in Telegram.

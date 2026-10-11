@@ -379,7 +379,7 @@ class Gbrain(App):
         return (f"gbrain is running at http://{ctx.conf.bind_ip}:{ctx.conf.dashboard_port} "
                 f"(admin UI /admin; its token is {TOKEN_KEY} in {ctx.paths.app_env}). "
                 f"MCP connectors use {ctx.conf.dashboard_public_url}/mcp once you publish it "
-                "(README: gbrain)")
+                "(README: gbrain). Log in with /login gbrain in the bot.")
 
     def initial_conf(self, ctx) -> str:
         return ("# Talaria settings; see README.\napp = gbrain\n"

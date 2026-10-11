@@ -125,6 +125,7 @@ pairing.
 | `/rollback [app] CONFIRM` | roll back |
 | `/backups [app]` | list backups |
 | `/restore [app] <id>` / `/restore [app] <id> CONFIRM` | describe / restore a backup |
+| `/login [app] [OAuth request id or consent URL]` | a one-time admin login link for gbrain or Clawvisor, sent with previews off and replaced by an "expired" notice after 5 minutes; `/status` has a button for it |
 | `/update <version>` | show which apps a Talaria update would restart, with an **Update** button (what the daily notice's **What would vX change?** button does) |
 
 With one app registered, the app name is optional. With several, a command without one
@@ -240,9 +241,11 @@ with the data; the login session file (`.clawvisor/.local-session`) is excluded 
 
 Clawvisor has no dashboard password; its first login is a single-use, short-lived
 link. As the `clawvisor` service user, **in your own terminal** (never through a
-coding agent): `talaria login-link`. Treat its output like a password — **never
-paste it into a chat, a ticket, an agent's context, or anywhere it could be
-logged.** If an agent is driving setup, have it stop here and let the person at
+coding agent): `talaria login-link`, or send `/login clawvisor` to the bot: it sends the link in your
+private chat with previews off and replaces it with an "expired" notice after 5 minutes.
+Treat the link like a password — **never paste it into an agent's context, a ticket, or
+anywhere it could be logged; the bot's private chat is the exception, because the link
+is single-use and short-lived.** If an agent is driving setup, have it stop here and let the person at
 the keyboard run this step and use the link themselves.
 
 Hermes and Clawvisor run as two rootless podman users, so no podman network joins them.
@@ -413,6 +416,7 @@ bin/talaria setup --app gbrain --user gbrain
 |---|---|---|
 | `/mcp`, `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource` (and `…/mcp`), `/authorize`, `/token`, `/register`, `/revoke` | cloud MCP connectors (claude.ai, ChatGPT) | public, port 443 |
 | everything, including `/admin` and `/metrics` | you, and local agents on the host or tailnet | tailnet only, port 10000 (or the published address) |
+| `/admin` (redirect only) | anyone; answers with a redirect to the tailnet-only admin port | public, port 443 |
 
 Cloud connectors use OAuth: they register themselves (dynamic client registration) and
 you approve each one in `/admin`. **With registration open, anyone who reaches
@@ -421,9 +425,11 @@ approve it. Approve only clients you just added yourself. Local agents (Hermes, 
 Code, Codex) get scoped tokens that you mint in `/admin`, and use the tailnet port or the
 published address.
 
-A connector's consent link points at the public address (`https://<host>.<tailnet>.ts.net/admin/?oauth_request=…`),
-which does not serve `/admin`. Open the same link with `:10000` after the host name to
-approve it over your tailnet.
+A connector's consent link and the bot's login links point at the public address
+(`https://<host>.<tailnet>.ts.net/admin/…`). With the redirect below, that address sends your
+browser to the tailnet-only admin port, keeping the rest of the link; outside your tailnet the
+target does not answer. gbrain keeps admin sessions in memory, so every restart (also the
+nightly maintenance) logs you out: send `/login gbrain` for a new link.
 
 ### Public MCP endpoints with Tailscale Serve and Funnel
 
@@ -439,12 +445,20 @@ for p in /mcp /.well-known/oauth-authorization-server /.well-known/oauth-protect
 done
 # tailnet only: the whole server, including its admin UI, on 10000
 tailscale serve --bg --https=10000 http://127.0.0.1:<port>
+# the admin redirect on 443 (Tailscale 1.92+; the serve CLI has no flag for it)
+python3 ~<account>/.local/share/talaria/helpers/tailscale-admin-redirect.py --host <host>.<tailnet>.ts.net
 tailscale funnel status
 ```
 
+`<account>` is any account Talaria is installed for (for example the hub account). The helper adds
+only `/admin` on 443, as a redirect (`302:https://<host>.<tailnet>.ts.net:10000${REQUEST_URI}`); it
+first saves the previous config as `tailscale-serve.before-admin-redirect.<UTC stamp>.json` in the
+current directory and prints that path. `--undo <file>` restores it, and `--dry-run` shows the plan.
+It refuses when `/admin` already exists or 443 has no paths yet.
+
 Funnel must be allowed for the node in your tailnet policy, and it only works on ports
 443, 8443 and 10000. **Funnel applies per port: never funnel a port that also serves a
-private app.** `tailscale funnel status` should list only the paths above as public.
+private app.** `tailscale funnel status` should list only the paths above (and `/admin` as a redirect) as public.
 Use 443: claude.ai's connector check did not reach a funnel on 8443. If 443 already
 serves a private app (for example Clawvisor via `tailscale serve`), move that app to another
 tailnet-only port first (`tailscale serve --https=443 off`, then `--https=<other port>`, and

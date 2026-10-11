@@ -442,7 +442,7 @@ def test_initial_conf_and_ready_text(tmp_path):
     assert ctx.app.ready_text(ctx) == (
         f"gbrain is running at http://127.0.0.1:3131 (admin UI /admin; its token is "
         f"GBRAIN_ADMIN_BOOTSTRAP_TOKEN in {ctx.paths.app_env}). MCP connectors use {URL}/mcp "
-        "once you publish it (README: gbrain)")
+        "once you publish it (README: gbrain). Log in with /login gbrain in the bot.")
 
 
 # --- initialize, data_version ------------------------------------------------------
@@ -669,7 +669,7 @@ def test_setup_fresh_install_initializes_the_brain(tmp_path, monkeypatch, capsys
         "OK: gbrain brain initialized in ~H/gbrain-data (PGLite, schema 221)\n"
         "OK: gbrain is running at http://127.0.0.1:3131 (admin UI /admin; its token is "
         "GBRAIN_ADMIN_BOOTSTRAP_TOKEN in ~H/.config/talaria/gbrain.env). MCP connectors use "
-        f"{URL}/mcp once you publish it (README: gbrain)\n")
+        f"{URL}/mcp once you publish it (README: gbrain). Log in with /login gbrain in the bot.\n")
     assert ctx.paths.quadlet.exists()
 
 
