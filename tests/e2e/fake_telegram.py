@@ -11,6 +11,8 @@ class State:
         self.updates, self.sent, self.next_id = [], [], 1
         self.cursor = 0  # wait_sent only looks at messages after the last match
         self.buttons = []  # reply_markup per sent message, parallel to sent
+        self.previews = []  # disable_web_page_preview per sent message, parallel to sent
+        self.edits = []  # (message_id, text) of every editMessageText
         self.polls = 0  # the bot's own long polls (they name allowed_updates), not its startup drain
 
     def inject(self, text, user=4242, chat_type="private"):
@@ -73,7 +75,12 @@ def make_server(port=8081):
                 with st.lock:
                     st.sent.append(params["text"])
                     st.buttons.append(params.get("reply_markup"))
+                    st.previews.append(params.get("disable_web_page_preview"))
                 result = {"message_id": len(st.sent)}
+            elif method == "editMessageText":
+                with st.lock:
+                    st.edits.append((params.get("message_id"), params.get("text")))
+                result = True
             elif method == "getUpdates":
                 result = self.get_updates(params)
             else:

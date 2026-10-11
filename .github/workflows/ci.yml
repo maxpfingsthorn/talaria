@@ -1,5 +1,5 @@
 name: ci
-on: [push, pull_request, workflow_call]
+on: [push, pull_request, workflow_call, workflow_dispatch]
 permissions:
   contents: read
 jobs:
@@ -10,7 +10,7 @@ jobs:
         python: ["3.10", "3.13"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           python-version: ${{ matrix.python }}
       - run: uv sync --locked
@@ -25,13 +25,19 @@ jobs:
             | grep -v 'docs/superpowers/' \
             | grep -vE '100\.64\.0\.(0/10|1)([^0-9]|$)'
   e2e:
+    # slow and creates users: the gate to main, releases and manual runs; PRs into develop skip it
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.base_ref == 'main') ||
+      (github.event_name == 'push' &&
+       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0      # the migration test installs v0.4.2 code (ca5e749)
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           python-version: "3.12"
       - run: uv sync --locked

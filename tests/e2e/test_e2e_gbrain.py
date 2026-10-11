@@ -7,7 +7,7 @@ from datetime import datetime
 
 import pytest
 
-from tests.e2e.conftest import HUB, as_user, talaria
+from tests.e2e.conftest import HUB, as_user, sh, talaria
 
 pytestmark = pytest.mark.e2e
 USER = "gbtest"
@@ -67,7 +67,27 @@ def test_02_offer_shows_the_schema_change_and_deploys(gb_env):
     assert active()
 
 
-def test_03_maintenance_runs_dream_and_restarts(gb_env):
+def test_03_login_sends_a_single_use_admin_link(gb_env):
+    tg = gb_env["app"].telegram
+    tg.wait_polling()
+    tg.inject("/login gbrain")
+    link = tg.wait_sent("/admin/auth/")
+    assert "Single use, expires in 5 minutes." in link
+    assert "oauth_request" not in link
+    assert tg.previews[tg.sent.index(link)] is True
+    req = "ab12" * 16
+    tg.inject(f"/login gbrain https://brain.example.invalid/admin/consent?oauth_request={req}&x=1")
+    link = tg.wait_sent("/admin/auth/")
+    assert f"?oauth_request={req}" in link
+    assert tg.previews[tg.sent.index(link)] is True
+    assert not tg.edits     # the 300 s expiry is covered by unit tests
+    # the one-time token must not leak into the journals (hub bot, gbrain account, system)
+    token = link.split("/admin/auth/", 1)[1][:64]
+    log = sh("sudo", "journalctl", "--no-pager", "-o", "cat", check=False).stdout
+    assert token not in log
+
+
+def test_04_maintenance_runs_dream_and_restarts(gb_env):
     tg = gb_env["app"].telegram
     talaria("maintain", user=HUB)
     tg.wait_sent("gbrain maintenance finished.")
@@ -75,7 +95,7 @@ def test_03_maintenance_runs_dream_and_restarts(gb_env):
     assert active()
 
 
-def test_04_failed_maintenance_reports_and_restarts(gb_env):
+def test_05_failed_maintenance_reports_and_restarts(gb_env):
     tg = gb_env["app"].telegram
     env = f"/home/{USER}/.config/talaria/gbrain.env"
     as_user("sh", "-c", f"echo FAKE_DREAM_FAIL=1 >> {env}", user=USER)
@@ -88,7 +108,7 @@ def test_04_failed_maintenance_reports_and_restarts(gb_env):
         as_user("sed", "-i", "/^FAKE_DREAM_FAIL=/d", env, user=USER)
 
 
-def test_05_the_timer_skips_gbrain_on_other_days_but_check_does_not(gb_env):
+def test_06_the_timer_skips_gbrain_on_other_days_but_check_does_not(gb_env):
     app, rel = gb_env["app"], gb_env["rel"]
     rel.publish("0.60.3.0", 3)
     other = DAYS[(datetime.now().weekday() + 3) % 7]
@@ -99,7 +119,7 @@ def test_05_the_timer_skips_gbrain_on_other_days_but_check_does_not(gb_env):
     app.telegram.wait_sent("gbrain v0.60.3.0 is ready to deploy", timeout=900)
 
 
-def test_06_rollback_restores_image_and_schema(gb_env):
+def test_07_rollback_restores_image_and_schema(gb_env):
     tg = gb_env["app"].telegram
     tg.inject("/rollback gbrain CONFIRM")
     tg.wait_sent("Rolled back to gbrain v0.60.1.0.", timeout=900)
