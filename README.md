@@ -1,32 +1,44 @@
 # Talaria
 
-Safe, approved updates for self-hosted [Hermes Agent](https://github.com/NousResearch/hermes-agent)
-on rootless podman. Opinionated.
+Safe, approved updates for self-hosted AI agent apps on rootless podman. Opinionated.
+
+Talaria manages three apps, each in its own service account, all under one Telegram bot:
+
+| App | What it is | Talaria section |
+|---|---|---|
+| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | the agent itself | [Hermes](#hermes) |
+| [Clawvisor](https://github.com/clawvisor/clawvisor) | a gatekeeper service for AI agents | [Clawvisor](#clawvisor) |
+| [gbrain](https://github.com/garrytan/gbrain) | an agent memory "brain" with an MCP server | [gbrain](#gbrain) |
 
 Setting this up with a coding agent? Point it at [`AGENT_SETUP.md`](AGENT_SETUP.md).
 
-Talaria manages Hermes, [Clawvisor](#clawvisor) and [gbrain](#gbrain), each in its own account under one bot.
-
 ## What it does
 
-- Finds new Hermes releases and pulls them, pinned by digest and checked against the
-  release's git commit. These checks compare the download with what the same release
-  publishes (integrity, not an independent signature).
-- **Rehearses the migration on a throwaway copy** of your data and reports what would
-  change: config version, database version, which migrations ran, a config diff.
-- **Waits for your approval** on Telegram: one bot per host for every app Talaria manages.
-- Backs up, deploys and checks the result. On failure it **rolls back image and data
-  together**. You can trigger the same rollback at any time.
+- **Finds new releases** of each app and fetches them with an integrity check: Hermes's
+  container image pinned by digest and checked against the release's git commit; Clawvisor's
+  and gbrain's release binaries checked against the checksums their release publishes (gbrain
+  also against its build provenance when `gh` is available), then built into a local image.
+  These checks compare the download with what the same release publishes (integrity, not an
+  independent signature).
+- **Rehearses the update on a throwaway copy** of your data and reports what would change:
+  Hermes's config and database versions, migrations and a config diff; Clawvisor's database
+  migrations; gbrain's schema version.
+- **Waits for your approval** on Telegram: one bot per host for every app.
+- **Backs up, deploys and checks the result.** On failure it rolls back image and data
+  together; you can trigger the same rollback, or restore any backup, at any time.
+- **Runs maintenance windows** where an app needs them (gbrain's nightly `gbrain dream`).
+- **Sends dashboard login links** on request (`/login`, for Clawvisor and gbrain).
+- **Updates itself** the same way: a new Talaria release is offered, never installed unasked.
 - Messages you only for decisions and failures.
 
-Opinionated: one Hermes per host, one dedicated service user per app plus one hub account per host, rootless podman with
-Quadlet, Telegram for approvals.
+Opinionated: one install of each app per host, one dedicated service user per app plus one
+hub account per host, rootless podman with Quadlet, Telegram for approvals.
 
-Scope: Talaria manages Hermes installs that run from the official container image. It
-does not cover the git-based `hermes update` path.
+Scope: Hermes installs that run from the official container image (not the git-based
+`hermes update` path); Clawvisor and gbrain from their GitHub release binaries.
 
-Talaria is an independent project and is not affiliated with or endorsed by Nous
-Research.
+Talaria is an independent project and is not affiliated with or endorsed by Nous Research,
+the Clawvisor project or the gbrain project.
 
 ## How it fits together
 
@@ -62,7 +74,7 @@ through one command you paste into your own terminal (sudo asks for your passwor
 over https as shown: setup installs Talaria for both accounts from your checkout's origin,
 and they have no SSH key.
 
-`--app hermes|clawvisor` picks which app to manage (default `hermes`; the account
+`--app hermes|clawvisor|gbrain` picks which app to manage (default `hermes`; the account
 defaults to the app's own name, e.g. `clawvisor`, unless `--user` says otherwise). Once
 `talaria.conf` exists, its `app` wins: re-running setup with a different `--app` stops
 with an error instead of silently switching apps.
@@ -103,9 +115,10 @@ pairing.
   - `talaria-check.timer`, `talaria-maintain.timer` and `talaria-telegram.service`.
 - For the app's account:
   - `~/.local/share/talaria` (this repo at a release tag) and `~/.local/bin/talaria`;
-  - `~/.config/talaria/` (`talaria.conf`, `hermes.env` with the dashboard password);
+  - `~/.config/talaria/` (`talaria.conf`, and `<app>.env` with the app's secrets, e.g.
+    `hermes.env` with the dashboard password);
   - `~/.local/state/talaria/` (state, backups, history);
-  - `~/.config/containers/systemd/hermes.container`.
+  - `~/.config/containers/systemd/<app>.container`.
 - Adopting an existing install renames its Quadlet to `*.talaria-orig`, takes a full
   backup first, and keeps the data where it is.
 - Setup never moves a Talaria install backwards: if the hub already runs a newer release
@@ -147,7 +160,15 @@ Nothing else.
 shows that backup's age before you confirm. Talaria first backs up the current data, and
 the rollback message names the `/restore <id> CONFIRM` that undoes it.
 
-## Dashboard
+## Hermes
+
+Hermes is the default app (`--app hermes`, account `hermes`). Talaria runs the official
+image (`docker.io/nousresearch/hermes-agent`) as `hermes gateway run`, with the dashboard
+inside the same container, and refuses releases older than v2026.6.5. An existing Hermes
+install is adopted: setup renames its Quadlet to `*.talaria-orig`, takes a full backup
+first and keeps the data where it is (`--adopt UNIT` picks one when there are several).
+
+### Dashboard
 
 The dashboard always requires a login: user `admin`, password in
 `~/.config/talaria/hermes.env` of the service user.
@@ -164,10 +185,6 @@ Tailscale or an SSH tunnel there.
 
 After editing `talaria.conf`, run setup again: it validates the file (a bad value would stop
 the bot at its next start).
-
-Clawvisor has no dashboard password: its first login is a one-time link. As the service
-user, in your own terminal (never through an agent): `talaria login-link`. Or send `/login clawvisor`
-to the Telegram bot for a one-time link there.
 
 ## Configuration
 
@@ -635,7 +652,13 @@ TALARIA_CONTRACT=1 uv run pytest -m contract tests/contract   # pulls the newest
 uv run mutmut run && uv run mutmut export-cicd-stats && uv run python tests/mutation_score.py
 ```
 
-CI runs unit and end-to-end tests on every push, and the contract test and mutation
-testing weekly and on release. See [`docs/mutation-report.md`](docs/mutation-report.md).
+CI runs unit and end-to-end tests on every push and pull request, and the contract test
+and mutation testing weekly and on release.
+
+Branches: work happens on `develop`. Changes go in through pull requests against `develop`,
+which need green CI (`unit (3.10)`, `unit (3.13)`, `e2e`) and an up-to-date branch; nobody
+pushes to `develop` or `main` directly. A release is a pull request from `develop` to `main`,
+then a `vX.Y.Z` tag on `main`, which runs CI, mutation testing and the contract test and
+publishes the GitHub release. Release tags cannot be moved or deleted. See [`docs/mutation-report.md`](docs/mutation-report.md).
 
 Licence: MIT.
