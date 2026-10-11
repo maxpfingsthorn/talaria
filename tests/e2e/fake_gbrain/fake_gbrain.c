@@ -1,7 +1,8 @@
 /* tests/e2e/fake_gbrain/fake_gbrain.c
    Stand-in for the gbrain release binary in Talaria's e2e test (test_e2e_gbrain.py). It
    speaks just enough of the real CLI: --version, init --pglite, config, remember --provenance,
-   recall --query, doctor --json, dream and serve --http (GET /health). The "brain" is
+   recall --query, doctor --json, dream, mcp admin login-link --json and serve --http
+   (GET /health). The "brain" is
    files under $GBRAIN_HOME/.gbrain: config.json, schema (an integer; opening the brain
    raises it to SCHEMA, like a migration), facts and dreams.
    Build: gcc -O2 -static -DVERSION='"0.60.1.0"' -DSCHEMA=1 -o gbrain-linux-x64 fake_gbrain.c
@@ -164,6 +165,25 @@ int main(int argc, char **argv) {
             return 1;
         }
         return write_text("dreams", "a", "dream\n");
+    }
+    if (!strcmp(cmd, "mcp") && argc > 3 && !strcmp(argv[2], "admin") &&
+        !strcmp(argv[3], "login-link")) {
+        /* like the real one: one JSON line with a single-use https link to the admin login */
+        const char *id = NULL;
+        int json = 0;
+        for (int i = 4; i < argc; i++) {
+            if (!strcmp(argv[i], "--json")) json = 1;
+            if (!strcmp(argv[i], "--oauth-request") && i + 1 < argc) id = argv[++i];
+        }
+        if (!json) {
+            fprintf(stderr, "fake gbrain: login-link needs --json\n");
+            return 2;
+        }
+        printf("{\"status\":\"login_link\",\"url\":\"https://brain.example.invalid/admin/auth/"
+               "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef%s%s\","
+               "\"expires_in\":300,\"next_action\":\"Open the link in a browser.\"}\n",
+               id ? "?oauth_request=" : "", id ? id : "");
+        return 0;
     }
     if (!strcmp(cmd, "serve")) {
         int port = 3131;
