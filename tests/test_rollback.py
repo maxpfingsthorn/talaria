@@ -393,6 +393,7 @@ def test_describe_resume_text_exact(tmp_path, monkeypatch):
     ctx = deployed(tmp_path, monkeypatch)
     st = load(ctx)
     st["op"] = {"op": "restore", "backup": "b", "changed": True, "started": "x"}
+    st["last_deploy"] = None
     state.save(ctx.paths, st)
     assert rollback.describe(ctx) == ("The interrupted restore left nothing to undo. Send "
                                       "/rollback CONFIRM to start Hermes and check it.")
@@ -705,3 +706,28 @@ def test_completed_deploy_op_still_uses_its_own_last_deploy(tmp_path, monkeypatc
     st["op"] = {"op": "deploy", "tag": "v2026.9.24", "backup": "b", "changed": True, "started": "x"}
     state.save(ctx.paths, st)
     assert rollback.target(ctx, load(ctx)) == ("b", CUR)
+
+
+def _skipped(tmp_path, monkeypatch, with_target):
+    ctx = deployed(tmp_path, monkeypatch)
+    st = load(ctx)
+    bid = st["last_deploy"]["backup"]
+    if not with_target:
+        st["last_deploy"] = None
+    st["op"] = {"op": "maintain", "changed": False, "started": "x"}
+    state.save(ctx.paths, st)
+    return ctx, bid
+
+
+def test_start_offer_names_the_skipped_backup(tmp_path, monkeypatch):
+    ctx, bid = _skipped(tmp_path, monkeypatch, True)
+    assert rollback.describe(ctx) == (
+        "The interrupted maintain left nothing to undo. Send /rollback CONFIRM to start Hermes "
+        f"and check it. Your data stays as it is. To go back to Hermes v2026.8.3 with backup "
+        f"{bid} (0m old) instead, send /restore {bid}.")
+
+
+def test_start_offer_without_a_target_is_unchanged(tmp_path, monkeypatch):
+    ctx, _ = _skipped(tmp_path, monkeypatch, False)
+    assert rollback.describe(ctx) == ("The interrupted maintain left nothing to undo. Send "
+                                      "/rollback CONFIRM to start Hermes and check it.")

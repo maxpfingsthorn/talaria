@@ -37,6 +37,18 @@ _BOOLS = ("1", "true", "yes", "on", "0", "false", "no", "off")
 _TAILSCALE_NET = ipaddress.IPv4Network("100.64.0.0/10")
 
 
+def check_ipv4(value: str, where) -> None:
+    """Empty, or any dotted IPv4 address: enough for the value to be safe in a shell line."""
+    if not value:
+        return
+    try:
+        ok = str(ipaddress.IPv4Address(value)) == value
+    except ValueError:
+        ok = False
+    if not ok:
+        raise ValueError(f"tailscale_ip must be an IPv4 address, got {value!r} in {where}")
+
+
 def check_tailscale_ip(value: str, where) -> None:
     """tailscale_ip: empty, or an IPv4 address in the CGNAT range Tailscale assigns from."""
     if not value:

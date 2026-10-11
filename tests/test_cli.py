@@ -275,3 +275,14 @@ def test_login_link_removes_the_session_dir_on_failure(tmp_path, monkeypatch, on
     ctx = _link_ctx(tmp_path, monkeypatch, **on)
     assert cli.main(["login-link"], make=lambda: ctx) == 1
     assert not (ctx.conf.data_dir / ".login-link").exists()
+
+
+def test_gbrain_login_failure_says_details_above_in_the_terminal(tmp_path, monkeypatch, capsys):
+    import sys
+    ctx = make_test_ctx(tmp_path, app="gbrain")
+    ctx.sh.on("podman", "exec", rc=1, err="boom")
+    ctx.sh.on("systemctl", out="active\n")
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    assert cli.main(["login-link"], make=lambda: ctx) == 1
+    assert capsys.readouterr().err.endswith(
+        "STOP: Could not get a login link from gbrain; details above\n")

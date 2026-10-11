@@ -77,8 +77,15 @@ def resume(ctx) -> str | None:
 def describe(ctx) -> str:
     st = state.load(ctx.paths)
     if needs_resume(ctx, st):
-        return (f"The interrupted {st['op']['op']} left nothing to undo. Send /rollback CONFIRM "
+        text = (f"The interrupted {st['op']['op']} left nothing to undo. Send /rollback CONFIRM "
                 f"to start {ctx.app.title} and check it.")
+        t = target(ctx, st)
+        if t:
+            b = backup.get(ctx, t[0])
+            text += (f" Your data stays as it is. To go back to {ctx.app.title} "
+                     f"{t[1].get('tag')} with backup {t[0]} ({age(ctx, b.meta['created'])} old) "
+                     f"instead, send /restore {t[0]}.")
+        return text
     t = target(ctx, st)
     if not t:
         return "Nothing to roll back: no interrupted change and no previous deploy."

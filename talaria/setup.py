@@ -133,7 +133,9 @@ def _install(sh, user: str, home: str, url: str, ref: str, installed: bool) -> N
     install, sudo = f"{home}/.local/share/talaria", sudo_as(user, home)
     if not installed:
         sh.run(sudo + ["git", "clone", "-q", url, install], timeout=600)
-    sh.run(sudo + ["git", "-C", install, "fetch", "-q", "--tags", "origin"], timeout=600)
+    fetch = (["fetch", "-q", "origin", f"+refs/tags/{ref}:refs/tags/{ref}"] if SEMVER.match(ref)
+             else ["fetch", "-q", "--tags", "origin"])
+    sh.run(sudo + ["git", "-C", install, *fetch], timeout=600)
     sh.run(sudo + ["git", "-C", install, "checkout", "-q", ref])
     sh.run(sudo + ["mkdir", "-p", f"{home}/.local/bin"])
     sh.run(sudo + ["ln", "-sfn", f"{install}/bin/talaria", f"{home}/.local/bin/talaria"])
