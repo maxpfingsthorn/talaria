@@ -1,6 +1,6 @@
 # Talaria: login links from the bot (v0.7.0)
 
-Status: draft for owner review.
+Status: approved by the owner 2026-10-11.
 
 ## Goal
 
@@ -39,9 +39,11 @@ gbrain connector approval can be reached the same way.
 - Sent only to the paired owner chat (existing rule for every reply).
 - `disable_web_page_preview` on that message: a preview fetch by Telegram's servers
   could consume a single-use link (and the dashboards are tailnet-only anyway).
-- The bot deletes the message 5 minutes after sending (`deleteMessage`). Pending
-  deletions are kept in memory; a bot restart in that window leaves the message, which
-  by then holds an expired link. Deletion failure is ignored.
+- 5 minutes after sending, the bot replaces the message text (`editMessageText`, no
+  preview, no buttons) with "Login link for <App> expired. Send /login <app> for a new
+  one." so the chat shows what happened and no longer holds the link. Pending edits are
+  kept in memory; a bot restart in that window leaves the original message, which by
+  then holds an expired link. An edit failure is ignored (journal line without the link).
 - The link never reaches the journal, the history file, state, or any log line. The op
   writes it only to its stdout pipe as a dedicated `link` line (below), never through
   `JsonNotifier` (which prints message text to stderr). The hub never prints it.
@@ -125,12 +127,12 @@ work from the public address:
 - Clawvisor: the split keeps the CLI output byte-identical (existing tests) and the
   function returns the same links.
 - Bot: `/login` forms (no app with one supporting app, explicit app, URL vs id,
-  bad id), version gate, `disable_web_page_preview` set, deletion scheduled and run
-  after 5 min (fake clock), deletion failure ignored, the button on `/status`.
+  bad id), version gate, `disable_web_page_preview` set, the expiry edit scheduled and run
+  after 5 min (fake clock) with the expired text, edit failure ignored, the button on `/status`.
 - Helper: adds exactly one handler, refuses when `/admin` exists or 443 is missing,
   `--undo` restores, never touches other ports.
 - Contract/e2e: none needed beyond the unit suite (no new external API besides
-  Telegram `deleteMessage`, covered with the fake API).
+  Telegram `editMessageText`, covered with the fake API).
 
 ## Release
 
