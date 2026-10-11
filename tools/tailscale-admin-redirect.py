@@ -6,6 +6,7 @@ Run as root on the host, as `python3 -I`, from a clone checked out at the releas
   tailscale-admin-redirect.py --undo <saved.json>
 """
 import argparse
+import contextlib
 import copy
 import datetime
 import json
@@ -132,8 +133,17 @@ def add(host, port, dry):
             changed()
         post(cfg)
     except SystemExit:
-        os.remove(backup)
-        print(f"removed the backup {os.path.abspath(backup)}; nothing was applied", file=sys.stderr)
+        try:
+            untouched = status() == original
+        except SystemExit:
+            untouched = False
+        if untouched:
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(backup)
+            print(f"removed the backup {os.path.abspath(backup)}; nothing was applied", file=sys.stderr)
+        else:
+            print(f"kept the backup {os.path.abspath(backup)}: the config may have changed; "
+                  f"undo with --undo if needed", file=sys.stderr)
         raise
     after = status()
     if "/admin" not in (after.get("Web", {}).get(key, {}).get("Handlers") or {}):

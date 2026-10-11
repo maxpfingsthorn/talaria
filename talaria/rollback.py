@@ -81,7 +81,10 @@ def describe(ctx) -> str:
                 f"to start {ctx.app.title} and check it.")
         t = target(ctx, st)
         if t:
-            b = backup.get(ctx, t[0])
+            try:
+                b = backup.get(ctx, t[0])
+            except KeyError:        # the archive is gone: offer the start alone
+                return text
             text += (f" Your data stays as it is. To go back to {ctx.app.title} "
                      f"{t[1].get('tag')} with backup {t[0]} ({age(ctx, b.meta['created'])} old) "
                      f"instead, send /restore {t[0]}.")

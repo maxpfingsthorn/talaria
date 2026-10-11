@@ -719,6 +719,15 @@ def _skipped(tmp_path, monkeypatch, with_target):
     return ctx, bid
 
 
+def test_start_offer_survives_a_missing_backup(tmp_path, monkeypatch):
+    ctx, bid = _skipped(tmp_path, monkeypatch, True)
+    for f in ctx.paths.backups.glob(f"{bid}*"):
+        f.unlink()
+    assert rollback.describe(ctx) == (
+        "The interrupted maintain left nothing to undo. Send /rollback CONFIRM to start Hermes "
+        "and check it.")
+
+
 def test_start_offer_names_the_skipped_backup(tmp_path, monkeypatch):
     ctx, bid = _skipped(tmp_path, monkeypatch, True)
     assert rollback.describe(ctx) == (

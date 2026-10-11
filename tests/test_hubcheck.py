@@ -185,19 +185,13 @@ def test_check_talaria_says_when_current_or_unknown(h2, monkeypatch):
     assert h2.ctx.notify.texts()[-1] == "Talaria: could not look up the latest release."
 
 
-def test_version_skew_does_not_skip_the_apps_check(h2):
-    ex(h2, "clawvisor").on("hello", lines=[{**hello(app="clawvisor"), "version": "0.0.1"}])
-    hubcheck.check(h2, timer=False)
-    assert ("clawvisor", "stream", ("check",)) in h2.log
-    assert h2.ctx.notify.texts() == ["hermes checked", "clawvisor checked"]
-
-
 def test_timer_reminds_about_a_lagging_app_once_and_still_checks_it(h2):
     ex(h2, "clawvisor").on("hello", lines=[{**hello(app="clawvisor"), "version": "0.0.1"}])
     hubcheck.check(h2, timer=True)
+    assert ("clawvisor", "stream", ("check", "--timer")) in h2.log
     assert h2.ctx.notify.texts() == [
         "hermes checked",
-        f"Clawvisor: {relay.SKEW}; send /update v{__version__} to bring it up to date.",
+        f"Clawvisor: {relay.SKEW.split(';')[0]}; send /update v{__version__} to bring it up to date.",
         "clawvisor checked"]
 
 

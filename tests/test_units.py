@@ -217,7 +217,7 @@ def test_quadlet_refuses_an_invalid_tailscale_ip(ip):
         units.render_quadlet(_fixed_ctx(dashboard_bind="tailscale", tailscale_ip=ip))
 
 
-def test_render_accepts_any_ipv4_tailscale_ip():
+def test_render_accepts_any_non_public_ipv4():
     out = units.render_quadlet(_fixed_ctx(dashboard_bind="tailscale", tailscale_ip="192.0.2.7"))
     assert "PublishPort=192.0.2.7:" in out
 

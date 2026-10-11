@@ -23,6 +23,9 @@ elif a == ["serve", "status", "--json"]:
 elif a[:4] == ["debug", "localapi", "POST", "/localapi/v0/serve-config"] and a[4:] == ["-"]:
     data = sys.stdin.read()
     open(d + "/posted.json", "w").write(data)
+    if os.path.exists(d + "/failapply"):
+        open(d + "/status.json", "w").write(data)
+        sys.stderr.write("timed out"); sys.exit(3)
     if os.path.exists(d + "/fail"):
         sys.stderr.write("denied"); sys.exit(3)
     open(d + "/status.json", "w").write(data)
@@ -184,7 +187,18 @@ def test_add_aborts_when_config_changes(ts):
     r = ts("--host", HOST)
     assert r.returncode == 1 and "changed while this ran" in r.stderr
     assert not (ts.dir / "posted.json").exists()
-    assert ts.backups() == [] and "removed the backup" in r.stderr
+    assert len(ts.backups()) == 1 and "kept the backup" in r.stderr
+    assert "config may have changed" in r.stderr
+
+
+def test_failed_post_that_was_applied_keeps_the_backup(ts):
+    (ts.dir / "failapply").write_text("")
+    r = ts("--host", HOST)
+    assert r.returncode == 1 and "timed out" in r.stderr
+    (b,) = ts.backups()
+    assert json.load(open(b)) == ts.orig
+    assert "kept the backup" in r.stderr and "config may have changed" in r.stderr
+    assert "nothing was applied" not in r.stderr
 
 
 def test_success_keeps_backup_and_hint_is_exact(ts):

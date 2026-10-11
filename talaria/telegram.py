@@ -183,6 +183,8 @@ class Bot:
         """Probe the flagged apps again: one may have caught up since the bot started."""
         for app in sorted(self.mismatch | self.skewed):
             err = relay.hello(self.hub.apps[app]) or ""
+            if err and not err.startswith((relay.VERSIONS, relay.SKEW)):
+                continue            # no answer: keep what is known
             self.mismatch.discard(app)
             self.skewed.discard(app)
             if err.startswith(relay.VERSIONS):

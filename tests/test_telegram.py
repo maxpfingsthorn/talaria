@@ -711,6 +711,16 @@ def test_update_same_version_allowed_when_lagging(bot):
     assert spawned(ctx) == [[str(ctx.paths.bin_link), "update", tag, "--offer"]]
 
 
+@pytest.mark.parametrize("flag", ["mismatch", "skewed"])
+@pytest.mark.parametrize("exc", [Unreachable("hermes"), NoAnswer("hermes")])
+def test_unreachable_probe_keeps_the_lag_flag(bot, flag, exc):
+    ctx, api, b = bot
+    setattr(b, flag, {"hermes"})
+    ex(b.hub, "hermes").on("hello", exc=exc)
+    assert b._lagging() is True
+    assert getattr(b, flag) == {"hermes"}
+
+
 def test_update_button_same_version_allowed_when_lagging(bot):
     ctx, api, b = bot
     b.mismatch = {"hermes"}
