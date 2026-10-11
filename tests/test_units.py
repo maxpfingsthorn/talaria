@@ -211,7 +211,7 @@ def test_clawvisor_quadlet_golden():
         (GOLDEN / "default.clawvisor.container").read_text()
 
 
-@pytest.mark.parametrize("ip", ["1.2.3.4' ; x", "1.2.3.04", "x"])
+@pytest.mark.parametrize("ip", ["8.8.8.8", "1.2.3.4' ; x", "1.2.3.04", "0.0.0.0", "224.0.0.1", "x"])
 def test_quadlet_refuses_an_invalid_tailscale_ip(ip):
     with pytest.raises(ValueError, match="tailscale_ip"):
         units.render_quadlet(_fixed_ctx(dashboard_bind="tailscale", tailscale_ip=ip))
@@ -223,6 +223,6 @@ def test_render_accepts_any_ipv4_tailscale_ip():
 
 
 def test_render_refuses_a_non_ipv4_tailscale_ip():
-    with pytest.raises(ValueError, match="tailscale_ip must be an IPv4 address, got "
+    with pytest.raises(ValueError, match="tailscale_ip must be a private IPv4 address, got "
                                          "'1.2.3.4;rm -rf ~' in the Quadlet"):
         units.render_quadlet(_fixed_ctx(dashboard_bind="tailscale", tailscale_ip="1.2.3.4;rm -rf ~"))
