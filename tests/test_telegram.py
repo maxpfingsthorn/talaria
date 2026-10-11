@@ -238,7 +238,7 @@ def test_invalid_arguments_never_spawn(bot):
 
 
 def test_help_text_exact():
-    assert telegram.HELP == ("/status · /check [app|talaria] · /approve [app] <tag> · /reject [app] <tag> · "
+    assert telegram.HELP == ("/status · /login [app] · /check [app|talaria] · /approve [app] <tag> · /reject [app] <tag> · "
                              "/rollback [app] [CONFIRM] · /backups [app] · "
                              "/restore [app] <id> [CONFIRM] · /update <version>")
 
@@ -324,7 +324,7 @@ def test_startup_registers_the_app_neutral_menu_for_the_owner_only(bot):
     (params,) = calls(api, "setMyCommands")
     assert params["scope"] == {"type": "chat", "chat_id": OWNER}
     assert [(c["command"], c["description"]) for c in params["commands"]] == telegram.MENU
-    assert [c for c, _ in telegram.MENU] == ["status", "check", "approve", "reject", "rollback",
+    assert [c for c, _ in telegram.MENU] == ["status", "login", "check", "approve", "reject", "rollback",
                                              "backups", "restore", "update"]
     assert all(0 < len(d) <= 256 and "Hermes" not in d for _, d in telegram.MENU)
 
@@ -747,3 +747,149 @@ def test_update_same_version_not_allowed_once_the_app_caught_up(bot):
     b.handle(upd(1, f"/update v{__version__}"))
     assert api.sent() == [NOT_NEWER.format(tag=f"v{__version__}", cur=__version__)]
     assert b.skewed == set() and spawned(ctx) == []
+
+
+RID = "e" * 64
+LINKTEXT = "Open this link: https://h.example.ts.net/admin/auth/" + "f" * 64
+
+
+def _login_bot(tmp_path, names=("hermes", "gbrain")):
+    ctx, api, b = _bot(tmp_path, names)
+    ex(b.hub, "gbrain").on("login-link", lines=[line("link", text=LINKTEXT)])
+    return ctx, api, b
+
+
+def test_login_picks_the_only_app_with_links(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    b.handle(upd(2, "/login"))
+    sent = calls(api, "sendMessage")[-1]
+    assert sent["text"] == LINKTEXT and sent["disable_web_page_preview"] is True
+    assert ex(b.hub, "gbrain").ops()[-1] == ["login-link"]
+
+
+def test_login_accepts_the_consent_url(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    b.handle(upd(2, f"/login gbrain https://h.example.ts.net/admin/?oauth_request={RID}&x=1#oauth-consent"))
+    assert ex(b.hub, "gbrain").ops()[-1] == ["login-link", "--oauth-request", RID]
+
+
+def test_login_accepts_the_bare_id(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    b.handle(upd(2, f"/login {RID}"))
+    assert ex(b.hub, "gbrain").ops()[-1] == ["login-link", "--oauth-request", RID]
+
+
+@pytest.mark.parametrize("arg", ["E" * 64, "e" * 63, "https://h/admin/?x=1", "a b"])
+def test_login_bad_request_gets_usage(tmp_path, arg):
+    ctx, api, b = _login_bot(tmp_path)
+    b.handle(upd(2, f"/login gbrain {arg}"))
+    assert api.sent()[-1] == telegram.LOGIN_USAGE
+    assert ["login-link"] not in [o[:1] for o in ex(b.hub, "gbrain").ops()]
+
+
+def test_login_hermes_lists_the_apps_with_links(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    b.handle(upd(2, "/login hermes"))
+    assert api.sent()[-1] == "Login links: gbrain"
+
+
+def test_login_unknown_app_and_no_login_apps(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    b.handle(upd(2, "/login nope"))
+    assert api.sent()[-1] == "Unknown app: nope. Apps: hermes, gbrain"
+
+
+def test_login_with_no_login_apps(bot):
+    ctx, api, b = bot
+    b.handle(upd(2, "/login"))
+    assert api.sent()[-1] == "No app here offers login links."
+    b.handle(upd(3, "/login hermes"))
+    assert api.sent()[-1] == "No app here offers login links."
+
+
+def test_login_asks_which_app_with_two(tmp_path):
+    ctx, api, b = _login_bot(tmp_path, ("clawvisor", "gbrain"))
+    b.handle(upd(2, "/login"))
+    m = calls(api, "sendMessage")[-1]
+    assert m["text"] == "Which app?"
+    assert [k["callback_data"] for k in m["reply_markup"]["inline_keyboard"][0]] == \
+        ["hub|ln:clawvisor", "hub|ln:gbrain"]
+    b.handle(upd(3, f"/login {RID}"))
+    assert api.sent()[-1] == telegram.LOGIN_USAGE
+
+
+def test_login_gate_on_old_app_version(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    ex(b.hub, "gbrain").on("hello", lines=[hello(app="gbrain", version="0.6.1")])
+    b.handle(upd(2, "/login gbrain"))
+    assert api.sent()[-1] == telegram.UPDATE_FIRST.format(title="gbrain", ver="0.6.1", hub=__version__)
+    assert ["login-link"] not in ex(b.hub, "gbrain").ops()
+
+
+def test_login_refusal_is_replied(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    ex(b.hub, "gbrain").on("login-link", lines=[reply("gbrain is not running")])
+    b.handle(upd(2, "/login"))
+    assert api.sent()[-1] == "gbrain is not running"
+    assert b.expiring == []
+
+
+def test_expiry_replaces_the_link(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    b.handle(upd(2, "/login"))
+    ctx.clock.sleep(299)
+    b.expire_links()
+    assert calls(api, "editMessageText") == []
+    ctx.clock.sleep(2)
+    b.expire_links()
+    assert calls(api, "editMessageText") == [{
+        "chat_id": OWNER, "message_id": 1, "disable_web_page_preview": True,
+        "text": "Login link for gbrain expired. Send /login gbrain for a new one."}]
+    assert b.expiring == []
+
+
+def test_expiry_edit_failure_is_ignored_and_dropped(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    b.handle(upd(2, "/login"))
+    real = api.call
+
+    def failing(method, **p):
+        if method == "editMessageText":
+            raise ApiError(400, None)
+        return real(method, **p)
+    api.call = failing
+    ctx.clock.sleep(301)
+    b.expire_links()
+    assert b.expiring == []
+
+
+def test_poll_once_runs_the_expiry(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    b.handle(upd(2, "/login"))
+    ctx.clock.sleep(301)
+    b.poll_once()
+    assert len(calls(api, "editMessageText")) == 1
+
+
+def test_status_offers_login_buttons(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    b.handle(upd(2, "/status"))
+    rows = calls(api, "sendMessage")[-1]["reply_markup"]["inline_keyboard"]
+    assert rows == [[{"text": "🔑 Login link: gbrain", "callback_data": "hub|ln:gbrain"}]]
+
+
+def test_app_status_adds_the_login_row(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    b.handle(upd(2, "/status gbrain"))
+    rows = calls(api, "sendMessage")[-1]["reply_markup"]["inline_keyboard"]
+    assert rows[-1] == [{"text": "🔑 Login link: gbrain", "callback_data": "hub|ln:gbrain"}]
+    b.handle(upd(3, "/status hermes"))
+    assert "reply_markup" not in calls(api, "sendMessage")[-1]
+
+
+def test_login_button(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    b.handle(cb("hub|ln:gbrain"))
+    assert calls(api, "sendMessage")[-1]["text"] == LINKTEXT
+    b.handle(cb("hub|ln:hermes"))
+    assert api.sent()[-1] == "Login links: gbrain"

@@ -22,9 +22,9 @@ def message(text, blocks=(), commands=(), buttons=()):
                 buttons=_rows(buttons))
 
 
-def hello(protocol=1, app="hermes"):
+def hello(protocol=1, app="hermes", version=__version__):
     return line("hello", protocol=protocol, app=app, title=apps.get(app).title,
-                version=__version__)
+                version=version)
 
 
 class FakeExecutor:

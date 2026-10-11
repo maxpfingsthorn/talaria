@@ -4,9 +4,11 @@ import re
 import secrets
 import sys
 import time
+import urllib.parse
 from datetime import timedelta
 
 from talaria import __version__, apps, hubexec, relay
+from talaria.apps.base import OAUTH_REQUEST_RE
 from talaria.backup import ID_RE
 from talaria.notify import ApiError, Message, TelegramAPI, keyboard
 from talaria.op import STALE
@@ -14,10 +16,11 @@ from talaria.tags import SEMVER, TAG_ARG, semver_newer
 
 ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 NOT_NEWER = "Talaria {tag} is not newer than the installed v{cur}"
-HELP = ("/status · /check [app|talaria] · /approve [app] <tag> · /reject [app] <tag> · "
+HELP = ("/status · /login [app] · /check [app|talaria] · /approve [app] <tag> · /reject [app] <tag> · "
         "/rollback [app] [CONFIRM] · /backups [app] · /restore [app] <id> [CONFIRM] · "
         "/update <version>")
 MENU = [("status", "Every app: version, state, pending update"),
+        ("login", "Get a dashboard login link: /login [app]"),
         ("check", "Look for new releases now: /check [app|talaria]"),
         ("approve", "Deploy a pending update: /approve [app] <tag>"),
         ("reject", "Never offer a release: /reject [app] <tag>"),
@@ -25,6 +28,12 @@ MENU = [("status", "Every app: version, state, pending update"),
         ("backups", "List backups: /backups [app]"),
         ("restore", "Restore a backup: /restore [app] <id> (asks to confirm)"),
         ("update", "Update Talaria itself: /update <version>")]
+FIRST_LOGIN_RELEASE = "v0.7.0"
+LINK_TTL = 300   # seconds until the expiry notice replaces the link
+UPDATE_FIRST = "{title} runs Talaria {ver}; update Talaria first: /update v{hub}"
+EXPIRED = "Login link for {title} expired. Send /login {app} for a new one."
+LOGIN_USAGE = "Usage: /login [app] [OAuth request id or consent URL]"
+NO_LOGIN_APP = "No app here offers login links."
 APP_WORD = re.compile(r"^[a-z][a-z_-]{0,31}$")
 APP_CMDS = ("/status", "/backups", "/check", "/approve", "/reject", "/rollback", "/restore")
 LONG_OPS = ("check", "deploy", "rollback", "restore")
@@ -82,7 +91,64 @@ class Bot:
         self.hub, self.ctx, self.api = hub, hub.ctx, api
         self.offset = None
         self.mismatch: set[str] = set()   # protocol differs or hello fails: commands are blocked
-        self.skewed: set[str] = set()     # only the version differs: a note, /update retries
+        self.skewed: set[str] = set()     # only the version differs: a note, /update retries it
+        self.expiring: list[tuple] = []   # (due, message_id, title, app): links to replace
+
+    def _login_row(self, app: str) -> list:
+        return [(f"🔑 Login link: {self.hub.apps[app].title}", f"hub|ln:{app}")]
+
+    def login(self, args: list[str]):
+        supported = [n for n in self.hub.apps if apps.get(n).has_login_link]
+        none = f"Login links: {', '.join(self.hub.apps[n].title for n in supported)}" \
+            if supported else NO_LOGIN_APP
+        if args and args[0] in self.hub.apps:
+            app, rest = args[0], args[1:]
+        elif args and APP_WORD.match(args[0]):
+            return f"Unknown app: {args[0]}. Apps: {', '.join(self.hub.apps)}"
+        elif len(supported) == 1:
+            app, rest = supported[0], args
+        elif not supported:
+            return NO_LOGIN_APP
+        elif args:
+            return LOGIN_USAGE
+        else:
+            return "Which app?", [[(self.hub.apps[n].title, f"hub|ln:{n}") for n in supported]]
+        if app not in supported:
+            return none
+        request = None
+        if len(rest) > 1:
+            return LOGIN_USAGE
+        if rest:
+            x = rest[0]
+            request = urllib.parse.parse_qs(urllib.parse.urlsplit(x).query).get(
+                "oauth_request", [""])[0] if x.startswith("http") else x
+            if not OAUTH_REQUEST_RE.match(request):
+                return LOGIN_USAGE
+        if self._still_mismatched(app):
+            return relay.VERSIONS
+        e = self.hub.apps[app]
+        v = relay.version(e)
+        if v and semver_newer(FIRST_LOGIN_RELEASE, f"v{v}"):
+            return UPDATE_FIRST.format(title=e.title, ver=v, hub=__version__)
+        text, is_link = relay.login(e, request)
+        if not is_link:
+            return text
+        self.send_link(app, text)
+        return None
+
+    def send_link(self, app: str, text: str) -> None:
+        r = self.api.call("sendMessage", chat_id=self.ctx.conf.telegram_user_id,
+                          text=text[:4096], disable_web_page_preview=True)
+        self.expiring.append((self.ctx.now() + timedelta(seconds=LINK_TTL), r["message_id"],
+                              self.hub.apps[app].title, app))
+
+    def expire_links(self) -> None:
+        now = self.ctx.now()
+        due = [x for x in self.expiring if x[0] <= now]
+        self.expiring = [x for x in self.expiring if x[0] > now]
+        for _, mid, title, app in due:
+            self._try("editMessageText", chat_id=self.ctx.conf.telegram_user_id, message_id=mid,
+                      text=EXPIRED.format(title=title, app=app), disable_web_page_preview=True)
 
     def reply(self, text: str, buttons=None) -> None:
         params = {"chat_id": self.ctx.conf.telegram_user_id, "text": text[:4096]}
@@ -137,7 +203,12 @@ class Bot:
     def dispatch(self, cmd: str, args: list[str]):
         nu = f"Not understood. Commands: {HELP}"
         if cmd == "/status" and not args:
-            return relay.status_all(self.hub, self.mismatch, self.skewed)
+            text = relay.status_all(self.hub, self.mismatch, self.skewed)
+            rows = [self._login_row(n) for n in self.hub.apps
+                    if apps.get(n).has_login_link and n not in self.mismatch]
+            return (text, rows) if rows else text
+        if cmd == "/login":
+            return self.login(args)
         if cmd == "/update":
             if len(args) == 1 and SEMVER.match(args[0]):
                 if (no := self._update_allowed(args[0])):
@@ -178,6 +249,8 @@ class Bot:
         e, a = self.hub.apps[app], apps.get(app)
         if cmd == "/status" and not args:
             text, buttons = relay.quick(e, ["status"])
+            if a.has_login_link:
+                buttons = [*buttons, self._login_row(app)]
             return (relay.with_skew(text) if app in self.skewed else text), buttons
         if cmd == "/backups" and not args:
             return relay.quick(e, ["backups"])
@@ -214,6 +287,9 @@ class Bot:
                 return no, None
             self.spawn("update", "update", arg, "--offer")
             return "Checking", f"🔎 Checking what Talaria {arg} would change…"
+        if kind == "ln" and arg in self.hub.apps:
+            self._send(self.login([arg]))
+            return self.hub.apps[arg].title, None
         if kind == "w":
             app, _, form = arg.partition(":")
             what, _, rid = form.partition(":")
@@ -318,6 +394,7 @@ class Bot:
                     self.ctx.notify.send(Message(text))
 
     def poll_once(self) -> None:
+        self.expire_links()
         for u in self.api.call("getUpdates", offset=self.offset, timeout=25,
                                allowed_updates=["message", "callback_query"]) or []:
             self.offset = u["update_id"] + 1

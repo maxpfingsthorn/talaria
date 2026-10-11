@@ -85,6 +85,34 @@ def hello(entry) -> str | None:
     return VERSIONS
 
 
+def version(entry) -> str | None:
+    """The app's Talaria version from hello; None when unknown."""
+    try:
+        lines = entry.executor.call(["hello"])
+    except (Unreachable, NoAnswer):
+        return None
+    h = next((d for d in lines if d.get("kind") == "hello"), None)
+    v = h.get("version") if h else None
+    return v if isinstance(v, str) else None
+
+
+def login(entry, oauth_request: str | None = None) -> tuple[str, bool]:
+    """(text, is_link). The text may hold a login link: callers never print or log it."""
+    argv = ["login-link"] + (["--oauth-request", oauth_request] if oauth_request else [])
+    try:
+        lines = entry.executor.call(argv, timeout=60)
+    except Unreachable:
+        return unreachable_text(entry.title), False
+    except NoAnswer:
+        return no_answer_text(entry.title), False
+    for d in lines:
+        if d.get("kind") == "link":
+            return str(d.get("text") or ""), True
+        if d.get("kind") == "reply":
+            return str(d.get("text") or ""), False
+    return failed_text(entry, "login-link"), False
+
+
 def lagging(entry) -> bool:
     """The app answers, but not with this hub's version (unreachable apps are not "lagging")."""
     return (hello(entry) or "").startswith((VERSIONS, SKEW))

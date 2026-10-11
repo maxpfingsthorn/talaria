@@ -158,3 +158,26 @@ def test_status_all_adds_the_skew_note_and_still_asks_the_app(h):
     ex(h, "clawvisor").on("status", lines=[reply("Clawvisor v0.9.10, running.")])
     out = relay.status_all(h, skewed={"clawvisor"})
     assert out == f"Hermes v1, running.\n\nClawvisor v0.9.10, running.\n({relay.SKEW})"
+
+
+def test_version_and_login(h):
+    e = h.apps["clawvisor"]
+    ex(h, "clawvisor").on("hello", lines=[hello(app="clawvisor", version="0.6.1")])
+    assert relay.version(e) == "0.6.1"
+    ex(h, "clawvisor").on("hello", rc=2)
+    assert relay.version(e) is None
+    ex(h, "clawvisor").on("hello", exc=Unreachable("clawvisor"))
+    assert relay.version(e) is None
+    ex(h, "clawvisor").on("login-link", lines=[{"kind": "link", "text": "T"}])
+    assert relay.login(e) == ("T", True)
+    assert ex(h, "clawvisor").calls[-1] == ("call", ["login-link"], 60)
+    assert relay.login(e, "a" * 64) == ("T", True)
+    assert ex(h, "clawvisor").calls[-1][1] == ["login-link", "--oauth-request", "a" * 64]
+    ex(h, "clawvisor").on("login-link", lines=[reply("no")])
+    assert relay.login(e) == ("no", False)
+    ex(h, "clawvisor").on("login-link", rc=2)
+    assert relay.login(e) == (relay.failed_text(e, "login-link"), False)
+    ex(h, "clawvisor").on("login-link", exc=Unreachable("clawvisor"))
+    assert relay.login(e) == (relay.unreachable_text("Clawvisor"), False)
+    ex(h, "clawvisor").on("login-link", exc=NoAnswer("clawvisor"))
+    assert relay.login(e) == (relay.no_answer_text("Clawvisor"), False)
