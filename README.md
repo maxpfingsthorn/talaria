@@ -31,6 +31,11 @@ Setting this up with a coding agent? Point it at [`AGENT_SETUP.md`](AGENT_SETUP.
 - **Updates itself** the same way: a new Talaria release is offered, never installed unasked.
 - Messages you only for decisions and failures.
 
+<p align="center">
+  <img src="docs/telegram-chat.png" width="480"
+       alt="The Talaria bot in Telegram: after /check it offers gbrain v0.60.175.0 with the rehearsal result (brain schema 237 → 238) and Approve/Reject buttons, reports Hermes and Clawvisor current, then offers Talaria v0.7.1, lists which apps would restart and reports the update installed for Hermes, Clawvisor and gbrain.">
+</p>
+
 Opinionated: one install of each app per host, one dedicated service user per app plus one
 hub account per host, rootless podman with Quadlet, Telegram for approvals.
 
