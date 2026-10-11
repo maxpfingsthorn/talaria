@@ -111,6 +111,7 @@ def test_post_failure_reports_stderr(ts):
     (ts.dir / "fail").write_text("")
     r = ts("--host", HOST)
     assert r.returncode == 1 and "denied" in r.stderr
+    assert ts.backups() == [] and "removed the backup" in r.stderr
 
 
 def test_undo_restores(ts):
@@ -183,6 +184,14 @@ def test_add_aborts_when_config_changes(ts):
     r = ts("--host", HOST)
     assert r.returncode == 1 and "changed while this ran" in r.stderr
     assert not (ts.dir / "posted.json").exists()
+    assert ts.backups() == [] and "removed the backup" in r.stderr
+
+
+def test_success_keeps_backup_and_hint_is_exact(ts):
+    r = ts("--host", HOST)
+    assert r.returncode == 0
+    (b,) = ts.backups()
+    assert f"done; undo with: python3 -I {REDIRECT} --undo {b}" in r.stdout
 
 
 def _race(ts):

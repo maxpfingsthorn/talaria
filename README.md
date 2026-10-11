@@ -471,7 +471,7 @@ done
 tailscale serve --bg --https=10000 http://127.0.0.1:<port>
 # the admin redirect on 443 (Tailscale 1.92+; the serve CLI has no flag for it)
 git clone --branch vX.Y.Z https://github.com/maxpfingsthorn/talaria /root/talaria-vX.Y.Z   # the release you run
-sudo python3 -I /root/talaria-vX.Y.Z/tools/tailscale-admin-redirect.py --host <host>.<tailnet>.ts.net
+python3 -I /root/talaria-vX.Y.Z/tools/tailscale-admin-redirect.py --host <host>.<tailnet>.ts.net
 tailscale funnel status
 ```
 

@@ -127,13 +127,18 @@ def add(host, port, dry):
     with os.fdopen(fd, "w") as f:
         json.dump(original, f, indent=2)
     print(f"saved current config: {os.path.abspath(backup)}")
-    if status() != original:
-        changed()
-    post(cfg)
+    try:
+        if status() != original:
+            changed()
+        post(cfg)
+    except SystemExit:
+        os.remove(backup)
+        print(f"removed the backup {os.path.abspath(backup)}; nothing was applied", file=sys.stderr)
+        raise
     after = status()
     if "/admin" not in (after.get("Web", {}).get(key, {}).get("Handlers") or {}):
         die("applied, but /admin is not present afterwards")
-    print(f"done; undo with: {os.path.basename(sys.argv[0])} --undo {os.path.abspath(backup)}")
+    print(f"done; undo with: python3 -I {os.path.abspath(sys.argv[0])} --undo {os.path.abspath(backup)}")
 
 
 def main():
