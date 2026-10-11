@@ -166,19 +166,19 @@ def test_app_update_result_flags_and_missing_reply_text(tmp_path):
 def test_a_second_update_is_refused_while_the_lock_is_held(one):
     one.ctx.paths.state_dir.mkdir(parents=True, exist_ok=True)
     with lock.file_lock(one.ctx.paths.state_dir / "update.lock"):
-        assert hubupdate.self_update(one, "v0.7.0") == 1
-    assert one.ctx.notify.texts() == ["Talaria v0.7.0: an update is already running."]
+        assert hubupdate.self_update(one, "v0.8.0") == 1
+    assert one.ctx.notify.texts() == ["Talaria v0.8.0: an update is already running."]
 
 
 def test_restore_and_restart_failures_do_not_raise(one, tmp_path_factory):
     ex(one, "hermes").on("self-update", lines=[reply("x")])
     one.ctx.sh.on("systemctl", rc=1)
-    assert hubupdate.self_update(one, "v0.7.0") == 0
-    assert one.ctx.notify.texts() == ["Talaria v0.7.0 installed: Hermes ✓"]
+    assert hubupdate.self_update(one, "v0.8.0") == 0
+    assert one.ctx.notify.texts() == ["Talaria v0.8.0 installed: Hermes ✓"]
     one2 = make_hub(tmp_path_factory.mktemp("two"))
     one2.ctx.sh.on("git", out="abc\n").on(str(one2.ctx.paths.bin_link), rc=1)
     one2.ctx.sh.on("git", "-C", str(one2.ctx.paths.install_dir), "checkout", "-q", "abc", rc=1)
-    assert hubupdate.self_update(one2, "v0.7.0") == 1       # the failed restore must not raise
+    assert hubupdate.self_update(one2, "v0.8.0") == 1       # the failed restore must not raise
 
 
 # ---- hubcheck ----
@@ -299,7 +299,7 @@ def test_failed_setup_restores_even_if_the_restore_fails(tmp_path, capsys):
     d = str(ctx.paths.install_dir)
     ctx.sh.on("git", out="abc\n").on(str(ctx.paths.bin_link), rc=1)
     ctx.sh.on("git", "-C", d, "checkout", "-q", "abc", rc=1)
-    assert selfupdate.self_update(ctx, "v0.7.0") == 1
+    assert selfupdate.self_update(ctx, "v0.8.0") == 1
     assert "previous version restored" in capsys.readouterr().err
 
 
@@ -330,7 +330,7 @@ def test_dry_run_details(tmp_path, capsys):
             return Result(0, noise)
         return orig(argv, **kw)
     ctx.sh.run = run
-    assert selfupdate.dry_run(ctx, "v0.7.0") is False       # the message line is not the reply
+    assert selfupdate.dry_run(ctx, "v0.8.0") is False       # the message line is not the reply
     (wt,) = added
     assert wt.parent == ctx.paths.state_dir and wt.name.startswith("dry-run-")
     assert not wt.exists()                                  # removed even if git left it

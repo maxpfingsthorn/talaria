@@ -20,7 +20,7 @@ def test_app_failed_setup_restores_the_previous_checkout(tmp_path, capsys):
     d = str(ctx.paths.install_dir)
     ctx.sh.on("git").on("git", "-C", d, "rev-parse", "HEAD", out="abc123\n")
     ctx.sh.on(str(ctx.paths.bin_link), rc=1)
-    assert selfupdate.self_update(ctx, "v0.7.0") == 1
+    assert selfupdate.self_update(ctx, "v0.8.0") == 1
     assert ctx.sh.calls[-2] == ["git", "-C", d, "checkout", "-q", "abc123"]
     assert "restored" in capsys.readouterr().err
 
@@ -39,7 +39,7 @@ def test_app_holds_the_op_lock_from_before_fetch_until_after_setup(tmp_path):
         return Result(0, "abc\n")
     ctx.sh.on("git", fn=probe)
     ctx.sh.on(str(ctx.paths.bin_link), fn=probe)
-    assert selfupdate.self_update(ctx, "v0.7.0") == 0
+    assert selfupdate.self_update(ctx, "v0.8.0") == 0
     assert busy and all(busy)
     assert [str(ctx.paths.bin_link), "setup", "--as-service", "--lock-held"] in ctx.sh.calls
 
@@ -61,9 +61,9 @@ def hub_with_git(tmp_path, setup_rc=0):
 
 def test_hub_failed_setup_restores_the_previous_checkout(tmp_path):
     h, d = hub_with_git(tmp_path, setup_rc=1)
-    assert hubupdate.self_update(h, "v0.7.0") == 1
+    assert hubupdate.self_update(h, "v0.8.0") == 1
     assert ["git", "-C", d, "checkout", "-q", "abc123"] in h.ctx.sh.calls
-    assert h.ctx.notify.texts()[-1].startswith("Talaria v0.7.0: the hub's setup failed")
+    assert h.ctx.notify.texts()[-1].startswith("Talaria v0.8.0: the hub's setup failed")
     assert "restored" in h.ctx.notify.texts()[-1]
     assert ex(h, "hermes").calls == []
 
@@ -184,10 +184,10 @@ def test_second_update_is_refused_while_one_runs(tmp_path):
     def nested(argv, input):
         if not entered:
             entered.append(1)
-            inner.append(hubupdate.self_update(h, "v0.7.0"))
+            inner.append(hubupdate.self_update(h, "v0.8.0"))
         return Result(0, "abc\n")
     h.ctx.sh.on("git", "-C", d, "fetch", fn=nested)
-    assert hubupdate.self_update(h, "v0.7.0") == 0
+    assert hubupdate.self_update(h, "v0.8.0") == 0
     assert inner == [1]
     assert any("already running" in t for t in h.ctx.notify.texts())
 
@@ -205,8 +205,8 @@ def test_dry_runs_use_their_own_worktree(tmp_path):
         ctx.sh.on(argv[argv.index("--detach") + 1] + "/bin/talaria", out=reply_)
         return Result(0)
     ctx.sh.on("git", "-C", str(ctx.paths.install_dir), "worktree", "add", fn=add)
-    selfupdate.dry_run(ctx, "v0.7.0")
-    selfupdate.dry_run(ctx, "v0.7.0")
+    selfupdate.dry_run(ctx, "v0.8.0")
+    selfupdate.dry_run(ctx, "v0.8.0")
     assert len(set(adds)) == 2
 
 
@@ -214,7 +214,7 @@ def test_dry_runs_use_their_own_worktree(tmp_path):
 
 def test_hub_update_runs_setup_without_a_restart(tmp_path):
     h, d = hub_with_git(tmp_path)
-    assert hubupdate.self_update(h, "v0.7.0") == 0
+    assert hubupdate.self_update(h, "v0.8.0") == 0
     assert [str(h.ctx.paths.bin_link), "setup", "--as-hub", "--no-restart"] in h.ctx.sh.calls
 
 

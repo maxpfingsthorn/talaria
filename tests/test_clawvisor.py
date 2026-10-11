@@ -759,3 +759,39 @@ def test_data_version_is_the_latest_migration_or_none(tmp_path):
     make_db(tmp_path / "clawvisor.db", ["001_a.sql", "002_b.sql"])
     assert ctx.app.data_version(tmp_path) == "002_b.sql"
     assert ctx.app.data_version(tmp_path / "nowhere") is None
+
+
+from talaria.apps.base import LoginRefused  # noqa: E402
+
+
+def test_login_link_hook_returns_the_lines(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.sh.on("systemctl", out="active\n")
+    ctx.sh.on("podman", "exec", out="Open this link: http://localhost:25297/login?token=abc\n")
+    assert ctx.app.login_link(ctx) == [
+        "Open this link: http://127.0.0.1:25297/login?token=abc",
+        "Through an SSH tunnel, open it as http://127.0.0.1:25297/... instead "
+        "(rest of the link unchanged)."]
+
+
+def test_login_link_hook_refuses_an_oauth_request(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    with pytest.raises(LoginRefused, match="only gbrain"):
+        ctx.app.login_link(ctx, "a" * 64)
+
+
+def test_login_link_hook_refuses_when_not_running(tmp_path):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.sh.on("systemctl", out="inactive\n", rc=3)
+    with pytest.raises(LoginRefused, match="Clawvisor is not running"):
+        ctx.app.login_link(ctx)
+    assert not ctx.sh.called("podman", "exec")
+
+
+def test_login_link_hook_never_prints(tmp_path, capsys):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.sh.on("systemctl", out="active\n")
+    ctx.sh.on("podman", "exec", out="Open: http://localhost:25297/x?token=abc\n")
+    ctx.app.login_link(ctx)
+    out = capsys.readouterr()
+    assert "token=abc" not in out.out + out.err

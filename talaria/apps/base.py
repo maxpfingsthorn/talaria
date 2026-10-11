@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+import re
+
+OAUTH_REQUEST_RE = re.compile(r"^[a-f0-9]{64}$")   # gbrain's own format; used by op and bot
+
+
+class LoginRefused(Exception):
+    """A login link cannot be made; str(e) is the owner-facing reason (no secrets)."""
+
 
 class App:
     """What differs between the apps Talaria manages. One instance per app, stateless."""
@@ -25,6 +33,11 @@ class App:
     has_maintenance = False                 # the app has a maintenance() hook (spec 2026-10-09 §5.2)
     default_check_days: tuple = ()          # talaria.conf check.days default; () = every day
     default_maintenance_time = ""           # talaria.conf maintenance.time default; "" = none
+    has_login_link = False                  # the app has a login_link() hook
+
+    def login_link(self, ctx, oauth_request: str | None = None) -> list[str]:
+        """Lines to show the owner; at least one contains the link. Never prints."""
+        raise LoginRefused(f"not available for {self.title}")
 
     def is_release(self, tag: str) -> bool:
         raise NotImplementedError

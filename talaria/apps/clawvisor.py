@@ -11,7 +11,8 @@ import sqlite3
 import subprocess
 from string import Template
 
-from talaria.apps.base import App
+from talaria import service
+from talaria.apps.base import App, LoginRefused
 from talaria.conf import parse_kv, write_env_value
 from talaria.ctx import TooLarge
 from talaria.images import RevisionMismatch
@@ -289,6 +290,66 @@ class Clawvisor(App):
     def initial_conf(self, ctx) -> str:
         return (f"# Talaria settings; see README.\napp = clawvisor\n"
                 f"data_dir = {self.default_data_dir}\n")
+
+
+    has_login_link = True
+
+    def login_link(self, ctx, oauth_request=None) -> list[str]:
+        if oauth_request:
+            raise LoginRefused("only gbrain takes an OAuth request")
+        if not service.is_active(ctx):
+            raise LoginRefused("Clawvisor is not running")
+        os.chdir("/")  # podman fails if the service user cannot enter the caller's cwd
+        # The server writes ~/.clawvisor/.local-session with server_url = PUBLIC_URL when that is
+        # set, and the dashboard command posts to it; the endpoint only answers 127.0.0.1. So
+        # write our own session file (no token: the server issues the link) in a throwaway HOME.
+        tmp = ctx.conf.data_dir / ".login-link"
+        fds = []
+        try:
+            # the data dir is agent-writable: nothing below follows a planted link
+            if os.path.lexists(tmp):
+                if tmp.is_symlink() or not tmp.is_dir():
+                    os.unlink(tmp)
+                else:
+                    shutil.rmtree(tmp)
+            try:
+                os.mkdir(tmp, 0o700)
+                flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+                fds.append(os.open(tmp, flags))
+                os.mkdir(".clawvisor", 0o700, dir_fd=fds[0])
+                fds.append(os.open(".clawvisor", flags, dir_fd=fds[0]))
+                fd = os.open(".local-session", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                             0o600, dir_fd=fds[1])
+            except OSError:
+                raise LoginRefused("could not prepare the login session") from None
+            with os.fdopen(fd, "w") as f:
+                json.dump({"server_url": f"http://localhost:{ctx.app.container_port}",
+                           "magic_token": ""}, f)
+            r = ctx.sh.run(["podman", "exec", "-e", "HOME=/data/.login-link", ctx.app.container,
+                            "/clawvisor-server", "dashboard", "--no-open"], check=False, timeout=30)
+        except subprocess.TimeoutExpired:
+            raise LoginRefused("podman exec timed out") from None
+        finally:
+            for d in fds:
+                os.close(d)
+            shutil.rmtree(tmp, ignore_errors=True)
+        if r.returncode != 0:
+            raise LoginRefused("could not get a login link from Clawvisor")
+        # Clawvisor prints its own container-internal port (25297); the Quadlet publishes
+        # that on ctx.conf.dashboard_port, which can differ -- rewrite both host and port.
+        # One line per published address; the token appears only in these lines.
+        port = ctx.conf.dashboard_port
+        lines = []
+        public = ctx.conf.dashboard_public_url
+        if public:
+            lines.append(re.sub(r"http://localhost:\d+", lambda _: public, r.stdout.strip()))
+        for ip in ctx.conf.bind_ips:
+            lines.append(re.sub(r"http://localhost:\d+", f"http://{ip}:{port}", r.stdout.strip()))
+        ts = ctx.conf.tailscale_ip if "tailscale" in ctx.conf.dashboard_bind.split() else None
+        if any(ip != ts for ip in ctx.conf.bind_ips):
+            lines.append(f"Through an SSH tunnel, open it as http://127.0.0.1:{port}/... instead "
+                         "(rest of the link unchanged).")
+        return lines
 
 
 APP = Clawvisor()

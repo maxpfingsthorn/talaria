@@ -697,3 +697,81 @@ def test_file_sha256_streams_in_chunks(tmp_path, monkeypatch):
     f.write_bytes(b"x" * (3 * (1 << 20) + 5))
     monkeypatch.setattr(type(f), "read_bytes", lambda self: pytest.fail("read whole file"))
     assert gb.file_sha256(f) == hashlib.sha256(b"x" * (3 * (1 << 20) + 5)).hexdigest()
+
+
+from talaria.apps.base import LoginRefused  # noqa: E402
+
+LINK = "https://host.example.ts.net/admin/auth/" + "b" * 64
+
+
+def _link_json(url=LINK, expires=300):
+    return json.dumps({"status": "login_link", "url": url, "expires_in": expires,
+                       "next_action": "Open this single-use link"}) + "\n"
+
+
+def test_gbrain_login_link_runs_the_cli_in_the_container(tmp_path, monkeypatch):
+    ctx = gctx(tmp_path, monkeypatch)
+    ctx.sh.on("systemctl", out="active\n")
+    ctx.sh.on("podman", "exec", out=_link_json())
+    assert ctx.app.login_link(ctx) == [f"Open this link: {LINK}",
+                                       "Single use, expires in 5 minutes."]
+    assert ctx.sh.called("podman", "exec", "gbrain", "/usr/local/bin/gbrain", "mcp", "admin",
+                         "login-link", "--url",
+                         f"http://127.0.0.1:{ctx.app.container_port}/mcp", "--json")
+
+
+def test_gbrain_login_link_passes_the_oauth_request(tmp_path, monkeypatch):
+    ctx = gctx(tmp_path, monkeypatch)
+    ctx.sh.on("systemctl", out="active\n")
+    rid = "c" * 64
+    ctx.sh.on("podman", "exec", out=_link_json(f"{LINK}?oauth_request={rid}"))
+    ctx.app.login_link(ctx, rid)
+    assert ctx.sh.called("podman", "exec", "gbrain", "/usr/local/bin/gbrain", "mcp", "admin",
+                         "login-link", "--url", f"http://127.0.0.1:{ctx.app.container_port}/mcp",
+                         "--json", "--oauth-request", rid)
+
+
+@pytest.mark.parametrize("out", ["", "not json\n", json.dumps({"status": "error"}) + "\n",
+                                 _link_json(url="http://x/admin/auth/1")])
+def test_gbrain_login_link_bad_output_is_refused(tmp_path, monkeypatch, out):
+    ctx = gctx(tmp_path, monkeypatch)
+    ctx.sh.on("systemctl", out="active\n")
+    ctx.sh.on("podman", "exec", out=out)
+    with pytest.raises(LoginRefused, match="Could not get a login link from gbrain"):
+        ctx.app.login_link(ctx)
+
+
+def test_gbrain_login_link_failure_never_logs_stdout(tmp_path, monkeypatch, capsys):
+    ctx = gctx(tmp_path, monkeypatch)
+    ctx.sh.on("systemctl", out="active\n")
+    ctx.sh.on("podman", "exec", out=_link_json(), err="boom", rc=1)
+    with pytest.raises(LoginRefused) as e:
+        ctx.app.login_link(ctx)
+    out = capsys.readouterr()
+    assert LINK not in out.out + out.err + str(e.value)
+    assert "exit 1" in out.err and "boom" in out.err
+
+
+def test_gbrain_login_link_redacts_the_token_in_errors(tmp_path, monkeypatch, capsys):
+    ctx = gctx(tmp_path, monkeypatch)
+    ctx.paths.app_env.parent.mkdir(parents=True, exist_ok=True)
+    ctx.paths.app_env.write_text("GBRAIN_ADMIN_BOOTSTRAP_TOKEN=" + "t" * 40 + "\n")
+    ctx.sh.on("systemctl", out="active\n")
+    ctx.sh.on("podman", "exec", err="bad token " + "t" * 40, rc=1)
+    with pytest.raises(LoginRefused):
+        ctx.app.login_link(ctx)
+    assert "t" * 40 not in capsys.readouterr().err
+
+
+def test_gbrain_login_link_refuses_when_not_running(tmp_path, monkeypatch):
+    ctx = gctx(tmp_path, monkeypatch)
+    ctx.sh.on("systemctl", out="inactive\n", rc=3)
+    with pytest.raises(LoginRefused, match="gbrain is not running"):
+        ctx.app.login_link(ctx)
+
+
+def test_hermes_has_no_login_link(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    assert not ctx.app.has_login_link
+    with pytest.raises(LoginRefused, match="not available for Hermes"):
+        ctx.app.login_link(ctx)

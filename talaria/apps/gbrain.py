@@ -10,11 +10,12 @@ import re
 import secrets as _secrets
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from string import Template
 
-from talaria import safefs
-from talaria.apps.base import App
+from talaria import safefs, service
+from talaria.apps.base import App, LoginRefused
 from talaria.conf import parse_kv, write_env_value
 from talaria.ctx import TooLarge
 from talaria.images import RevisionMismatch
@@ -385,6 +386,39 @@ class Gbrain(App):
                 f"data_dir = {self.default_data_dir}\n"
                 "# required: the https address MCP connectors use, e.g.\n"
                 "# dashboard.public_url = https://<host>.<tailnet>.ts.net\n")
+
+    has_login_link = True
+
+    def login_link(self, ctx, oauth_request=None) -> list[str]:
+        if not service.is_active(ctx):
+            raise LoginRefused("gbrain is not running")
+        argv = ["podman", "exec", self.container, "/usr/local/bin/gbrain", "mcp", "admin",
+                "login-link", "--url", f"http://127.0.0.1:{self.container_port}/mcp", "--json"]
+        if oauth_request:
+            argv += ["--oauth-request", oauth_request]
+        fail = "Could not get a login link from gbrain; details in the journal"
+        try:
+            r = ctx.sh.run(argv, check=False, timeout=30)
+        except subprocess.TimeoutExpired:
+            raise LoginRefused(fail) from None
+        if r.returncode != 0:   # stdout may hold a link: never log it
+            print(f"[talaria] gbrain login-link: exit {r.returncode}: "
+                  f"{_redact(ctx, (r.stderr or '').strip()[-500:])}", file=sys.stderr)
+            raise LoginRefused(fail)
+        d = None
+        for line in reversed(r.stdout.splitlines()):
+            if line.startswith("{"):
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    pass
+                break
+        url = d.get("url") if isinstance(d, dict) and d.get("status") == "login_link" else None
+        if not isinstance(url, str) or not url.startswith("https://") or "/admin/auth/" not in url:
+            print("[talaria] gbrain login-link: no login link in its output", file=sys.stderr)
+            raise LoginRefused(fail)
+        minutes = max(1, int(d.get("expires_in") or 300) // 60)
+        return [f"Open this link: {url}", f"Single use, expires in {minutes} minutes."]
 
 
 APP = Gbrain()

@@ -64,6 +64,7 @@ def test_login_link_prints_the_link_with_the_bind_ip(tmp_path, monkeypatch, caps
     import sys
     ctx = make_test_ctx(tmp_path, app="clawvisor")
     ctx.sh.on("podman", "exec", out="Open this link: http://localhost:25297/login?token=abc\n")
+    ctx.sh.on("systemctl", out="active\n")
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     rc = cli.main(["login-link"], make=lambda: ctx)
     assert rc == 0
@@ -82,6 +83,7 @@ def test_login_link_does_not_follow_a_planted_session_link(tmp_path, monkeypatch
     (tmp / ".clawvisor").mkdir(parents=True)
     (tmp / ".clawvisor/.local-session").symlink_to(outside)
     ctx.sh.on("podman", "exec", out="Open: http://localhost:25297/x\n")
+    ctx.sh.on("systemctl", out="active\n")
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     assert cli.main(["login-link"], make=lambda: ctx) == 0
     assert outside.read_text() == "keep"
@@ -95,6 +97,7 @@ def test_login_link_does_not_follow_a_planted_directory_link(tmp_path, monkeypat
     outside = tmp_path / "outside"; outside.mkdir()
     (ctx.conf.data_dir / ".login-link").symlink_to(outside)
     ctx.sh.on("podman", "exec", out="Open: http://localhost:25297/x\n")
+    ctx.sh.on("systemctl", out="active\n")
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     assert cli.main(["login-link"], make=lambda: ctx) == 0
     assert list(outside.iterdir()) == []
@@ -111,6 +114,7 @@ def test_login_link_stops_when_the_session_dir_reappears(tmp_path, monkeypatch, 
             real_mkdir(p)
         return real_mkdir(p, *a, **k)
     monkeypatch.setattr(os, "mkdir", racing)
+    ctx.sh.on("systemctl", out="active\n")
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     assert cli.main(["login-link"], make=lambda: ctx) == 1
     assert "STOP: could not prepare the login session" in capsys.readouterr().err
@@ -127,6 +131,7 @@ def test_login_link_runs_podman_from_root(tmp_path, monkeypatch):
               fn=lambda argv, input: (seen.append(os.getcwd()),
                                       Result(0, "Open: http://localhost:25297/x\n", ""))[1])
     monkeypatch.chdir(tmp_path)
+    ctx.sh.on("systemctl", out="active\n")
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     assert cli.main(["login-link"], make=lambda: ctx) == 0
     assert seen == ["/"]
@@ -139,6 +144,7 @@ def test_login_link_rewrites_the_published_port_too(tmp_path, monkeypatch, capsy
     import sys
     ctx = make_test_ctx(tmp_path, app="clawvisor", dashboard_port=8443)
     ctx.sh.on("podman", "exec", out="Open this link: http://localhost:25297/login?token=abc\n")
+    ctx.sh.on("systemctl", out="active\n")
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     rc = cli.main(["login-link"], make=lambda: ctx)
     assert rc == 0
@@ -153,6 +159,7 @@ def test_login_link_refuses_on_a_failed_podman_exec_without_echoing_stdout(tmp_p
     ctx = make_test_ctx(tmp_path, app="clawvisor")
     ctx.sh.on("podman", "exec", rc=1,
              out="Open this link: http://localhost:25297/login?token=SECRET\n")
+    ctx.sh.on("systemctl", out="active\n")
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     rc = cli.main(["login-link"], make=lambda: ctx)
     err = capsys.readouterr().err
@@ -167,6 +174,7 @@ def test_login_link_refuses_on_a_timeout(tmp_path, monkeypatch, capsys):
     ctx.sh.on("podman", "exec",
              fn=lambda argv, input: (_ for _ in ()).throw(
                  subprocess.TimeoutExpired(cmd=argv, timeout=30)))
+    ctx.sh.on("systemctl", out="active\n")
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     rc = cli.main(["login-link"], make=lambda: ctx)
     assert rc == 1
@@ -188,6 +196,7 @@ def _link(tmp_path, monkeypatch, capsys, **kw):
     import sys
     ctx = make_test_ctx(tmp_path, app="clawvisor", **kw)
     ctx.sh.on("podman", "exec", out="Open this link: http://localhost:25297/login?token=abc\n")
+    ctx.sh.on("systemctl", out="active\n")
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     assert cli.main(["login-link"], make=lambda: ctx) == 0
     return capsys.readouterr().out.splitlines()
@@ -211,13 +220,14 @@ def test_versions_agree():
     import re
     py = re.search(r'^version = "([^"]+)"', (ROOT / "pyproject.toml").read_text(), re.M)[1]
     lock = re.search(r'name = "talaria"\nversion = "([^"]+)"', (ROOT / "uv.lock").read_text())[1]
-    assert py == lock == talaria.__version__ == "0.6.1"
+    assert py == lock == talaria.__version__ == "0.7.0"
 
 
 def test_login_link_prints_the_public_url_first(tmp_path, monkeypatch, capsys):
     import sys
     ctx = make_test_ctx(tmp_path, app="clawvisor", dashboard_public_url="https://h.ts.net")
     ctx.sh.on("podman", "exec", out="Open this link: http://localhost:25297/login?token=abc\n")
+    ctx.sh.on("systemctl", out="active\n")
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     assert cli.main(["login-link"], make=lambda: ctx) == 0
     assert capsys.readouterr().out == (
@@ -231,6 +241,7 @@ def _link_ctx(tmp_path, monkeypatch, **on):
     import sys
     ctx = make_test_ctx(tmp_path, app="clawvisor")
     ctx.sh.on("podman", "exec", **on)
+    ctx.sh.on("systemctl", out="active\n")
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     return ctx
 
@@ -243,6 +254,8 @@ def test_login_link_writes_its_own_session_file_and_removes_it(tmp_path, monkeyp
     orig = ctx.sh.run
 
     def run(argv, **kw):
+        if argv[0] != "podman":
+            return orig(argv, **kw)
         d = ctx.conf.data_dir / ".login-link"
         f = d / ".clawvisor" / ".local-session"
         seen["json"] = json.loads(f.read_text())
