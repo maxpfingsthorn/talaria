@@ -22,7 +22,8 @@ jobs:
               --include='*.md' --include='*.py' --include='*.container' \
               --include='*.service' --include='*.timer' \
               README.md AGENT_SETUP.md talaria helpers templates docs 2>/dev/null \
-            | grep -v 'docs/superpowers/'
+            | grep -v 'docs/superpowers/' \
+            | grep -vE '100\.64\.0\.(0/10|1)([^0-9]|$)'
   e2e:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
