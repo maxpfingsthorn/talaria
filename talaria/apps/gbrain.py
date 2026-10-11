@@ -139,6 +139,26 @@ def _redact(ctx, text: str) -> str:
     return text
 
 
+def _error_detail(ctx, stdout: str) -> str:
+    """gbrain reports failures as one JSON line on stdout. Log only whitelisted scalar fields of an
+    error object, never the raw line (a success line holds the link) and never `url`."""
+    for line in reversed((stdout or "").splitlines()):
+        if line.startswith("{"):
+            try:
+                d = json.loads(line)
+            except ValueError:
+                return ""
+            if not isinstance(d, dict) or d.get("status") != "error":
+                return ""
+            parts = []
+            for k in ("reason", "stage", "http_status", "message"):
+                v = d.get(k)
+                if isinstance(v, (str, int)) and not isinstance(v, bool) and "/admin/auth/" not in str(v):
+                    parts.append(f"{k}={_redact(ctx, str(v))[:200]!r}")
+            return " " + " ".join(parts) if parts else ""
+    return ""
+
+
 class Gbrain(App):
     name = "gbrain"
     title = "gbrain"
@@ -388,6 +408,7 @@ class Gbrain(App):
                 "# dashboard.public_url = https://<host>.<tailnet>.ts.net\n")
 
     has_login_link = True
+    takes_oauth_request = True
 
     def login_link(self, ctx, oauth_request=None) -> list[str]:
         if not service.is_active(ctx):
@@ -401,8 +422,8 @@ class Gbrain(App):
             r = ctx.sh.run(argv, check=False, timeout=30)
         except subprocess.TimeoutExpired:
             raise LoginRefused(fail) from None
-        if r.returncode != 0:   # stdout may hold a link: never log it
-            print(f"[talaria] gbrain login-link: exit {r.returncode}: "
+        if r.returncode != 0:   # stdout may hold a link: log only the error object's fields
+            print(f"[talaria] gbrain login-link: exit {r.returncode}{_error_detail(ctx, r.stdout)}: "
                   f"{_redact(ctx, (r.stderr or '').strip()[-500:])}", file=sys.stderr)
             raise LoginRefused(fail)
         d = None
@@ -415,7 +436,8 @@ class Gbrain(App):
                 break
         url = d.get("url") if isinstance(d, dict) and d.get("status") == "login_link" else None
         if not isinstance(url, str) or not url.startswith("https://") or "/admin/auth/" not in url:
-            print("[talaria] gbrain login-link: no login link in its output", file=sys.stderr)
+            print(f"[talaria] gbrain login-link: no login link in its output{_error_detail(ctx, r.stdout)}",
+                  file=sys.stderr)
             raise LoginRefused(fail)
         minutes = max(1, int(d.get("expires_in") or 300) // 60)
         return [f"Open this link: {url}", f"Single use, expires in {minutes} minutes."]

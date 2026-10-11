@@ -795,3 +795,14 @@ def test_login_link_hook_never_prints(tmp_path, capsys):
     ctx.app.login_link(ctx)
     out = capsys.readouterr()
     assert "token=abc" not in out.out + out.err
+
+
+def test_login_link_hook_failure_logs_only_the_exit_code(tmp_path, capsys):
+    ctx = make_test_ctx(tmp_path, app="clawvisor")
+    ctx.sh.on("systemctl", out="active\n")
+    ctx.sh.on("podman", "exec", rc=3, out="http://localhost:25297/x?token=abc\n", err="token=abc oops")
+    with pytest.raises(LoginRefused, match="could not get a login link"):
+        ctx.app.login_link(ctx)
+    out = capsys.readouterr()
+    assert out.err == "[talaria] clawvisor login-link: exit 3\n"
+    assert "token=abc" not in out.out + out.err

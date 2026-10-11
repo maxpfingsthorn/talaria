@@ -342,3 +342,11 @@ def test_login_link_never_writes_the_url_to_stderr(opx, monkeypatch, capsys):
     rc, out = run("login-link")
     assert out[0]["text"] == "https://h/admin/auth/SECRET"
     assert "SECRET" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("lines", [[], [""], ["  ", ""]])
+def test_login_link_empty_text_is_a_refusal_reply(opx, monkeypatch, lines):
+    ctx, run = opx
+    _patch_link(monkeypatch, ctx, lambda self, c, oauth_request=None: lines)
+    assert run("login-link") == (0, [{"v": 1, "kind": "reply", "buttons": [],
+                                      "text": f"could not get a login link from {ctx.app.title}"}])

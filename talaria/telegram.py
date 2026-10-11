@@ -110,7 +110,10 @@ class Bot:
         elif not supported:
             return NO_LOGIN_APP
         elif args:
-            return LOGIN_USAGE
+            takers = [n for n in supported if apps.get(n).takes_oauth_request]
+            if len(takers) != 1:
+                return LOGIN_USAGE
+            app, rest = takers[0], args
         else:
             return "Which app?", [[(self.hub.apps[n].title, f"hub|ln:{n}") for n in supported]]
         if app not in supported:

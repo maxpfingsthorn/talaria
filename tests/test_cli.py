@@ -164,7 +164,8 @@ def test_login_link_refuses_on_a_failed_podman_exec_without_echoing_stdout(tmp_p
     rc = cli.main(["login-link"], make=lambda: ctx)
     err = capsys.readouterr().err
     assert rc == 1
-    assert err == "STOP: could not get a login link from Clawvisor\n"
+    assert err == ("[talaria] clawvisor login-link: exit 1\n"
+                   "STOP: could not get a login link from Clawvisor\n")
     assert "SECRET" not in err and "localhost" not in err
 
 

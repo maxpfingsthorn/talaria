@@ -75,7 +75,8 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
       sets them to that provider's model ids (README, "gbrain").
     - Public access is Tailscale Serve and Funnel, configured by the person as root (README:
       "Public MCP endpoints with Tailscale Serve and Funnel"). Show the commands (including the
-      `tailscale-admin-redirect.py` helper for `/admin` on 443); never run them. Explain that only the connector paths become public and that `/register` lets
+      `tools/tailscale-admin-redirect.py` for `/admin` on 443, run by the person with `sudo python3 -I` from their own clone at the release tag, README); never run them.
+      Explain that only the connector paths become public and that `/register` lets
       anyone create a pending client the person must approve.
     - The person logs in with `/login gbrain` in the bot (or the token in `/admin`), adds the connectors in claude.ai or ChatGPT and
       approves them there; local agents get scoped tokens from `/admin`.

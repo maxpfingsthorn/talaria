@@ -166,7 +166,8 @@ After editing `talaria.conf`, run setup again: it validates the file (a bad valu
 the bot at its next start).
 
 Clawvisor has no dashboard password: its first login is a one-time link. As the service
-user, in your own terminal (never through an agent): `talaria login-link`.
+user, in your own terminal (never through an agent): `talaria login-link`. Or send `/login clawvisor`
+to the Telegram bot for a one-time link there.
 
 ## Configuration
 
@@ -366,7 +367,8 @@ bin/talaria setup --app gbrain --user gbrain
   `gbrain doctor --json` (schema version) and recalls a marker page that setup wrote, on
   the copy, offline and without your keys.
 - **Admin token.** Setup generates `GBRAIN_ADMIN_BOOTSTRAP_TOKEN` in
-  `~gbrain/.config/talaria/gbrain.env` (mode 0600), and you log in to `/admin` with it.
+  `~gbrain/.config/talaria/gbrain.env` (mode 0600), and you log in to `/admin` with it, or send `/login gbrain`
+  to the Telegram bot for a one-time login link.
   Treat it like a password: never paste it into a chat or an agent's context.
 - **Provider keys** (embeddings, synthesis, the dream cycle) are yours to add, in your own
   terminal as the service user: put them in the app env file
@@ -446,15 +448,20 @@ done
 # tailnet only: the whole server, including its admin UI, on 10000
 tailscale serve --bg --https=10000 http://127.0.0.1:<port>
 # the admin redirect on 443 (Tailscale 1.92+; the serve CLI has no flag for it)
-python3 ~<account>/.local/share/talaria/helpers/tailscale-admin-redirect.py --host <host>.<tailnet>.ts.net
+git clone --branch vX.Y.Z https://github.com/maxpfingsthorn/talaria /root/talaria-vX.Y.Z   # the release you run
+sudo python3 -I /root/talaria-vX.Y.Z/tools/tailscale-admin-redirect.py --host <host>.<tailnet>.ts.net
 tailscale funnel status
 ```
 
-`<account>` is any account Talaria is installed for (for example the hub account). The helper adds
+Run it from your own clone at the release tag, not from an installed copy: those belong to
+service accounts that can edit them, and `-I` keeps the current directory and the environment out of
+Python's import path, so nothing a service account can write runs as root. The helper adds
 only `/admin` on 443, as a redirect (`302:https://<host>.<tailnet>.ts.net:10000${REQUEST_URI}`); it
 first saves the previous config as `tailscale-serve.before-admin-redirect.<UTC stamp>.json` in the
-current directory and prints that path. `--undo <file>` restores it, and `--dry-run` shows the plan.
-It refuses when `/admin` already exists or 443 has no paths yet.
+current directory and prints that path. `--undo <file>` shows the current and the restored paths
+per port, then restores it (only a file that looks like a serve config). `--dry-run` shows the
+plan and writes nothing. It refuses when `/admin` already exists or 443 has no paths yet, and
+aborts if the serve config changes while it runs, so do not change it in the meantime.
 
 Funnel must be allowed for the node in your tailnet policy, and it only works on ports
 443, 8443 and 10000. **Funnel applies per port: never funnel a port that also serves a

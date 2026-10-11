@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Add (or undo) a Tailscale serve redirect from <host>:443/admin to the tailnet-only admin port.
 
-Run as root on the host. Usage:
+Run as root on the host, as `python3 -I`, from a clone checked out at the release tag. Usage:
   tailscale-admin-redirect.py --host <host>.<tailnet>.ts.net [--admin-port 10000] [--dry-run]
   tailscale-admin-redirect.py --undo <saved.json>
 """
 import argparse
+import copy
 import datetime
 import json
 import os
@@ -55,8 +56,29 @@ def check_version():
         die("needs Tailscale 1.92 or newer")
 
 
-def paths(cfg, key):
-    return sorted(cfg["Web"][key]["Handlers"])
+def handler_lists(cfg):
+    web = cfg.get("Web")
+    if not isinstance(web, dict):
+        return {}
+    return {k: sorted(v["Handlers"]) for k, v in web.items()
+            if isinstance(v, dict) and isinstance(v.get("Handlers"), dict)}
+
+
+def show(label, cfg):
+    lists = handler_lists(cfg)
+    for k in sorted(lists):
+        print(f"  {label} {k}: {', '.join(lists[k]) or '(none)'}")
+    if not lists:
+        print(f"  {label}: no web handlers")
+
+
+def looks_like_serve_config(cfg):
+    return (isinstance(cfg, dict) and ("TCP" in cfg or "Web" in cfg)
+            and all(isinstance(v, (dict, bool, str)) for v in cfg.values()))
+
+
+def changed():
+    die("the serve config changed while this ran; run it again")
 
 
 def undo(path):
@@ -65,9 +87,14 @@ def undo(path):
             cfg = json.load(f)
     except (OSError, ValueError) as e:
         die(f"cannot read {path}: {e}")
-    if not isinstance(cfg, dict):
-        die(f"{path} is not a JSON object")
+    if not looks_like_serve_config(cfg):
+        die(f"{path} does not look like a Tailscale serve config")
     check_version()
+    current = status()
+    show("current ", current)
+    show("restored", cfg)
+    if status() != current:
+        changed()
     post(cfg)
     print("restored")
 
@@ -75,6 +102,7 @@ def undo(path):
 def add(host, port, dry):
     check_version()
     cfg = status()
+    original = copy.deepcopy(cfg)
     key = f"{host}:443"
     web = cfg.get("Web")
     handlers = web.get(key, {}).get("Handlers") if isinstance(web, dict) and isinstance(web.get(key), dict) else None
@@ -83,22 +111,24 @@ def add(host, port, dry):
     if "/admin" in handlers:
         die("/admin is already configured on 443")
 
-    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M")
+    print("443 before:", ", ".join(sorted(handlers)))
+    handlers["/admin"] = {"Redirect": f"302:https://{host}:{port}${{REQUEST_URI}}"}
+    print("443 after: ", ", ".join(sorted(handlers)))
+    if dry:
+        print("dry run: nothing applied")
+        return
+
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
     backup = f"tailscale-serve.before-admin-redirect.{stamp}.json"
     try:
         fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except OSError as e:
         die(f"cannot write backup {backup}: {e}")
     with os.fdopen(fd, "w") as f:
-        json.dump(cfg, f, indent=2)
+        json.dump(original, f, indent=2)
     print(f"saved current config: {os.path.abspath(backup)}")
-
-    print("443 before:", ", ".join(paths(cfg, key)))
-    handlers["/admin"] = {"Redirect": f"302:https://{host}:{port}${{REQUEST_URI}}"}
-    print("443 after: ", ", ".join(paths(cfg, key)))
-    if dry:
-        print("dry run: nothing applied")
-        return
+    if status() != original:
+        changed()
     post(cfg)
     after = status()
     if "/admin" not in (after.get("Web", {}).get(key, {}).get("Handlers") or {}):

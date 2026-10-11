@@ -9,6 +9,7 @@ import secrets as _secrets
 import shutil
 import sqlite3
 import subprocess
+import sys
 from string import Template
 
 from talaria import service
@@ -333,7 +334,8 @@ class Clawvisor(App):
             for d in fds:
                 os.close(d)
             shutil.rmtree(tmp, ignore_errors=True)
-        if r.returncode != 0:
+        if r.returncode != 0:   # its output may hold the link: log only the exit code
+            print(f"[talaria] clawvisor login-link: exit {r.returncode}", file=sys.stderr)
             raise LoginRefused("could not get a login link from Clawvisor")
         # Clawvisor prints its own container-internal port (25297); the Quadlet publishes
         # that on ctx.conf.dashboard_port, which can differ -- rewrite both host and port.

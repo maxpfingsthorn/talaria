@@ -814,8 +814,6 @@ def test_login_asks_which_app_with_two(tmp_path):
     assert m["text"] == "Which app?"
     assert [k["callback_data"] for k in m["reply_markup"]["inline_keyboard"][0]] == \
         ["hub|ln:clawvisor", "hub|ln:gbrain"]
-    b.handle(upd(3, f"/login {RID}"))
-    assert api.sent()[-1] == telegram.LOGIN_USAGE
 
 
 def test_login_gate_on_old_app_version(tmp_path):
@@ -893,3 +891,39 @@ def test_login_button(tmp_path):
     assert calls(api, "sendMessage")[-1]["text"] == LINKTEXT
     b.handle(cb("hub|ln:hermes"))
     assert api.sent()[-1] == "Login links: gbrain"
+
+
+def test_login_with_two_apps_picks_the_one_that_takes_a_request(tmp_path):
+    ctx, api, b = _login_bot(tmp_path, ("clawvisor", "gbrain"))
+    b.handle(upd(2, f"/login {RID}"))
+    assert ex(b.hub, "gbrain").ops()[-1] == ["login-link", "--oauth-request", RID]
+    assert calls(api, "sendMessage")[-1]["text"] == LINKTEXT
+
+
+def test_login_with_two_apps_and_a_junk_argument_gets_usage(tmp_path):
+    ctx, api, b = _login_bot(tmp_path, ("clawvisor", "gbrain"))
+    b.handle(upd(2, "/login 12"))
+    assert api.sent()[-1] == telegram.LOGIN_USAGE
+
+
+def test_login_never_writes_the_link_to_stdout_or_stderr(tmp_path, capsys):
+    ctx, api, b = _login_bot(tmp_path)
+    b.handle(upd(2, "/login"))
+    assert calls(api, "sendMessage")[-1]["text"] == LINKTEXT
+    o = capsys.readouterr()
+    assert LINKTEXT not in o.out + o.err and "admin/auth" not in o.out + o.err
+
+
+def test_send_link_api_error_leaves_no_link_in_reply_or_expiry(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    real = api.call
+
+    def failing(method, **p):
+        if method == "sendMessage" and p["text"] == LINKTEXT:
+            raise ApiError(400, None)
+        return real(method, **p)
+    api.call = failing
+    b.handle(upd(2, "/login"))
+    assert b.expiring == []
+    assert api.sent() and api.sent()[-1].startswith("Error:")
+    assert all(LINKTEXT not in m["text"] and "admin/auth" not in m["text"] for m in calls(api, "sendMessage"))

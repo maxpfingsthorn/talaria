@@ -156,7 +156,10 @@ def _run(ctx, args, out) -> int:
             lines = ctx.app.login_link(ctx, args.oauth_request)
         except LoginRefused as e:
             return _reply(out, str(e))
-        emit(out, "link", text="\n".join(lines))
+        text = "\n".join(lines)
+        if not text.strip():
+            return _reply(out, f"could not get a login link from {ctx.app.title}")
+        emit(out, "link", text=text)
         return 0
     if o == "self-update":
         return _self_update(ctx, args, out)

@@ -775,3 +775,52 @@ def test_hermes_has_no_login_link(tmp_path):
     assert not ctx.app.has_login_link
     with pytest.raises(LoginRefused, match="not available for Hermes"):
         ctx.app.login_link(ctx)
+
+
+def _err_json(**kw):
+    return json.dumps({"status": "error", **kw}) + "\n"
+
+
+def test_gbrain_login_link_logs_the_error_object_fields(tmp_path, monkeypatch, capsys):
+    ctx = gctx(tmp_path, monkeypatch)
+    ctx.paths.app_env.parent.mkdir(parents=True, exist_ok=True)
+    ctx.paths.app_env.write_text("GBRAIN_ADMIN_BOOTSTRAP_TOKEN=" + "t" * 40 + "\n")
+    ctx.sh.on("systemctl", out="active\n")
+    ctx.sh.on("podman", "exec", rc=1, err="stderr tail", out=_err_json(
+        reason="unauthorized", stage="login", http_status=401, message="bad token " + "t" * 40,
+        url=LINK, extra="zzz"))
+    with pytest.raises(LoginRefused):
+        ctx.app.login_link(ctx)
+    err = capsys.readouterr().err
+    assert "exit 1" in err and "reason='unauthorized'" in err and "stage='login'" in err
+    assert "http_status='401'" in err and "stderr tail" in err and "bad token ***" in err
+    assert "t" * 40 not in err and LINK not in err and "zzz" not in err and "/admin/auth/" not in err
+
+
+def test_gbrain_login_link_error_message_with_a_link_is_dropped(tmp_path, monkeypatch, capsys):
+    ctx = gctx(tmp_path, monkeypatch)
+    ctx.sh.on("systemctl", out="active\n")
+    ctx.sh.on("podman", "exec", rc=1, out=_err_json(reason="x", message=LINK))
+    with pytest.raises(LoginRefused):
+        ctx.app.login_link(ctx)
+    err = capsys.readouterr().err
+    assert "reason='x'" in err and "/admin/auth/" not in err
+
+
+def test_gbrain_login_link_exit_zero_error_object_is_logged(tmp_path, monkeypatch, capsys):
+    ctx = gctx(tmp_path, monkeypatch)
+    ctx.sh.on("systemctl", out="active\n")
+    ctx.sh.on("podman", "exec", out=_err_json(reason="server_upgrade_required"))
+    with pytest.raises(LoginRefused):
+        ctx.app.login_link(ctx)
+    assert "server_upgrade_required" in capsys.readouterr().err
+
+
+def test_gbrain_login_link_nonerror_stdout_is_never_logged(tmp_path, monkeypatch, capsys):
+    ctx = gctx(tmp_path, monkeypatch)
+    ctx.sh.on("systemctl", out="active\n")
+    ctx.sh.on("podman", "exec", rc=1, out=_link_json())
+    with pytest.raises(LoginRefused):
+        ctx.app.login_link(ctx)
+    err = capsys.readouterr().err
+    assert "exit 1" in err and LINK not in err and "login_link" not in err

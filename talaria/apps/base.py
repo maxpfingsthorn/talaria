@@ -34,6 +34,7 @@ class App:
     default_check_days: tuple = ()          # talaria.conf check.days default; () = every day
     default_maintenance_time = ""           # talaria.conf maintenance.time default; "" = none
     has_login_link = False                  # the app has a login_link() hook
+    takes_oauth_request = False             # login_link() accepts an OAuth consent request id
 
     def login_link(self, ctx, oauth_request: str | None = None) -> list[str]:
         """Lines to show the owner; at least one contains the link. Never prints."""
