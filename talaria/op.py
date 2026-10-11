@@ -11,6 +11,7 @@ import json
 import sys
 
 from talaria import __version__, cli, rollback, selfupdate, state, status, units
+from talaria.apps.base import OAUTH_REQUEST_RE, LoginRefused
 from talaria.backup import ID_RE
 from talaria.notify import Message
 from talaria.shell import CommandError
@@ -18,7 +19,7 @@ from talaria.tags import semver_newer
 
 PROTOCOL = 1
 OPS = ("status", "backups", "check", "maintain", "deploy", "reject", "rollback", "restore", "button",
-       "hello", "interrupted", "self-update", "quadlet")
+       "hello", "interrupted", "self-update", "quadlet", "login-link")
 STALE = "Out of date — send /status"
 
 
@@ -49,6 +50,12 @@ class JsonNotifier:
              commands=list(m.commands), buttons=_rows(m.buttons))
 
 
+def _oauth_request(v: str) -> str:
+    if not OAUTH_REQUEST_RE.match(v):
+        raise argparse.ArgumentTypeError("not an OAuth request id")
+    return v
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="talaria op", add_help=False, allow_abbrev=False)  # pragma: no mutate  (None == False; prog and help=True are pinned by test_hub_survivors)
     sub = p.add_subparsers(dest="op", required=True)  # pragma: no mutate  (op is always given: main checks OPS first)
@@ -71,6 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("tag", type=cli._semver)
     s.add_argument("--dry-run", action="store_true")
     add("quadlet")                      # read-only; used by `self-update --dry-run`
+    add("login-link").add_argument("--oauth-request", type=_oauth_request)
     return p
 
 
@@ -143,6 +151,13 @@ def _run(ctx, args, out) -> int:
         return 0
     if o == "quadlet":
         return _reply(out, units.render_quadlet(ctx))
+    if o == "login-link":       # not via ctx.notify: the JSON line is the only place the URL goes
+        try:
+            lines = ctx.app.login_link(ctx, args.oauth_request)
+        except LoginRefused as e:
+            return _reply(out, str(e))
+        emit(out, "link", text="\n".join(lines))
+        return 0
     if o == "self-update":
         return _self_update(ctx, args, out)
     if o == "status":

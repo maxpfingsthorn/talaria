@@ -39,7 +39,7 @@ def test_hello(opx):
 
 
 @pytest.mark.parametrize("argv", [
-    [], ["setup"], ["set-token"], ["login-link"], ["bot"], ["relay", "hermes", "status"],
+    [], ["setup"], ["set-token"], ["bot"], ["relay", "hermes", "status"],
     ["adopt"], ["backup"], ["history"], ["rehearse", "v2026.9.24"], ["sh"], ["Status"],
     ["status", "extra"], ["status", "--timer"], ["status", "-h"], ["-h"], ["check", "--tim"],
     ["check", "--timer=1"], ["deploy"], ["deploy", "v2026.9.24;id"], ["deploy", "$(id)"],
@@ -300,3 +300,45 @@ def test_self_update(opx, monkeypatch, rc, text):
 def test_self_update_and_quadlet_are_strict(argv):
     out = io.StringIO()
     assert op.main(argv, make=lambda: pytest.fail("no ctx"), out=out) == 2 and out.getvalue() == ""
+
+
+def _patch_link(monkeypatch, ctx, fn):
+    monkeypatch.setattr(type(ctx.app), "login_link", fn)
+
+
+def test_login_link_emits_one_link_line(opx, monkeypatch):
+    ctx, run = opx
+    _patch_link(monkeypatch, ctx, lambda self, c, oauth_request=None:
+                ["Open: https://h/admin/auth/x", "Single use"])
+    rc, out = run("login-link")
+    assert rc == 0
+    assert out == [{"v": 1, "kind": "link", "text": "Open: https://h/admin/auth/x\nSingle use"}]
+
+
+def test_login_link_passes_a_valid_oauth_request(opx, monkeypatch):
+    ctx, run = opx
+    seen = []
+    _patch_link(monkeypatch, ctx, lambda self, c, oauth_request=None: seen.append(oauth_request) or ["x"])
+    run("login-link", "--oauth-request", "d" * 64)
+    run("login-link")
+    assert seen == ["d" * 64, None]
+
+
+@pytest.mark.parametrize("bad", ["D" * 64, "d" * 63, "x", "d" * 64 + "&a=b"])
+def test_login_link_refuses_a_bad_oauth_request(opx, bad):
+    ctx, run = opx
+    assert run("login-link", "--oauth-request", bad) == (2, [])
+
+
+def test_login_link_refusal_is_a_reply(opx):
+    ctx, run = opx
+    assert run("login-link") == (0, [{"v": 1, "kind": "reply",
+                                      "text": "not available for Hermes", "buttons": []}])
+
+
+def test_login_link_never_writes_the_url_to_stderr(opx, monkeypatch, capsys):
+    ctx, run = opx
+    _patch_link(monkeypatch, ctx, lambda self, c, oauth_request=None: ["https://h/admin/auth/SECRET"])
+    rc, out = run("login-link")
+    assert out[0]["text"] == "https://h/admin/auth/SECRET"
+    assert "SECRET" not in capsys.readouterr().err
