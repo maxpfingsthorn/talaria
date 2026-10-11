@@ -1,7 +1,7 @@
 [project]
 name = "talaria"
-version = "0.7.0"
-description = "Safe, approved updates for self-hosted Hermes Agent on rootless podman"
+version = "0.7.1"
+description = "Safe, approved updates for self-hosted AI agent apps on rootless podman"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = []
@@ -18,6 +18,6 @@ addopts = "-m 'not e2e and not contract'"
 [tool.mutmut]
 source_paths = ["talaria/", "helpers/"]
 do_not_mutate = ["helpers/_upstream.py"]
-also_copy = ["templates/", "bin/"]
+also_copy = ["templates/", "bin/", "tools/"]
 pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = ["-q", "-x", "-p", "no:cacheprovider"]
