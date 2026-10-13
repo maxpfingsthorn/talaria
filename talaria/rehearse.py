@@ -89,11 +89,26 @@ def copy_data(src: Path, dst: Path, excludes) -> None:
             with open(p, "rb") as fh:
                 if fh.read(16) != SQLITE_MAGIC:
                     continue
-            _sqlite_copy(src / p.relative_to(dst), p)
+            _sqlite_copy(src / p.relative_to(dst), p, src)
 
 
-def _sqlite_copy(src: Path, dst: Path) -> None:
+def _real_dirs(root: Path, path: Path) -> bool:
+    """Every component from root down to path's parent is a directory, not a symlink."""
+    cur = root
+    for part in path.parent.relative_to(root).parts:
+        cur = cur / part
+        try:
+            if not stat.S_ISDIR(os.lstat(cur).st_mode):
+                return False
+        except OSError:
+            return False
+    return True
+
+
+def _sqlite_copy(src: Path, dst: Path, root: Path) -> None:
     dst.unlink()
+    if not _real_dirs(root, src):        # O_NOFOLLOW guards only the last component
+        raise OSError(f"{src} changed during the copy")
     # O_NONBLOCK: a FIFO swapped in since the scan would block sqlite (and open)
     fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
@@ -111,7 +126,8 @@ def _sqlite_copy(src: Path, dst: Path) -> None:
             s.close()
         # sqlite opens by path: a swap cannot be prevented, only detected
         now = os.lstat(src)
-        if not stat.S_ISREG(now.st_mode) or (now.st_dev, now.st_ino) != (before.st_dev, before.st_ino):
+        if (not stat.S_ISREG(now.st_mode) or (now.st_dev, now.st_ino) != (before.st_dev, before.st_ino)
+                or not _real_dirs(root, src)):
             dst.unlink(missing_ok=True)
             raise OSError(f"{src} changed during the copy")
     finally:

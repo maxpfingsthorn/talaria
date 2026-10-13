@@ -551,7 +551,21 @@ def test_sqlite_copy_detects_a_swap(tmp_path, monkeypatch):
         return real_connect(target, **kw)
     monkeypatch.setattr(rehearse.sqlite3, "connect", connect)
     with pytest.raises(OSError, match="changed during the copy"):
-        rehearse._sqlite_copy(src, dst)
+        rehearse._sqlite_copy(src, dst, tmp_path)
     assert not dst.exists()
 
 
+
+
+def test_sqlite_copy_refuses_a_parent_dir_swapped_for_a_symlink(tmp_path):
+    root, outside = tmp_path / "data", tmp_path / "outside"
+    (root / "sub").mkdir(parents=True)
+    outside.mkdir()
+    _db(outside / "s.db")
+    dst = tmp_path / "d.db"
+    dst.write_text("copy")
+    os.rmdir(root / "sub")
+    os.symlink(outside, root / "sub")       # swapped since the walk copied sub/s.db
+    with pytest.raises(OSError, match="changed during the copy"):
+        rehearse._sqlite_copy(root / "sub" / "s.db", dst, root)
+    assert not dst.exists()
