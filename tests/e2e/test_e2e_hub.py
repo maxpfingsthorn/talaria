@@ -33,7 +33,9 @@ def test_02_update_talaria_through_the_bot(env, cv_env):
     assert tg.buttons[tg.sent.index(offer)]["inline_keyboard"][0][0]["callback_data"] == \
         "hub|up:v9.0.0"
     tg.tap("hub|up:v9.0.0")
-    tg.wait_sent("Talaria v9.0.0 installed: Hermes ✓ · Clawvisor ✓", timeout=900)
+    pin = sh("git", "-C", src, "rev-parse", "v9.0.0^{commit}").stdout.strip()
+    tg.wait_sent(f"Talaria v9.0.0 installed (commit {pin[:12]}): Hermes ✓ · Clawvisor ✓",
+                 timeout=900)
     for user in (HUB, "hermes", "cvtest"):
         tag = as_user("git", "-C", f"/home/{user}/.local/share/talaria", "describe", "--tags",
                       "--exact-match", user=user).stdout.strip()
