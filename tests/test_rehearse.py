@@ -1,3 +1,4 @@
+import errno
 import os
 import sqlite3
 import shutil
@@ -338,9 +339,10 @@ def test_copy_data_skips_file_that_vanishes(tmp_path, monkeypatch):
     (src / "gone.txt").write_text("x")
     (src / "stays.txt").write_text("y")
     real = os.stat
-    monkeypatch.setattr(rehearse.os, "stat",
-                        lambda p, *a, **k: (_ for _ in ()).throw(FileNotFoundError(p))
-                        if str(p).endswith("gone.txt") else real(p, *a, **k))
+    gone = FileNotFoundError(errno.ENOENT, "No such file or directory", "gone.txt")
+    monkeypatch.setattr(rehearse.os, "stat",     # only the walk's stat, which goes by dir fd
+                        lambda p, *a, **k: (_ for _ in ()).throw(gone)
+                        if "dir_fd" in k and str(p) == "gone.txt" else real(p, *a, **k))
     rehearse.copy_data(src, dst, ())
     assert (dst / "stays.txt").exists() and not (dst / "gone.txt").exists()
 
