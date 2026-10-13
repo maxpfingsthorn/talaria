@@ -34,8 +34,8 @@ def test_hub_first_then_each_app_then_the_bot(h2, capsys):
     assert list(zip(h2.ctx.sh.calls, h2.ctx.sh.timeouts)) == [
         (["git", "-C", d, "rev-parse", "HEAD"], None),
         (["git", "-C", d, "fetch", "-q", "origin", "+refs/tags/v0.8.0:refs/tags/v0.8.0"], 600),
-        (["git", "-C", d, "checkout", "-q", "v0.8.0"], None),
         (["git", "-C", d, "rev-parse", "--verify", "-q", "refs/tags/v0.8.0^{commit}"], None),
+        (["git", "-C", d, "checkout", "-q", "v0.8.0"], None),
         ([str(h2.ctx.paths.bin_link), "setup", "--as-hub", "--no-restart"], 600),
         (["systemctl", "--user", "restart", "talaria-telegram.service"], None)]
     assert h2.ctx.notify.texts() == ["Talaria v0.8.0 installed (commit abc123): Hermes ✓ · Clawvisor ✓"]
