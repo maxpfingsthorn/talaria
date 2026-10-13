@@ -1,5 +1,7 @@
 # Talaria v0.7.0 login links Implementation Plan
 
+> Historical: written for Talaria v0.7; paths and test names may have changed since (e.g. helpers/ → tools/).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The owner gets a gbrain or Clawvisor login link from the Talaria bot (`/login`), and the gbrain onboarding documents a 443 `/admin` redirect so consent and login links work from the public address.

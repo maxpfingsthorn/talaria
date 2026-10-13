@@ -1,5 +1,7 @@
 # Talaria hub (v0.5.0) Implementation Plan
 
+> Historical: written for Talaria v0.5; paths and test names may have changed since (e.g. helpers/ → tools/).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** One Telegram bot per host, run by a dedicated hub account (`talaria`), manages every Talaria app install (Hermes, Clawvisor) through a strict `talaria op` door; Talaria updates itself host-wide from a bot button; v0.4 installs migrate without a new pairing.

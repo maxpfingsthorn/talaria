@@ -58,6 +58,22 @@ def test_cli(build, tmp_path):
     assert (tmp_path / ".gbrain/dreams").read_text() == "dream\n"
 
 
+def test_login_link_token_is_random_per_call(build, tmp_path):
+    gb(build[1], tmp_path, "init", "--pglite")
+    def link(*extra):
+        r = gb(build[1], tmp_path, "mcp", "admin", "login-link", "--json", *extra)
+        assert r.returncode == 0
+        return json.loads(r.stdout)["url"]
+
+    a, b = link(), link("--oauth-request", "ab12")
+    prefix = "https://brain.example.invalid/admin/auth/"
+    ta, tb = a[len(prefix):][:64], b[len(prefix):][:64]
+    assert a.startswith(prefix) and len(a) == len(prefix) + 64
+    assert all(c in "0123456789abcdef" for c in ta + tb)
+    assert ta != tb
+    assert b.endswith("?oauth_request=ab12")
+
+
 def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))

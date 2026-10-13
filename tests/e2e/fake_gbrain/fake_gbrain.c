@@ -179,10 +179,18 @@ int main(int argc, char **argv) {
             fprintf(stderr, "fake gbrain: login-link needs --json\n");
             return 2;
         }
+        unsigned char raw[32];
+        FILE *ur = fopen("/dev/urandom", "r");
+        if (!ur || fread(raw, 1, sizeof raw, ur) != sizeof raw) {
+            fprintf(stderr, "fake gbrain: cannot read /dev/urandom\n");
+            return 2;
+        }
+        fclose(ur);
+        char token[65];
+        for (int i = 0; i < 32; i++) sprintf(token + 2 * i, "%02x", raw[i]);
         printf("{\"status\":\"login_link\",\"url\":\"https://brain.example.invalid/admin/auth/"
-               "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef%s%s\","
-               "\"expires_in\":300,\"next_action\":\"Open the link in a browser.\"}\n",
-               id ? "?oauth_request=" : "", id ? id : "");
+               "%s%s%s\",\"expires_in\":300,\"next_action\":\"Open the link in a browser.\"}\n",
+               token, id ? "?oauth_request=" : "", id ? id : "");
         return 0;
     }
     if (!strcmp(cmd, "serve")) {

@@ -115,6 +115,8 @@ def test_post_failure_reports_stderr(ts):
     r = ts("--host", HOST)
     assert r.returncode == 1 and "denied" in r.stderr
     assert ts.backups() == [] and "removed the backup" in r.stderr
+    assert "unchanged when checked" in r.stderr and "tailscale serve status" in r.stderr
+    assert "nothing was applied" not in r.stderr
 
 
 def test_undo_restores(ts):

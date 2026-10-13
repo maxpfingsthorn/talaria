@@ -1,5 +1,7 @@
 # Talaria: login links from the bot (v0.7.0)
 
+> Historical: written for Talaria v0.7; paths and test names may have changed since (e.g. helpers/ → tools/).
+
 Status: approved by the owner 2026-10-11.
 
 ## Goal
