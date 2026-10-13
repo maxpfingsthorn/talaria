@@ -141,7 +141,7 @@ def add(host, port, dry):
             with contextlib.suppress(FileNotFoundError):
                 os.remove(backup)
             print(f"removed the backup {os.path.abspath(backup)}; the config was unchanged when "
-                  f"checked \u2014 run `tailscale serve status` to confirm", file=sys.stderr)
+                  f"checked; run `tailscale serve status` to confirm", file=sys.stderr)
         else:
             print(f"kept the backup {os.path.abspath(backup)}: the config may have changed; "
                   f"undo with --undo if needed", file=sys.stderr)
