@@ -992,6 +992,13 @@ def test_startup_leaves_an_app_ahead_out_of_both_sets_but_notes_it_in_status(bot
     assert spawned(ctx) == []
 
 
+def test_status_drops_the_note_once_the_hub_caught_up_with_an_app_ahead(bot):
+    ctx, api, b = bot
+    b.ahead = {"hermes": relay.AHEAD.format(ver="99.0.0")}
+    assert b.dispatch("/status", []) == "Hermes v1, running."
+    assert b.ahead == {}
+
+
 def test_status_skips_a_hanging_flagged_app(bot):
     ctx, api, b = bot
     b.skewed = {"hermes"}

@@ -211,7 +211,7 @@ class Bot:
     def _lagging(self, timeout: float = 60, silent: set | None = None) -> bool:
         """Probe the flagged apps again: one may have caught up since the bot started. Apps
         that did not answer in time are added to `silent`."""
-        for app in sorted(self.mismatch | self.skewed):
+        for app in sorted(self.mismatch | self.skewed | set(self.ahead)):
             e = self.hub.apps[app]
             err = relay.hello(e, timeout) or ""
             if err and not err.startswith((relay.VERSIONS, relay.SKEW, relay.AHEAD_START)):
