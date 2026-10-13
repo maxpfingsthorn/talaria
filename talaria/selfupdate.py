@@ -20,18 +20,31 @@ def fetch_tag(sh, install_dir: str, tag: str) -> None:
            timeout=600)
 
 
-def self_update(ctx, tag: str) -> int:
+def tag_commit(sh, install_dir: str, tag: str) -> str:
+    """The commit `tag` points to in this install (CommandError if it has no such tag)."""
+    return sh.run(["git", "-C", install_dir, "rev-parse", "--verify", "-q",
+                   f"refs/tags/{tag}^{{commit}}"]).stdout.strip()
+
+
+def self_update(ctx, tag: str, commit: str | None = None) -> int:
     """Switch this install to `tag` and let the new code re-render its units (it restarts
     the app only if its Quadlet changed). Never under a running operation: that one would
     continue on half-old, half-new code, so the op lock is held from before the fetch until
-    the new setup is done (setup is told not to take it again). If setup fails or times out,
-    the previous checkout is restored and its setup re-run, so the units match it again."""
+    the new setup is done (setup is told not to take it again). With `commit` (what the hub
+    installed) the update is refused, before anything changes, if the fetched tag is another.
+    If setup fails or times out, the previous checkout is restored and its setup re-run, so
+    the units match it again."""
     d = str(ctx.paths.install_dir)
     try:
         with lock.op_lock(ctx.paths):
             try:
                 prev = ctx.sh.run(["git", "-C", d, "rev-parse", "HEAD"]).stdout.strip()
                 fetch_tag(ctx.sh, d, tag)
+                got = tag_commit(ctx.sh, d, tag) if commit else commit
+                if got != commit:
+                    print(f"self-update refused: {tag} is {got[:12]} here, the hub installed "
+                          f"{commit[:12]}", file=sys.stderr)
+                    return 1
                 ctx.sh.run(["git", "-C", d, "checkout", "-q", tag])
             except CommandError as e:
                 print(f"self-update failed: {e}", file=sys.stderr)

@@ -1,5 +1,7 @@
 # Talaria — gbrain as a third app (design)
 
+> Historical: written for Talaria v0.6; paths and test names may have changed since (e.g. helpers/ → tools/).
+
 Date: 2026-10-09
 Status: design approved in conversation by the owner (2026-10-09); spec under review
 Amends: `2026-10-02-talaria-adapters-design.md` §2.1 ("exactly two adapters") — this adds a

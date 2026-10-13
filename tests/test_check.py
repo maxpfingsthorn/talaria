@@ -127,6 +127,17 @@ def test_failure_counter_exact(cctx, monkeypatch):
     assert st["check_failures"] == 0
 
 
+def test_a_cut_tag_list_counts_as_a_failed_check(cctx, monkeypatch):
+    ctx, st = cctx
+
+    def cut(c, tags):
+        raise ValueError("img: 100000 or more tags; the list may be cut")
+
+    monkeypatch.setattr(ctx.app, "published", cut)
+    check.check(ctx, st)
+    assert st["check_failures"] == 1 and st.get("pending") is None
+
+
 def test_transient_exact(cctx):
     ctx, st = cctx
     ctx.rehearse_exc = Transient("no space")

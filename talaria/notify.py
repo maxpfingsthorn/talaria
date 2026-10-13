@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import http.client
 import json
 import sys
 import time
@@ -89,7 +90,7 @@ class TelegramAPI:
             except Exception:
                 pass
             raise ApiError(e.code, retry) from None
-        except (urllib.error.URLError, OSError, ValueError) as e:
+        except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as e:
             raise ApiError(0, None, str(e)) from None
         if not body.get("ok"):
             raise ApiError(400, None)

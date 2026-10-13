@@ -1,5 +1,7 @@
 # Talaria gbrain (v0.6.0) Implementation Plan
 
+> Historical: written for Talaria v0.6; paths and test names may have changed since (e.g. helpers/ → tools/).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Talaria manages gbrain (agent memory with an MCP server) as a third app, like Hermes and Clawvisor (release detection, rehearsal on a copy, approval, backup, deploy, verify, rollback), and adds two generic features: a per-app release-check cadence (`check.days`) and a nightly maintenance window (`maintenance.time`) that gbrain uses for `gbrain dream`.

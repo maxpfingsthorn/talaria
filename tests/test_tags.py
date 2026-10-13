@@ -102,6 +102,17 @@ def test_registry_tags_uses_podman_search():
     assert "--list-tags" in argv and "--limit" in argv and argv[-1] == "docker.io/n/h"
 
 
+def test_registry_tags_asks_for_every_tag_and_refuses_a_cut_list():
+    sh = FakeShell().on("podman", "search", out="NAME TAG\n")
+    upstream.registry_tags(sh, "docker.io/n/h")
+    argv = sh.calls[0]
+    assert argv[argv.index("--limit") + 1] == "100000"
+    rows = "".join(f"docker.io/n/h t{i}\n" for i in range(upstream.TAG_LIMIT))
+    sh = FakeShell().on("podman", "search", out="NAME TAG\n" + rows)
+    with pytest.raises(ValueError, match="100000 or more tags"):
+        upstream.registry_tags(sh, "docker.io/n/h")
+
+
 def test_registry_tags_tls_flag():
     sh = FakeShell().on("podman", "search", out="NAME TAG\n")
     upstream.registry_tags(sh, "localhost:5000/h", tls_verify=False)

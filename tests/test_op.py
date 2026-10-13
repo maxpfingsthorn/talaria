@@ -289,9 +289,32 @@ def test_self_update_dry_run_failure(opx, monkeypatch):
     (1, "self-update failed (exit 1); details in the journal")])
 def test_self_update(opx, monkeypatch, rc, text):
     ctx, run = opx
-    monkeypatch.setattr(op.selfupdate, "self_update", lambda c, t: (c is ctx and t == "v0.6.0") and rc)
+    monkeypatch.setattr(op.selfupdate, "self_update",
+                        lambda c, t, commit=None: (c is ctx and t == "v0.6.0" and commit is None) and rc)
     assert run("self-update", "v0.6.0") == (rc, [{"v": 1, "kind": "reply", "text": text,
                                                   "buttons": []}])
+
+
+SHA = "0123456789abcdef0123456789abcdef01234567"
+
+
+def test_self_update_passes_the_commit(opx, monkeypatch):
+    ctx, run = opx
+    monkeypatch.setattr(op.selfupdate, "self_update", lambda c, t, commit=None: 0 if commit == SHA else 9)
+    assert run("self-update", "v0.6.0", "--commit", SHA)[0] == 0
+
+
+def test_self_update_dry_run_ignores_the_commit(opx, monkeypatch):
+    ctx, run = opx
+    monkeypatch.setattr(op.selfupdate, "dry_run", lambda c, t: False)
+    assert run("self-update", "v0.6.0", "--dry-run", "--commit", SHA)[0] == 0
+
+
+@pytest.mark.parametrize("bad", ["abc123", SHA.upper(), SHA + "0", "g" * 40, ""])
+def test_self_update_rejects_a_malformed_commit(bad):
+    out = io.StringIO()
+    assert op.main(["self-update", "v0.6.0", "--commit", bad],
+                   make=lambda: pytest.fail("no ctx"), out=out) == 2 and out.getvalue() == ""
 
 
 @pytest.mark.parametrize("argv", [["self-update"], ["self-update", "main"],

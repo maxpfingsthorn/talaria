@@ -118,7 +118,8 @@ def test_fetch_verifies_the_digest_and_builds(tmp_path, monkeypatch):
     ctx = gctx(tmp_path, monkeypatch)
     rec = ctx.app.fetch(ctx, TAG, "abc")
     assert rec == {"tag": TAG, "id": "sha256:built", "digest": f"sha256:{SUM}",
-                   "ref": f"build:{TAG}", "commit": "abc"}
+                   "ref": f"build:{TAG}", "commit": "abc",
+                   "provenance": "sha256 only (gh is not installed)"}
     assert ctx.seen["get"] == [(f"https://api.github.com/repos/garrytan/gbrain/releases/tags/{TAG}", 30.0)]
     assert ctx.seen["download"] == [(f"{GH}/releases/download/{TAG}/gbrain-linux-x64", gb.MAX_BINARY)]
     (build,) = ctx.sh.called("podman", "build")
@@ -209,6 +210,32 @@ def test_attestation_runs_when_gh_is_logged_in(tmp_path, monkeypatch):
     assert v[:3] == ["gh", "attestation", "verify"] and v[4:] == ["-R", "garrytan/gbrain"]
     assert v[3].endswith(f"build-{TAG}/gbrain")
     assert ctx.sh.timeouts[ctx.sh.calls.index(v)] == 300
+
+
+def test_fetch_records_how_the_download_was_verified(tmp_path, monkeypatch):
+    ctx = gctx(tmp_path, monkeypatch, gh="/usr/bin/gh")
+    ctx.sh.on("gh", "auth", "status").on("gh", "attestation", "verify")
+    assert ctx.app.fetch(ctx, TAG, "abc")["provenance"] == "sha256+attestation"
+    ctx = gctx(tmp_path, monkeypatch, gh="/usr/bin/gh")
+    ctx.sh.on("gh", "auth", "status", rc=1)
+    assert ctx.app.fetch(ctx, TAG, "abc")["provenance"] == \
+        "sha256 only (gh is not logged in for this account)"
+
+
+def test_unverified_provenance_reaches_the_offer(tmp_path, monkeypatch):
+    from talaria import rehearse
+    ctx = gctx(tmp_path, monkeypatch, gh="/usr/bin/gh")
+    ctx.sh.on("gh", "auth", "status", rc=1)
+    image = ctx.app.fetch(ctx, TAG, "abc")
+    report = {"tag": TAG, "before": 1, "after": 2}
+    text = rehearse.candidate_message(ctx, {"pending": {"image": image}}, report, None).text
+    assert "Build provenance not verified: gh is not logged in for this account." in text
+    image["provenance"] = "sha256+attestation"
+    assert "provenance" not in rehearse.candidate_message(
+        ctx, {"pending": {"image": image}}, report, None).text
+    del image["provenance"]          # state written by an older Talaria
+    assert "provenance" not in rehearse.candidate_message(
+        ctx, {"pending": {"image": image}}, report, None).text
 
 
 def test_attestation_failure_is_permanent(tmp_path, monkeypatch):

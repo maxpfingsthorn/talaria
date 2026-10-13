@@ -1,5 +1,7 @@
 # Talaria v0.6.1 hardening Implementation Plan
 
+> Historical: written for Talaria v0.6.1; paths and test names may have changed since (e.g. helpers/ → tools/).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Fix the confirmed findings of the 2026-10-10 adversarial review (security, stuck states, self-update, inputs) and release them as v0.6.1.

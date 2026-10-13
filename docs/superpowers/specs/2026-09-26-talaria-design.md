@@ -1,5 +1,7 @@
 # Talaria — Design (v1)
 
+> Historical: written for Talaria v0.1; paths and test names may have changed since (e.g. helpers/ → tools/).
+
 > **Historical.** This is the working document from building v1. It is kept for
 > context and is not updated; the README and the code describe current behaviour.
 

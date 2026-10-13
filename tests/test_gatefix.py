@@ -56,6 +56,7 @@ def hub_with_git(tmp_path, setup_rc=0):
     h.ctx.sh.on("git").on("git", "-C", d, "rev-parse", "HEAD", out="abc123\n")
     h.ctx.sh.on("systemctl").on(str(h.ctx.paths.bin_link), rc=setup_rc, out="")
     ex(h, "hermes").on("self-update", lines=[reply("ok")])
+    ex(h, "hermes").on("hello", lines=[hello(version="0.0.1")])
     return h, d
 
 

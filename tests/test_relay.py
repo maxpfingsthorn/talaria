@@ -198,3 +198,37 @@ def test_status_texts_match_status_all(h):
     ex(h, "clawvisor").on("status", lines=[reply("Clawvisor v0.9.10, running.")])
     assert relay.status_texts(h, {"clawvisor"}) == {
         "hermes": "Hermes v1, running.", "clawvisor": f"Clawvisor: {relay.VERSIONS}"}
+
+
+def test_hello_reports_an_app_ahead(tmp_path, monkeypatch):
+    t = _hello_with(tmp_path, monkeypatch, version="0.6.2")
+    assert t == relay.AHEAD.format(ver="0.6.2")
+    assert not t.startswith((relay.VERSIONS, relay.SKEW))
+
+
+def test_hello_unparsable_version_is_plain_skew(tmp_path, monkeypatch):
+    assert _hello_with(tmp_path, monkeypatch, version="dev") == relay.SKEW
+
+
+def test_lagging_ignores_an_app_ahead(tmp_path, monkeypatch):
+    assert not relay.AHEAD.format(ver="1").startswith((relay.VERSIONS, relay.SKEW))
+    monkeypatch.setattr(relay, "__version__", "0.6.1")
+    h = make_hub(tmp_path)
+    ex(h, "hermes").on("hello", lines=[hello(version="0.6.2")])
+    assert relay.lagging(h.apps["hermes"]) is False
+
+
+def test_hello_passes_its_timeout(h):
+    ex(h, "clawvisor").on("hello", lines=[hello(app="clawvisor")])
+    relay.hello(h.apps["clawvisor"])
+    relay.hello(h.apps["clawvisor"], timeout=10)
+    assert [c[2] for c in ex(h, "clawvisor").calls] == [60, 10]
+
+
+def test_status_texts_overrides_win_over_asking_the_app(h):
+    ex(h, "clawvisor").on("status", lines=[reply("Clawvisor v1, running.")])
+    out = relay.status_texts(h, texts={"hermes": "Hermes did not answer in time"},
+                             notes={"clawvisor": "AHEAD"})
+    assert out == {"hermes": "Hermes did not answer in time",
+                   "clawvisor": "Clawvisor v1, running.\n(AHEAD)"}
+    assert ex(h, "hermes").ops() == []

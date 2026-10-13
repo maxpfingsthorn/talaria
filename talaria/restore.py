@@ -46,11 +46,11 @@ def _plain_dirs(root: Path, parent: Path) -> bool:
     return True
 
 
-def _move_missing(src: Path, dst: Path, root: Path | None = None) -> None:
+def _move_missing(src: Path, dst: Path, root: Path) -> None:
     if not os.path.lexists(src):
         return
     if not os.path.lexists(dst):
-        if root is not None and not _plain_dirs(root, dst.parent):
+        if not _plain_dirs(root, dst.parent):
             return  # the agent may have planted a link; do not carry this path over
         dst.parent.mkdir(parents=True, exist_ok=True)
         os.rename(src, dst)

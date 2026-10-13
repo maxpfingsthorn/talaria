@@ -1,5 +1,7 @@
 # Talaria — app adapters and Clawvisor (design)
 
+> Historical: written for Talaria v0.3-v0.4; paths and test names may have changed since (e.g. helpers/ → tools/).
+
 Date: 2026-10-02
 Status: approved (decisions by the owner on 2026-10-01; spike done on 2026-10-02)
 

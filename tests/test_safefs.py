@@ -118,3 +118,28 @@ def test_copy_regular_copy_is_blocking_mode_irrelevant(tmp_path):
     (tmp_path / "s").write_bytes(b"x" * 300000)
     safefs.copy_regular(tmp_path / "s", tmp_path / "out")
     assert (tmp_path / "out").read_bytes() == b"x" * 300000
+
+
+def test_copy_regular_at_copies_relative_to_a_dir_fd(tmp_path):
+    (tmp_path / "s").write_text("data"); (tmp_path / "s").chmod(0o640)
+    dfd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        safefs.copy_regular_at(dfd, "s", tmp_path / "out")
+    finally:
+        os.close(dfd)
+    assert (tmp_path / "out").read_text() == "data"
+    assert (tmp_path / "out").stat().st_mode & 0o777 == 0o640
+
+
+def test_copy_regular_at_refuses_symlinks_and_fifos(tmp_path):
+    (tmp_path / "t").write_text("secret")
+    (tmp_path / "l").symlink_to(tmp_path / "t")
+    os.mkfifo(tmp_path / "pipe")
+    dfd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for name in ("l", "pipe"):
+            with pytest.raises(OSError):
+                safefs.copy_regular_at(dfd, name, tmp_path / "out")
+    finally:
+        os.close(dfd)
+    assert not (tmp_path / "out").exists()
