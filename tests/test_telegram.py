@@ -277,7 +277,7 @@ def test_versions_differ(bot2):
 
 def test_dispatch_error_is_replied(bot, monkeypatch):
     ctx, api, b = bot
-    monkeypatch.setattr(telegram.relay, "status_texts", lambda *a: 1 / 0)
+    monkeypatch.setattr(telegram.relay, "status_texts", lambda *a, **k: 1 / 0)
     b.handle(upd(1, "/status"))
     assert api.sent() == ["Error: division by zero"]
 
@@ -935,7 +935,7 @@ def test_send_link_api_error_leaves_no_link_in_reply_or_expiry(tmp_path):
     api.call = failing
     b.handle(upd(2, "/login"))
     assert b.expiring == []
-    assert api.sent() and api.sent()[-1].startswith("Error:")
+    assert api.sent() and api.sent()[-1].startswith("Telegram refused the login link")
     assert all(LINKTEXT not in m["text"] and "admin/auth" not in m["text"] for m in calls(api, "sendMessage"))
 
 
@@ -977,3 +977,75 @@ def test_status_reprobes_flagged_apps(tmp_path):
     b.handle(upd(2, "/status"))
     assert api.sent()[-1] == "Hermes v1, running."
     assert b.mismatch == set()
+
+
+def test_startup_leaves_an_app_ahead_out_of_both_sets_but_notes_it_in_status(bot):
+    ctx, api, b = bot
+    ex(b.hub, "hermes").on("hello", lines=[{**hello(), "version": "99.0.0"}])
+    b.startup()
+    assert b.mismatch == set() and b.skewed == set() and set(b.ahead) == {"hermes"}
+    ahead = relay.AHEAD.format(ver="99.0.0")
+    assert b.dispatch("/status", []) == f"Hermes v1, running.\n({ahead})"
+    assert b.app_command("hermes", "/status", [])[0] == f"Hermes v1, running.\n({ahead})"
+    b.handle(upd(1, f"/update v{__version__}"))
+    assert api.sent()[-1] == NOT_NEWER.format(tag=f"v{__version__}", cur=__version__)
+    assert spawned(ctx) == []
+
+
+def test_status_skips_a_hanging_flagged_app(bot):
+    ctx, api, b = bot
+    b.skewed = {"hermes"}
+    ex(b.hub, "hermes").on("hello", exc=NoAnswer("hermes"))
+    assert b.dispatch("/status", []) == "Hermes did not answer in time"
+    assert [c for c in ex(b.hub, "hermes").calls if c[1] == ["hello"]] == [
+        ("call", ["hello"], telegram.PROBE_TIMEOUT)]
+    assert telegram.PROBE_TIMEOUT == 10
+    assert ["status"] not in ex(b.hub, "hermes").ops()
+
+
+def test_status_still_asks_a_flagged_app_that_answers(bot):
+    ctx, api, b = bot
+    b.skewed = {"hermes"}
+    ex(b.hub, "hermes").on("hello", lines=[{**hello(), "version": "0.0.1"}])
+    assert b.dispatch("/status", []) == f"Hermes v1, running.\n({relay.SKEW})"
+
+
+def _timeout_on_links(api):
+    real = api.call
+
+    def failing(method, **p):
+        if method == "sendMessage" and p["text"] == LINKTEXT:
+            raise ApiError(0, None)
+        return real(method, **p)
+    api.call = failing
+
+
+def test_link_send_timeout_still_notifies_expiry(tmp_path, capsys):
+    ctx, api, b = _login_bot(tmp_path)
+    _timeout_on_links(api)
+    b.handle(upd(2, "/login"))
+    assert len(b.expiring) == 1 and b.expiring[0][1] is None
+    o = capsys.readouterr()
+    assert "login link for gbrain" in o.err and LINKTEXT not in o.out + o.err
+    assert "admin/auth" not in o.out + o.err
+    ctx.clock.sleep(301)
+    b.expire_links()
+    assert calls(api, "editMessageText") == []
+    assert api.sent()[-1] == telegram.EXPIRED_UNSURE.format(title="gbrain", app="gbrain")
+    assert b.expiring == []
+
+
+def test_link_refused_by_telegram_is_replied_and_not_tracked(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    real = api.call
+
+    def failing(method, **p):
+        if method == "sendMessage" and p["text"] == LINKTEXT:
+            raise ApiError(400, None, "Bad Request")
+        return real(method, **p)
+    api.call = failing
+    b.handle(upd(2, "/login"))
+    assert b.expiring == []
+    t = api.sent()[-1]
+    assert t.startswith("Telegram refused the login link for gbrain (") and \
+        t.endswith("Send /login gbrain to try again.") and "admin/auth" not in t

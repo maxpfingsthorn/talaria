@@ -31,6 +31,8 @@ MENU = [("status", "Every app: version, state, pending update"),
 FIRST_LOGIN_RELEASE = "v0.7.0"
 LINK_TTL = 300   # seconds until the expiry notice replaces the link
 UPDATE_FIRST = "{title} runs Talaria {ver}; update Talaria first: /update v{hub}"
+EXPIRED_UNSURE = "If a login link for {title} arrived, it has expired. Send /login {app} for a new one."
+PROBE_TIMEOUT = 10   # seconds /status waits for a flagged app's hello
 EXPIRED = "Login link for {title} expired. Send /login {app} for a new one."
 LOGIN_USAGE = "Usage: /login [app] [OAuth request id or consent URL]"
 NO_LOGIN_APP = "No app here offers login links."
@@ -92,7 +94,8 @@ class Bot:
         self.offset = None
         self.mismatch: set[str] = set()   # protocol differs or hello fails: commands are blocked
         self.skewed: set[str] = set()     # only the version differs: a note, /update retries it
-        self.expiring: list[tuple] = []   # (due, message_id, title, app): links to replace
+        self.ahead: dict[str, str] = {}   # newer than the hub: app -> note; nothing blocks, /update does not apply
+        self.expiring: list[tuple] = []   # (due, message_id, title, app, ...): links to replace; id None = unsure
 
     def _login_row(self, app: str) -> list:
         return [(f"🔑 Login link: {self.hub.apps[app].title}", f"hub|ln:{app}")]
@@ -140,16 +143,30 @@ class Bot:
         return None
 
     def send_link(self, app: str, text: str) -> None:
-        r = self.api.call("sendMessage", chat_id=self.ctx.conf.telegram_user_id,
-                          text=text[:4096], disable_web_page_preview=True)
-        self.expiring.append((self.ctx.now() + timedelta(seconds=LINK_TTL), r["message_id"],
-                              self.hub.apps[app].title, app))
+        title = self.hub.apps[app].title
+        due = self.ctx.now() + timedelta(seconds=LINK_TTL)
+        try:
+            r = self.api.call("sendMessage", chat_id=self.ctx.conf.telegram_user_id,
+                              text=text[:4096], disable_web_page_preview=True)
+        except ApiError as e:     # its text never holds the request params, so not the link
+            if e.status:
+                self.reply(f"Telegram refused the login link for {title} ({e}). "
+                           f"Send /login {app} to try again.")
+            else:     # no HTTP answer: the link may have arrived
+                self.expiring.append((due, None, title, app))
+                print(f"[talaria] telegram sendMessage (login link for {app}): {e}", file=sys.stderr)
+            return
+        self.expiring.append((due, r["message_id"], title, app))
 
     def expire_links(self) -> None:
         now = self.ctx.now()
         due = [x for x in self.expiring if x[0] <= now]
         self.expiring = [x for x in self.expiring if x[0] > now]
         for _, mid, title, app in due:
+            if mid is None:
+                self._try("sendMessage", chat_id=self.ctx.conf.telegram_user_id,
+                          text=EXPIRED_UNSURE.format(title=title, app=app))
+                continue
             self._try("editMessageText", chat_id=self.ctx.conf.telegram_user_id, message_id=mid,
                       text=EXPIRED.format(title=title, app=app), disable_web_page_preview=True)
 
@@ -179,18 +196,29 @@ class Bot:
             return None
         return NOT_NEWER.format(tag=tag, cur=__version__)
 
-    def _lagging(self) -> bool:
-        """Probe the flagged apps again: one may have caught up since the bot started."""
+    def _flag(self, app: str, err: str) -> None:
+        """File `app` under what its hello said (empty: current)."""
+        self.mismatch.discard(app)
+        self.skewed.discard(app)
+        self.ahead.pop(app, None)
+        if err.startswith(relay.VERSIONS):
+            self.mismatch.add(app)
+        elif err.startswith(relay.SKEW):
+            self.skewed.add(app)
+        elif err.startswith(relay.AHEAD_START):
+            self.ahead[app] = err
+
+    def _lagging(self, timeout: float = 60, silent: set | None = None) -> bool:
+        """Probe the flagged apps again: one may have caught up since the bot started. Apps
+        that did not answer in time are added to `silent`."""
         for app in sorted(self.mismatch | self.skewed):
-            err = relay.hello(self.hub.apps[app]) or ""
-            if err and not err.startswith((relay.VERSIONS, relay.SKEW)):
+            e = self.hub.apps[app]
+            err = relay.hello(e, timeout) or ""
+            if err and not err.startswith((relay.VERSIONS, relay.SKEW, relay.AHEAD_START)):
+                if silent is not None and err == relay.no_answer_text(e.title):
+                    silent.add(app)
                 continue            # no answer: keep what is known
-            self.mismatch.discard(app)
-            self.skewed.discard(app)
-            if err.startswith(relay.VERSIONS):
-                self.mismatch.add(app)
-            elif err.startswith(relay.SKEW):
-                self.skewed.add(app)
+            self._flag(app, err)
         return bool(self.mismatch or self.skewed)
 
     def _still_mismatched(self, app: str) -> bool:
@@ -198,18 +226,19 @@ class Bot:
         if app not in self.mismatch:
             return False
         err = relay.hello(self.hub.apps[app])
-        if err is None or err.startswith(relay.SKEW):
-            self.mismatch.discard(app)
-            if err:
-                self.skewed.add(app)
+        if err is None or err.startswith((relay.SKEW, relay.AHEAD_START)):
+            self._flag(app, err or "")
             return False
         return True
 
     def dispatch(self, cmd: str, args: list[str]):
         nu = f"Not understood. Commands: {HELP}"
         if cmd == "/status" and not args:
-            self._lagging()
-            texts = relay.status_texts(self.hub, self.mismatch, self.skewed)
+            silent: set[str] = set()
+            self._lagging(PROBE_TIMEOUT, silent)
+            texts = relay.status_texts(
+                self.hub, self.mismatch, self.skewed, notes=self.ahead,
+                texts={n: relay.no_answer_text(self.hub.apps[n].title) for n in silent})
             text = "\n\n".join(b for b in texts.values() if b) or "No apps registered."
             rows = [self._login_row(n) for n, t in texts.items()
                     if apps.get(n).has_login_link and n not in self.mismatch and relay.is_running(t)]
@@ -258,7 +287,8 @@ class Bot:
             text, buttons = relay.quick(e, ["status"])
             if a.has_login_link and relay.is_running(text):
                 buttons = [*buttons, self._login_row(app)]
-            return (relay.with_skew(text) if app in self.skewed else text), buttons
+            note = relay.SKEW if app in self.skewed else self.ahead.get(app)
+            return (relay.with_note(text, note) if note else text), buttons
         if cmd == "/backups" and not args:
             return relay.quick(e, ["backups"])
         if cmd == "/check" and not args:
@@ -394,6 +424,7 @@ class Bot:
         probes = {n: relay.hello(e) or "" for n, e in self.hub.apps.items()}
         self.mismatch = {n for n, h in probes.items() if h.startswith(relay.VERSIONS)}
         self.skewed = {n for n, h in probes.items() if h.startswith(relay.SKEW)}
+        self.ahead = {n: h for n, h in probes.items() if h.startswith(relay.AHEAD_START)}
         for n, e in self.hub.apps.items():
             if n not in self.mismatch:
                 text, _ = relay.quick(e, ["interrupted"])

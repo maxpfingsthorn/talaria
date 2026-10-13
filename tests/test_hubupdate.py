@@ -1,6 +1,6 @@
 import pytest
 
-from talaria import __version__, hubupdate
+from talaria import __version__, hubupdate, relay
 from talaria.hubexec import NoAnswer, Unreachable
 from talaria.shell import Result
 from tests.hubfakes import ex, hello, make_hub, reply
@@ -172,3 +172,17 @@ def test_offer_for_the_installed_version_names_the_retry(tmp_path):
     ex(h, "hermes").on("self-update", lines=[dict(reply("would restart: no"), restart=False)])
     hubupdate.offer(h, f"v{__version__}")
     assert h.ctx.notify.sent[0].text.startswith(f"Retrying Talaria v{__version__} for apps that lag.")
+
+
+def test_retry_skips_an_app_ahead_of_the_hub(h2, monkeypatch):
+    monkeypatch.setattr(relay, "__version__", "0.7.3")
+    monkeypatch.setattr(hubupdate, "__version__", "0.7.3")
+    ex(h2, "hermes").on("hello", lines=[hello(version="0.7.4")])
+    ex(h2, "clawvisor").on("hello", lines=[hello(app="clawvisor", version="0.7.2")])
+    ex(h2, "clawvisor").on("self-update", lines=[reply("Talaria v0.7.3 installed.")])
+    hubupdate.offer(h2, "v0.7.3")
+    (text,) = h2.ctx.notify.texts()
+    assert "Hermes" not in text and "Clawvisor would restart" in text
+    assert hubupdate.self_update(h2, "v0.7.3") == 0
+    assert ex(h2, "hermes").ops() == [["hello"]] * 2
+    assert ["self-update", "v0.7.3"] in ex(h2, "clawvisor").ops()
