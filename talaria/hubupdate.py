@@ -112,8 +112,8 @@ def _self_update(hub, tag: str) -> int:
         try:
             prev = ctx.sh.run(["git", "-C", d, "rev-parse", "HEAD"]).stdout.strip()
             fetch_tag(ctx.sh, d, tag)
-            ctx.sh.run(["git", "-C", d, "checkout", "-q", tag])
             pin = tag_commit(ctx.sh, d, tag)
+            ctx.sh.run(["git", "-C", d, "checkout", "-q", tag])
         except CommandError as e:
             return _stop(ctx, f"Talaria {tag} was not installed: the hub could not check it "
                               f"out ({e}). Nothing changed.")

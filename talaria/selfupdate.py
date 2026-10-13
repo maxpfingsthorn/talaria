@@ -31,8 +31,9 @@ def self_update(ctx, tag: str, commit: str | None = None) -> int:
     the app only if its Quadlet changed). Never under a running operation: that one would
     continue on half-old, half-new code, so the op lock is held from before the fetch until
     the new setup is done (setup is told not to take it again). With `commit` (what the hub
-    installed) the update is refused, before anything changes, if the fetched tag is another. If setup fails or times out,
-    the previous checkout is restored and its setup re-run, so the units match it again."""
+    installed) the update is refused, before anything changes, if the fetched tag is another.
+    If setup fails or times out, the previous checkout is restored and its setup re-run, so
+    the units match it again."""
     d = str(ctx.paths.install_dir)
     try:
         with lock.op_lock(ctx.paths):

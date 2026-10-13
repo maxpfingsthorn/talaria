@@ -25,7 +25,7 @@ def h2(tmp_path):
 
 def test_hub_first_then_each_app_then_the_bot(h2, capsys):
     assert hubupdate.self_update(h2, "v0.8.0") == 0
-    assert h2.events == [("git", "rev-parse"), ("git", "fetch"), ("git", "checkout"), ("git", "rev-parse"),
+    assert h2.events == [("git", "rev-parse"), ("git", "fetch"), ("git", "rev-parse"), ("git", "checkout"),
                          ("setup",), ("hermes", "call", ("hello",)),
                          ("hermes", "stream", ("self-update", "v0.8.0")),
                          ("clawvisor", "call", ("hello",)),
