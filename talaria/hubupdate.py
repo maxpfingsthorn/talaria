@@ -3,6 +3,7 @@ Everything this module uses is imported at load time: `self_update` checks out n
 underneath the running process."""
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import time
@@ -16,6 +17,7 @@ from talaria.state import ensure_dir
 from talaria.tags import SEMVER, semver_newer
 
 FIRST_PIN_RELEASE = "v0.7.3"     # the first app release that accepts `--commit`
+COMMIT = re.compile(r"^[0-9a-f]{40}$")     # what `op self-update --commit` accepts
 
 
 def would_restart(entry, tag: str) -> str:
@@ -72,15 +74,15 @@ def _exit_text(entry, rc) -> str:
     return f"exit {rc}: {line}" if line else f"exit {rc}"
 
 
-def _knows_pin(entry) -> bool:
-    """Older apps refuse unknown op arguments, so the commit goes only to a known new one."""
-    v = relay.version(entry)
-    return bool(v) and bool(SEMVER.match(f"v{v}")) and not semver_newer(FIRST_PIN_RELEASE, f"v{v}")
-
-
 def _update_app(entry, tag: str, pin: str | None) -> tuple[bool, str]:
     last = ""  # pragma: no mutate  (only used through `last or ...`)
-    argv = ["self-update", tag] + (["--commit", pin] if pin and _knows_pin(entry) else [])
+    v = relay.version(entry)
+    known = bool(v) and bool(SEMVER.match(f"v{v}"))
+    if known and semver_newer(f"v{v}", tag):
+        return True, f"{entry.title} skipped (already on v{v})"
+    # older apps refuse unknown op arguments, so the commit goes only to a known new one
+    knows_pin = known and not semver_newer(FIRST_PIN_RELEASE, f"v{v}")
+    argv = ["self-update", tag] + (["--commit", pin] if pin and knows_pin else [])
     try:
         for d in entry.executor.stream(argv):
             if d.get("kind") == "reply":
@@ -140,6 +142,8 @@ def _self_update(hub, tag: str) -> int:
             pin = tag_commit(ctx.sh, d, tag)
         except CommandError:
             pass
+    if pin and not COMMIT.match(pin):
+        pin = None
     todo = [e for e in hub.apps.values() if not retry or relay.lagging(e)]
     if retry and not todo:
         ctx.notify.send(Message(f"Talaria {tag}: no app lags behind; nothing to do."))

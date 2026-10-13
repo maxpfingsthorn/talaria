@@ -40,7 +40,7 @@ def is_regular(path: Path) -> bool:
 
 
 def copy_regular(src, dst, *, follow_symlinks: bool = True) -> str:
-    """copy_function for shutil.copytree: refuses anything but a regular file at src."""
+    """Copy the regular file at src to the new file dst; refuses anything else at src."""
     return _copy_regular(src, None, dst)
 
 

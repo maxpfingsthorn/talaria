@@ -569,3 +569,32 @@ def test_sqlite_copy_refuses_a_parent_dir_swapped_for_a_symlink(tmp_path):
     with pytest.raises(OSError, match="changed during the copy"):
         rehearse._sqlite_copy(root / "sub" / "s.db", dst, root)
     assert not dst.exists()
+
+
+def test_sqlite_copy_refuses_a_file_sqlite_did_not_open(tmp_path, monkeypatch):
+    """A parent swapped to a symlink and back around connect(): sqlite holds another file."""
+    root = tmp_path / "data"
+    root.mkdir()
+    _db(root / "s.db")
+    dst = tmp_path / "d.db"
+    dst.write_text("copy")
+    monkeypatch.setattr(rehearse, "_holds", lambda ident, skip: False)
+    with pytest.raises(OSError, match="changed during the copy"):
+        rehearse._sqlite_copy(root / "s.db", dst, root)
+    assert not dst.exists()
+
+
+def test_holds_finds_another_fd_on_the_same_file(tmp_path):
+    f = tmp_path / "x"
+    f.write_text("x")
+    a, b = os.open(f, os.O_RDONLY), os.open(f, os.O_RDONLY)
+    try:
+        st = os.fstat(a)
+        assert rehearse._holds((st.st_dev, st.st_ino), a)
+        os.close(b)
+        b = -1
+        assert not rehearse._holds((st.st_dev, st.st_ino), a)
+    finally:
+        os.close(a)
+        if b >= 0:
+            os.close(b)

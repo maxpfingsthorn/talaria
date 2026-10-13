@@ -95,7 +95,7 @@ class Bot:
         self.mismatch: set[str] = set()   # protocol differs or hello fails: commands are blocked
         self.skewed: set[str] = set()     # only the version differs: a note, /update retries it
         self.ahead: dict[str, str] = {}   # newer than the hub: app -> note; nothing blocks, /update does not apply
-        self.expiring: list[tuple] = []   # (due, message_id, title, app, ...): links to replace; id None = unsure
+        self.expiring: list[tuple] = []   # (due, message_id, title, app): links to replace; id None = unsure
 
     def _login_row(self, app: str) -> list:
         return [(f"🔑 Login link: {self.hub.apps[app].title}", f"hub|ln:{app}")]
@@ -149,10 +149,10 @@ class Bot:
             r = self.api.call("sendMessage", chat_id=self.ctx.conf.telegram_user_id,
                               text=text[:4096], disable_web_page_preview=True)
         except ApiError as e:     # its text never holds the request params, so not the link
-            if e.status:
+            if 0 < e.status < 500:
                 self.reply(f"Telegram refused the login link for {title} ({e}). "
                            f"Send /login {app} to try again.")
-            else:     # no HTTP answer: the link may have arrived
+            else:     # no answer or a server error: the link may have arrived
                 self.expiring.append((due, None, title, app))
                 print(f"[talaria] telegram sendMessage (login link for {app}): {e}", file=sys.stderr)
             return

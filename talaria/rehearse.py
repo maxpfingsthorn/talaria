@@ -105,6 +105,19 @@ def _real_dirs(root: Path, path: Path) -> bool:
     return True
 
 
+def _holds(ident: tuple, skip: int) -> bool:
+    """Some fd of this process other than `skip` is open on the file `ident` (dev, ino)."""
+    for name in os.listdir("/proc/self/fd"):
+        try:
+            fd = int(name)
+            st = os.fstat(fd) if fd != skip else None
+        except (ValueError, OSError):
+            continue
+        if st is not None and (st.st_dev, st.st_ino) == ident:
+            return True
+    return False
+
+
 def _sqlite_copy(src: Path, dst: Path, root: Path) -> None:
     dst.unlink()
     if not _real_dirs(root, src):        # O_NOFOLLOW guards only the last component
@@ -120,11 +133,17 @@ def _sqlite_copy(src: Path, dst: Path, root: Path) -> None:
         d = sqlite3.connect(dst)
         try:
             s.execute("PRAGMA trusted_schema=OFF")  # pragma: no mutate
+            s.execute("PRAGMA schema_version").fetchone()     # makes sqlite open the file
+            # sqlite opens by path: the file it holds must be the one checked above, or a
+            # directory swapped and swapped back around connect() brought in another one
+            if not _holds((before.st_dev, before.st_ino), fd):
+                d.close()
+                dst.unlink(missing_ok=True)
+                raise OSError(f"{src} changed during the copy")
             s.backup(d)
         finally:
             d.close()
             s.close()
-        # sqlite opens by path: a swap cannot be prevented, only detected
         now = os.lstat(src)
         if (not stat.S_ISREG(now.st_mode) or (now.st_dev, now.st_ino) != (before.st_dev, before.st_ino)
                 or not _real_dirs(root, src)):

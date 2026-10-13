@@ -156,6 +156,7 @@ def one(tmp_path):
 def test_app_update_result_flags_and_missing_reply_text(tmp_path):
     h = make_hub(tmp_path)
     e = h.apps["hermes"]
+    ex(h, "hermes").on("hello", lines=[hello(version="0.0.1")])
     ex(h, "hermes").on("self-update", exc=Unreachable("hermes"))
     assert hubupdate._update_app(e, "v1", None) == (False, "Hermes ✗ (sudo rule missing)")
     ex(h, "hermes").on("self-update", lines=[{"v": 1, "kind": "reply"}], rc=3)
@@ -175,7 +176,7 @@ def test_restore_and_restart_failures_do_not_raise(one, tmp_path_factory):
     ex(one, "hermes").on("self-update", lines=[reply("x")])
     one.ctx.sh.on("systemctl", rc=1)
     assert hubupdate.self_update(one, "v0.8.0") == 0
-    assert one.ctx.notify.texts() == ["Talaria v0.8.0 installed (commit abc): Hermes ✓"]
+    assert one.ctx.notify.texts() == ["Talaria v0.8.0 installed: Hermes ✓"]     # "abc" is no commit id
     one2 = make_hub(tmp_path_factory.mktemp("two"))
     one2.ctx.sh.on("git", out="abc\n").on(str(one2.ctx.paths.bin_link), rc=1)
     one2.ctx.sh.on("git", "-C", str(one2.ctx.paths.install_dir), "checkout", "-q", "abc", rc=1)

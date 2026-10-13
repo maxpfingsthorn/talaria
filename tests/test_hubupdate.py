@@ -11,7 +11,7 @@ def h2(tmp_path):
     events = []
     h = make_hub(tmp_path, ("hermes", "clawvisor"), log=events)
     sh = h.ctx.sh
-    sh.on("git", fn=lambda argv, input: (events.append(("git", argv[3])), Result(0, "abc123\n"))[1])
+    sh.on("git", fn=lambda argv, input: (events.append(("git", argv[3])), Result(0, "abc1230000000000000000000000000000000000\n"))[1])
     sh.on(str(h.ctx.paths.bin_link), fn=lambda argv, input: (events.append(("setup",)),
                                                              Result(0, "OK: hub units\n"))[1])
     sh.on("systemctl", fn=lambda argv, input: (events.append(("restart",)), Result(0))[1])
@@ -38,7 +38,7 @@ def test_hub_first_then_each_app_then_the_bot(h2, capsys):
         (["git", "-C", d, "checkout", "-q", "v0.8.0"], None),
         ([str(h2.ctx.paths.bin_link), "setup", "--as-hub", "--no-restart"], 600),
         (["systemctl", "--user", "restart", "talaria-telegram.service"], None)]
-    assert h2.ctx.notify.texts() == ["Talaria v0.8.0 installed (commit abc123): Hermes ✓ · Clawvisor ✓"]
+    assert h2.ctx.notify.texts() == ["Talaria v0.8.0 installed (commit abc123000000): Hermes ✓ · Clawvisor ✓"]
     assert capsys.readouterr().out == "OK: hub units\n"
 
 
@@ -48,7 +48,7 @@ def test_partial_failure_keeps_going_and_names_the_reason(h2):
     ex(h2, "hermes").on("self-update", exc=Unreachable("hermes"))
     assert hubupdate.self_update(h2, "v0.8.0") == 1
     assert h2.ctx.notify.texts() == [
-        "Talaria v0.8.0 installed (commit abc123): Hermes ✗ (sudo rule missing) · "
+        "Talaria v0.8.0 installed (commit abc123000000): Hermes ✗ (sudo rule missing) · "
         "Clawvisor ✗ (self-update failed (exit 1); details in the journal)"]
     assert h2.events[-1] == ("restart",)
 
@@ -56,7 +56,7 @@ def test_partial_failure_keeps_going_and_names_the_reason(h2):
 def test_app_failure_without_a_reply_names_the_exit_code(h2):
     ex(h2, "clawvisor").on("self-update", rc=75)
     hubupdate.self_update(h2, "v0.8.0")
-    assert h2.ctx.notify.texts() == ["Talaria v0.8.0 installed (commit abc123): Hermes ✓ · Clawvisor ✗ (exit 75)"]
+    assert h2.ctx.notify.texts() == ["Talaria v0.8.0 installed (commit abc123000000): Hermes ✓ · Clawvisor ✗ (exit 75)"]
 
 
 def test_hub_checkout_failure_changes_nothing(h2, capsys):
@@ -94,7 +94,7 @@ def test_hub_failed_setup_rerenders(h2, first, second_fails):
     assert hubupdate.self_update(h2, "v0.8.0") == 1
     d = str(h2.ctx.paths.install_dir)
     setup = [str(h2.ctx.paths.bin_link), "setup", "--as-hub", "--no-restart"]
-    assert h2.ctx.sh.calls[-2:] == [["git", "-C", d, "checkout", "-q", "abc123"], setup]
+    assert h2.ctx.sh.calls[-2:] == [["git", "-C", d, "checkout", "-q", "abc1230000000000000000000000000000000000"], setup]
     (text,) = h2.ctx.notify.texts()
     assert "the previous version was restored" in text
     assert ("its setup failed too" in text) == second_fails
@@ -107,8 +107,10 @@ def test_transitional_update_skips_the_hub_install(tmp_path):
     h.ctx.sh.on("systemctl", fn=lambda argv, input: (events.append(("restart",)), Result(0))[1])
     h.ctx.sh.on("git", rc=1)        # no such tag in the hub's install: nothing to pin
     ex(h, "hermes").on("self-update", lines=[reply("Talaria v0.8.0 installed.")])
+    ex(h, "hermes").on("hello", lines=[{**hello(), "version": "0.0.1"}])
     assert hubupdate.self_update(h, "v0.8.0") == 0
-    assert events == [("hermes", "stream", ("self-update", "v0.8.0")), ("restart",)]
+    assert events == [("hermes", "call", ("hello",)), ("hermes", "stream", ("self-update", "v0.8.0")),
+                      ("restart",)]
     assert h.ctx.notify.texts() == ["Talaria v0.8.0 installed: Hermes ✓"]
 
 
@@ -154,13 +156,13 @@ def test_retry_updates_only_lagging_apps(h2):
     assert not [e for e in h2.events if e[0] == "setup" or e[:2] == ("git", "checkout")]
     assert [e for e in h2.events if e[1:2] == ("stream",)] == [
         ("clawvisor", "stream", ("self-update", tag))]
-    assert h2.ctx.notify.texts() == [f"Talaria {tag} installed (commit abc123): Clawvisor ✓"]
+    assert h2.ctx.notify.texts() == [f"Talaria {tag} installed (commit abc123000000): Clawvisor ✓"]
 
 
 def test_update_drives_old_app_protocol(h2):
     ex(h2, "hermes").on("self-update", lines=[reply("Talaria v0.8.0 installed.")])
     assert hubupdate._update_app(h2.apps["hermes"], "v0.8.0", None) == (True, "Hermes ✓")
-    assert [c[1] for c in ex(h2, "hermes").calls] == [["self-update", "v0.8.0"]]
+    assert [c[1] for c in ex(h2, "hermes").calls] == [["hello"], ["self-update", "v0.8.0"]]
 
 
 def test_retry_with_no_lagging_app_says_so_and_restarts_nothing(h2):
@@ -235,3 +237,18 @@ def test_retry_without_the_tag_on_the_hub_sends_no_commit(h2):
     ex(h2, "clawvisor").on("hello", lines=[{**hello(app="clawvisor"), "version": "0.0.1"}])
     assert hubupdate.self_update(h2, tag) == 0
     assert all("--commit" not in a for how, a, _ in ex(h2, "clawvisor").calls if how == "stream")
+
+
+def test_a_normal_update_skips_an_app_already_ahead_of_the_tag(h2):
+    ex(h2, "clawvisor").on("hello", lines=[{**hello(app="clawvisor"), "version": "0.9.0"}])
+    assert hubupdate.self_update(h2, "v0.8.0") == 0
+    assert ("clawvisor", "stream", ("self-update", "v0.8.0")) not in h2.events
+    assert h2.ctx.notify.texts()[-1].endswith("Hermes ✓ · Clawvisor skipped (already on v0.9.0)")
+
+
+def test_an_odd_commit_id_is_not_sent_as_a_pin(h2):
+    h2.ctx.sh.on("git", fn=lambda argv, input: Result(0, "not-a-sha\n"))
+    ex(h2, "hermes").on("hello", lines=[{**hello(), "version": "0.7.3"}])
+    assert hubupdate.self_update(h2, "v0.8.0") == 0
+    assert ("hermes", "stream", ("self-update", "v0.8.0")) in h2.events
+    assert "(commit" not in h2.ctx.notify.texts()[-1]

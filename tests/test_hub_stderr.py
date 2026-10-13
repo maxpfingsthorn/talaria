@@ -1,6 +1,6 @@
 from talaria import hubupdate, relay
 from talaria.hubexec import SudoExecutor, last_line
-from tests.hubfakes import ex, make_hub, message
+from tests.hubfakes import ex, hello, make_hub, message
 
 
 def test_last_line_trims_and_skips_blanks():
@@ -24,6 +24,8 @@ def test_update_report_shows_why_an_app_failed(tmp_path):
     h = make_hub(tmp_path, ("hermes", "clawvisor"))
     ex(h, "hermes").on("self-update")
     ex(h, "clawvisor").on("self-update", rc=1, err="ValueError: unknown key in c: x")
+    for n in ("hermes", "clawvisor"):
+        ex(h, n).on("hello", lines=[hello(app=n, version="0.0.1")])
     h.ctx.sh.on("systemctl").on("git", rc=1)    # the tag is not in the hub's install: no pin
     h.transitional = True       # skip the hub's own checkout
     sent = []

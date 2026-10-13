@@ -1056,3 +1056,17 @@ def test_link_refused_by_telegram_is_replied_and_not_tracked(tmp_path):
     t = api.sent()[-1]
     assert t.startswith("Telegram refused the login link for gbrain (") and \
         t.endswith("Send /login gbrain to try again.") and "admin/auth" not in t
+
+
+def test_a_server_error_on_the_link_counts_as_maybe_delivered(tmp_path):
+    ctx, api, b = _login_bot(tmp_path)
+    real = api.call
+
+    def failing(method, **p):
+        if method == "sendMessage" and p["text"] == LINKTEXT:
+            raise ApiError(502, None)
+        return real(method, **p)
+    api.call = failing
+    b.handle(upd(2, "/login"))
+    assert len(b.expiring) == 1 and b.expiring[0][1] is None
+    assert not any(t.startswith("Telegram refused") for t in api.sent())
