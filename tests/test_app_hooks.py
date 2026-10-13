@@ -1,4 +1,3 @@
-import shutil
 import subprocess
 
 import pytest
@@ -96,17 +95,6 @@ def test_the_app_is_started_again_when_the_copy_fails(tmp_path, monkeypatch):
     with pytest.raises(rehearse.Transient, match="could not copy the data dir: disk full"):
         rehearse.rehearse(ctx, st_with_current(), "v2026.9.24", "c")
     assert ctx.sh.calls == [sc("is-active"), sc("stop"), sc("reset-failed"), sc("start")]
-    assert seen == []
-
-
-def test_a_file_swapped_for_a_symlink_during_the_copy_is_transient(tmp_path, monkeypatch):
-    ctx, seen = rctx(tmp_path, monkeypatch)
-
-    def swapping(src, dst, **kw):
-        raise shutil.Error([(str(src), str(dst), "[Errno 40] Too many levels of symbolic links")])
-    monkeypatch.setattr(rehearse.shutil, "copytree", swapping)
-    with pytest.raises(rehearse.Transient, match="could not copy the data dir"):
-        rehearse.rehearse(ctx, st_with_current(), "v2026.9.24", "c")
     assert seen == []
 
 

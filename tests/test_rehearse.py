@@ -337,8 +337,8 @@ def test_copy_data_skips_file_that_vanishes(tmp_path, monkeypatch):
     src.mkdir()
     (src / "gone.txt").write_text("x")
     (src / "stays.txt").write_text("y")
-    real = os.lstat
-    monkeypatch.setattr(rehearse.os, "lstat",
+    real = os.stat
+    monkeypatch.setattr(rehearse.os, "stat",
                         lambda p, *a, **k: (_ for _ in ()).throw(FileNotFoundError(p))
                         if str(p).endswith("gone.txt") else real(p, *a, **k))
     rehearse.copy_data(src, dst, ())
@@ -463,12 +463,95 @@ def test_candidate_message_replaced_and_no_doctor_problems(happy):
     assert m.untrusted == []
 
 
-def test_copy_data_uses_the_non_following_copy_function(tmp_path, monkeypatch):
-    seen = {}
+def test_copy_never_follows_a_dir_swapped_for_a_symlink(tmp_path, monkeypatch):
+    src, dst, outside = tmp_path / "src", tmp_path / "dst", tmp_path / "outside"
+    (src / "sub").mkdir(parents=True)
+    (src / "sub/f").write_text("inside")
+    outside.mkdir()
+    (outside / "secret").write_text("host")
+    real = os.stat
+    swapped = []
 
-    def fake(src, dst, **kw):
-        seen.update(kw)
-    monkeypatch.setattr(rehearse.shutil, "copytree", fake)
-    rehearse.copy_data(tmp_path, tmp_path / "dst", ())
-    assert seen["copy_function"] is rehearse.safefs.copy_regular
+    def stat(name, *a, **k):
+        r = real(name, *a, **k)         # seen as a directory ...
+        if name == "sub" and not swapped:
+            swapped.append(1)           # ... then swapped before the descent
+            os.rename(src / "sub", tmp_path / "moved")
+            os.symlink(outside, src / "sub")
+        return r
+    monkeypatch.setattr(rehearse.os, "stat", stat)
+    rehearse.copy_data(src, dst, ())
+    assert swapped
+    assert not list(dst.rglob("secret")) and not (dst / "sub").exists()
+
+
+def test_copy_never_opens_a_file_swapped_for_a_symlink(tmp_path, monkeypatch):
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    src.mkdir()
+    (src / "f").write_text("x")
+    (tmp_path / "secret").write_text("host")
+    real = os.scandir
+
+    def scandir(fd):
+        if not isinstance(fd, int):
+            return real(fd)
+        entries = list(real(fd))
+        (src / "f").unlink()
+        os.symlink(tmp_path / "secret", src / "f")
+        return iter(entries)
+    monkeypatch.setattr(rehearse.os, "scandir", scandir)
+    rehearse.copy_data(src, dst, ())
+    assert not (dst / "f").exists() or os.path.islink(dst / "f")
+
+
+def test_copy_keeps_directory_modes_and_skips_special_files(tmp_path):
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    (src / "d/e").mkdir(parents=True)
+    (src / "d/e/f").write_text("x")
+    (src / "d").chmod(0o750)
+    os.mkfifo(src / "pipe")
+    rehearse.copy_data(src, dst, ())
+    assert (dst / "d/e/f").read_text() == "x"
+    assert (dst / "d").stat().st_mode & 0o777 == 0o750
+    assert not (dst / "pipe").exists()
+
+
+def test_copy_excludes_nested_relative_paths(tmp_path):
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    (src / "home/.cache").mkdir(parents=True)
+    (src / "home/.cache/x").write_text("x")
+    (src / "home/keep").write_text("k")
+    rehearse.copy_data(src, dst, ("home/.cache",))
+    assert (dst / "home/keep").exists() and not (dst / "home/.cache").exists()
+
+
+def _db(path):
+    c = sqlite3.connect(path)
+    c.execute("CREATE TABLE t (x)")
+    c.commit()
+    c.close()
+
+
+def test_sqlite_copy_detects_a_swap(tmp_path, monkeypatch):
+    src, dst = tmp_path / "s.db", tmp_path / "d.db"
+    _db(src)
+    dst.write_text("copy")
+    real_connect = sqlite3.connect
+
+    class Swap(sqlite3.Connection):
+        def backup(self, target, **kw):
+            super().backup(target, **kw)
+            other = tmp_path / "other.db"
+            _db(other)
+            os.replace(other, src)          # a different inode now sits at src
+
+    def connect(target, **kw):
+        if "mode=ro" in str(target):
+            kw["factory"] = Swap
+        return real_connect(target, **kw)
+    monkeypatch.setattr(rehearse.sqlite3, "connect", connect)
+    with pytest.raises(OSError, match="changed during the copy"):
+        rehearse._sqlite_copy(src, dst)
+    assert not dst.exists()
+
 

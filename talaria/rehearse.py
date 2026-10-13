@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import os
 import shutil
 import sqlite3
@@ -32,25 +33,54 @@ class Permanent(Exception):
         self.details = list(details)
 
 
+_SWAPPED = (errno.ELOOP, errno.ENOTDIR, errno.ENOENT, errno.EINVAL)
+
+
+def _copy_dir(fd: int, dst: str, rel: str, excludes) -> None:
+    """Copy the directory open as `fd` into the new directory `dst`. The data dir is writable
+    by the app while this runs: every descent and open goes through an fd with O_NOFOLLOW,
+    so a component swapped for a symlink since it was listed is skipped, never followed."""
+    for entry in list(os.scandir(fd)):
+        name = entry.name
+        sub = name if not rel else f"{rel}/{name}"
+        if excluded(sub, excludes) or name.endswith(("-wal", "-shm")):
+            continue
+        try:
+            mode = os.stat(name, dir_fd=fd, follow_symlinks=False).st_mode
+        except FileNotFoundError:        # production is running: files come and go
+            continue
+        target = os.path.join(dst, name)
+        try:
+            if stat.S_ISDIR(mode):
+                cfd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                try:
+                    st = os.fstat(cfd)
+                    os.mkdir(target, 0o700)
+                    _copy_dir(cfd, target, sub, excludes)
+                    os.chmod(target, stat.S_IMODE(st.st_mode))
+                    os.utime(target, ns=(st.st_atime_ns, st.st_mtime_ns))
+                finally:
+                    os.close(cfd)
+            elif stat.S_ISREG(mode):
+                safefs.copy_regular_at(fd, name, target)
+            elif stat.S_ISLNK(mode):
+                os.symlink(os.readlink(name, dir_fd=fd), target)
+        except OSError as e:
+            if e.errno not in _SWAPPED:
+                raise
+
+
 def copy_data(src: Path, dst: Path, excludes) -> None:
     src = Path(src)
-
-    def ignore(dirpath, names):
-        rel_dir = os.path.relpath(dirpath, src)
-        skip = []
-        for n in names:
-            rel = n if rel_dir == "." else f"{rel_dir}/{n}"
-            try:
-                mode = os.lstat(os.path.join(dirpath, n)).st_mode
-            except FileNotFoundError:        # production is running: files come and go
-                skip.append(n)
-                continue
-            if (excluded(rel, excludes) or n.endswith(("-wal", "-shm"))
-                    or not (stat.S_ISDIR(mode) or stat.S_ISREG(mode) or stat.S_ISLNK(mode))):
-                skip.append(n)
-        return skip
-
-    shutil.copytree(src, dst, symlinks=True, ignore=ignore, copy_function=safefs.copy_regular)
+    fd = os.open(src, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        st = os.fstat(fd)
+        os.makedirs(dst, mode=0o700)
+        _copy_dir(fd, str(dst), "", excludes)
+        os.chmod(dst, stat.S_IMODE(st.st_mode))
+        os.utime(dst, ns=(st.st_atime_ns, st.st_mtime_ns))
+    finally:
+        os.close(fd)
     for root, dirs, files in os.walk(dst):
         for f in files:
             p = Path(root) / f
@@ -64,17 +94,28 @@ def copy_data(src: Path, dst: Path, excludes) -> None:
 
 def _sqlite_copy(src: Path, dst: Path) -> None:
     dst.unlink()
-    if not safefs.is_regular(src):      # a FIFO swapped in since the scan would block sqlite
-        raise OSError(f"not a regular file: {src}")
-    # equivalent mutants: sqlite accepts file: URIs without uri=True; PRAGMA is case-insensitive
-    s = sqlite3.connect(f"file:{src}?mode=ro", uri=True)  # pragma: no mutate
-    d = sqlite3.connect(dst)
+    # O_NONBLOCK: a FIFO swapped in since the scan would block sqlite (and open)
+    fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
-        s.execute("PRAGMA trusted_schema=OFF")  # pragma: no mutate
-        s.backup(d)
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise OSError(f"not a regular file: {src}")
+        # equivalent mutants: sqlite accepts file: URIs without uri=True; PRAGMA is case-insensitive
+        s = sqlite3.connect(f"file:{src}?mode=ro", uri=True)  # pragma: no mutate
+        d = sqlite3.connect(dst)
+        try:
+            s.execute("PRAGMA trusted_schema=OFF")  # pragma: no mutate
+            s.backup(d)
+        finally:
+            d.close()
+            s.close()
+        # sqlite opens by path: a swap cannot be prevented, only detected
+        now = os.lstat(src)
+        if not stat.S_ISREG(now.st_mode) or (now.st_dev, now.st_ino) != (before.st_dev, before.st_ino):
+            dst.unlink(missing_ok=True)
+            raise OSError(f"{src} changed during the copy")
     finally:
-        d.close()
-        s.close()
+        os.close(fd)
 
 
 def candidate_message(ctx, st, report: dict, replaced: str | None) -> Message:
@@ -85,6 +126,9 @@ def candidate_message(ctx, st, report: dict, replaced: str | None) -> Message:
         lines.append(f"Release notes: {ctx.conf.repo}/releases/tag/{tag}")
     app_lines, blocks = ctx.app.report_lines(ctx, report)
     lines += app_lines
+    provenance = ((st.get("pending") or {}).get("image") or {}).get("provenance") or ""
+    if provenance.startswith("sha256 only"):
+        lines.append(f"Build provenance not verified: {provenance[len('sha256 only ('):-1]}.")
     if replaced:
         lines.append(f"Replaces the pending {replaced}.")
     return Message("\n".join(lines), untrusted=blocks,

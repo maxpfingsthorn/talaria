@@ -43,7 +43,7 @@ def check(ctx, st: dict) -> None:
     try:
         git = releases(ctx)
         reg = ctx.app.published(ctx, list(git))
-    except CommandError as e:
+    except (CommandError, ValueError) as e:     # ValueError: a tag list that may be cut
         st["check_failures"] = st.get("check_failures", 0) + 1
         if st["check_failures"] == 3:
             ctx.notify.send(Message(f"Talaria could not check for releases for 3 days: {e}"))

@@ -246,7 +246,8 @@ class Gbrain(App):
             if got != want:
                 raise RevisionMismatch(f"{tag}: {ASSET} failed verification (sha256 {got[:12]}… "
                                        f"is not the published {want[:12]}…)")
-            if attestation_unavailable(ctx) is None:
+            why = attestation_unavailable(ctx)
+            if why is None:
                 r = ctx.sh.run(["gh", "attestation", "verify", str(work / "gbrain"), "-R",
                                 github_repo(ctx.conf.repo)], check=False, timeout=300)
                 if r.returncode != 0:
@@ -263,13 +264,14 @@ class Gbrain(App):
                              timeout=1800).stdout.strip().splitlines()[-1]
         finally:
             shutil.rmtree(work, ignore_errors=True)
+        provenance = "sha256+attestation" if why is None else f"sha256 only ({why})"
         out = ctx.sh.run(["podman", "run", "--rm", "--network=none", iid, "--version"],
                          timeout=120).stdout
         m = re.search(r"\bgbrain (\d+(?:\.\d+){3})\b", out)
         if not m or m[1] != tag[1:]:
             raise RevisionMismatch(f"{tag}: the binary reports version {m[1] if m else '?'}")
         return {"tag": tag, "id": iid, "digest": f"sha256:{got}", "ref": f"build:{tag}",
-                "commit": commit}
+                "commit": commit, "provenance": provenance}
 
     def reacquire(self, ctx, rec: dict) -> None:
         self.fetch(ctx, rec["tag"], rec.get("commit") or "")

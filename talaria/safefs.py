@@ -41,8 +41,17 @@ def is_regular(path: Path) -> bool:
 
 def copy_regular(src, dst, *, follow_symlinks: bool = True) -> str:
     """copy_function for shutil.copytree: refuses anything but a regular file at src."""
+    return _copy_regular(src, None, dst)
+
+
+def copy_regular_at(dir_fd: int, name: str, dst) -> str:
+    """copy_regular for the entry `name` of an open directory: no path is re-resolved."""
+    return _copy_regular(name, dir_fd, dst)
+
+
+def _copy_regular(src, dir_fd, dst) -> str:
     # O_NONBLOCK: opening a FIFO that was swapped in after the scan must not wait for a writer
-    sfd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    sfd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
     try:
         st = os.fstat(sfd)
         if not stat.S_ISREG(st.st_mode):
