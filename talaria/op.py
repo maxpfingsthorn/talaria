@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import re
 import sys
 
 from talaria import __version__, cli, rollback, selfupdate, state, status, units
@@ -18,6 +19,7 @@ from talaria.shell import CommandError
 from talaria.tags import semver_newer
 
 PROTOCOL = 1
+COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 OPS = ("status", "backups", "check", "maintain", "deploy", "reject", "rollback", "restore", "button",
        "hello", "interrupted", "self-update", "quadlet", "login-link")
 STALE = "Out of date — send /status"
@@ -56,6 +58,12 @@ def _oauth_request(v: str) -> str:
     return v
 
 
+def _commit(v: str) -> str:
+    if not COMMIT_RE.match(v):
+        raise argparse.ArgumentTypeError("not a full lowercase git commit id")
+    return v
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="talaria op", add_help=False, allow_abbrev=False)  # pragma: no mutate  (None == False; prog and help=True are pinned by test_hub_survivors)
     sub = p.add_subparsers(dest="op", required=True)  # pragma: no mutate  (op is always given: main checks OPS first)
@@ -77,6 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = add("self-update")              # must stay accepted by every later version (§4.2)
     s.add_argument("tag", type=cli._semver)
     s.add_argument("--dry-run", action="store_true")
+    s.add_argument("--commit", type=_commit)   # optional: a v0.7.2 hub does not send it
     add("quadlet")                      # read-only; used by `self-update --dry-run`
     add("login-link").add_argument("--oauth-request", type=_oauth_request)
     return p
@@ -134,7 +143,7 @@ def _self_update(ctx, args, out) -> int:
         emit(out, "reply", text=f"would restart: {'yes' if restart else 'no'}", buttons=[],
              restart=restart)
         return 0
-    rc = selfupdate.self_update(ctx, args.tag)
+    rc = selfupdate.self_update(ctx, args.tag, commit=args.commit)
     texts = {0: f"Talaria {args.tag} installed.", cli.EXIT_BUSY: "busy: an operation is running"}
     _reply(out, texts.get(rc, f"self-update failed (exit {rc}); details in the journal"))
     return rc

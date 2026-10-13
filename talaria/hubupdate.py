@@ -10,9 +10,12 @@ import time
 from talaria import __version__, lock, relay
 from talaria.hubexec import NoAnswer, Unreachable
 from talaria.notify import Message
-from talaria.selfupdate import fetch_tag
+from talaria.selfupdate import fetch_tag, tag_commit
 from talaria.shell import CommandError
 from talaria.state import ensure_dir
+from talaria.tags import SEMVER, semver_newer
+
+FIRST_PIN_RELEASE = "v0.7.3"     # the first app release that accepts `--commit`
 
 
 def would_restart(entry, tag: str) -> str:
@@ -69,10 +72,17 @@ def _exit_text(entry, rc) -> str:
     return f"exit {rc}: {line}" if line else f"exit {rc}"
 
 
-def _update_app(entry, tag: str) -> tuple[bool, str]:
+def _knows_pin(entry) -> bool:
+    """Older apps refuse unknown op arguments, so the commit goes only to a known new one."""
+    v = relay.version(entry)
+    return bool(v) and bool(SEMVER.match(f"v{v}")) and not semver_newer(FIRST_PIN_RELEASE, f"v{v}")
+
+
+def _update_app(entry, tag: str, pin: str | None) -> tuple[bool, str]:
     last = ""  # pragma: no mutate  (only used through `last or ...`)
+    argv = ["self-update", tag] + (["--commit", pin] if pin and _knows_pin(entry) else [])
     try:
-        for d in entry.executor.stream(["self-update", tag]):
+        for d in entry.executor.stream(argv):
             if d.get("kind") == "reply":
                 last = str(d.get("text") or "")
     except Unreachable:
@@ -96,12 +106,14 @@ def self_update(hub, tag: str) -> int:
 def _self_update(hub, tag: str) -> int:
     ctx = hub.ctx
     retry = tag == f"v{__version__}"   # the hub already runs it: only lagging apps need it
+    d = str(ctx.paths.install_dir)
+    pin = None
     if not hub.transitional and not retry:      # in transitional mode the hub's install is the app's
-        d = str(ctx.paths.install_dir)
         try:
             prev = ctx.sh.run(["git", "-C", d, "rev-parse", "HEAD"]).stdout.strip()
             fetch_tag(ctx.sh, d, tag)
             ctx.sh.run(["git", "-C", d, "checkout", "-q", tag])
+            pin = tag_commit(ctx.sh, d, tag)
         except CommandError as e:
             return _stop(ctx, f"Talaria {tag} was not installed: the hub could not check it "
                               f"out ({e}). Nothing changed.")
@@ -123,11 +135,17 @@ def _self_update(hub, tag: str) -> int:
             return _stop(ctx, f"Talaria {tag}: the hub's setup {why}; the previous version "
                               f"was restored{both} and the apps were not updated. Details "
                               "in the journal.")
+    else:
+        try:
+            pin = tag_commit(ctx.sh, d, tag)
+        except CommandError:
+            pass
     todo = [e for e in hub.apps.values() if not retry or relay.lagging(e)]
     if retry and not todo:
         ctx.notify.send(Message(f"Talaria {tag}: no app lags behind; nothing to do."))
         return 0
-    results = [_update_app(e, tag) for e in todo]
+    results = [_update_app(e, tag, pin) for e in todo]
     ctx.sh.run(["systemctl", "--user", "restart", "talaria-telegram.service"], check=False)
-    ctx.notify.send(Message(f"Talaria {tag} installed: " + " · ".join(t for _, t in results)))
+    at = f" (commit {pin[:12]})" if pin else ""
+    ctx.notify.send(Message(f"Talaria {tag} installed{at}: " + " · ".join(t for _, t in results)))
     return 0 if all(ok for ok, _ in results) else 1

@@ -191,3 +191,39 @@ def test_dry_run_clears_a_leftover_worktree(dry):
     ctx.sh.on(str(wt / "bin/talaria"), out=quadlet_reply("OLD\n"))
     selfupdate.dry_run(ctx, "v0.6.0")
     assert not (wt / "junk").exists()
+
+
+SHA = "0123456789abcdef0123456789abcdef01234567"
+
+
+def test_tag_commit_peels_the_tag(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("git", out=SHA + "\n")
+    assert selfupdate.tag_commit(ctx.sh, "/i", "v0.6.1") == SHA
+    assert ctx.sh.calls == [["git", "-C", "/i", "rev-parse", "--verify", "-q",
+                             "refs/tags/v0.6.1^{commit}"]]
+
+
+def test_self_update_refuses_a_different_commit(tmp_path, capsys):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("git", out="f" * 40 + "\n").on(str(ctx.paths.bin_link))
+    assert selfupdate.self_update(ctx, "v0.6.1", SHA) == 1
+    assert capsys.readouterr().err == (f"self-update refused: v0.6.1 is {'f' * 12} here, the "
+                                       f"hub installed {SHA[:12]}\n")
+    assert not any("checkout" in c for c in ctx.sh.calls)
+    assert not ctx.sh.called(str(ctx.paths.bin_link))
+
+
+def test_self_update_with_the_matching_commit_proceeds(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("git", out=SHA + "\n").on(str(ctx.paths.bin_link))
+    assert selfupdate.self_update(ctx, "v0.6.1", SHA) == 0
+    assert ["git", "-C", str(ctx.paths.install_dir), "checkout", "-q", "v0.6.1"] in ctx.sh.calls
+
+
+def test_self_update_refuses_when_the_tag_cannot_be_resolved(tmp_path, capsys):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("git", out="")
+    assert selfupdate.self_update(ctx, "v0.6.1", SHA) == 1
+    assert "self-update refused" in capsys.readouterr().err
+    assert not any("checkout" in c for c in ctx.sh.calls)
