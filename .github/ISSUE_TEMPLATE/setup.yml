@@ -1,0 +1,46 @@
+name: Setup is stuck
+description: "`talaria setup` stops, or keeps asking for the same thing."
+labels: [setup]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before you paste anything, remove host names, IP addresses, user and chat IDs, tokens and keys.
+  - type: dropdown
+    id: app
+    attributes:
+      label: App
+      options: [Hermes, Clawvisor, gbrain, the hub only]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Talaria version
+      description: The tag you checked out, e.g. v0.7.3.
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Distribution and release, `podman --version`, and amd64 or arm64.
+      placeholder: Ubuntu 24.04, podman 4.9.3, amd64
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Setup output
+      description: The full output of the last `bin/talaria setup` run, including its STOP, MISSING or ACTION REQUIRED lines.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you tried
+  - type: input
+    id: found
+    attributes:
+      label: How did you find Talaria? (optional)
