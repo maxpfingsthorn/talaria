@@ -22,7 +22,7 @@ def key(t: str) -> tuple[int, int, int, int]:
 
 def releases(ctx) -> dict[str, str]:
     """ctx.app.releases(ctx), narrowed to ctx.conf.release_allow when that test-only key
-    is set (spec §10). Used by check.check and setup._fresh_image; rehearse_tag (an
+    is set. Used by check.check and setup._fresh_image; rehearse_tag (an
     explicit tag) stays unfiltered."""
     git = ctx.app.releases(ctx)
     if ctx.conf.release_allow:

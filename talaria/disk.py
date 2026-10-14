@@ -46,7 +46,7 @@ NOT_RENAMABLE = ("the data dir {} is a mount point or on another filesystem than
 
 
 def renamable(path) -> bool:
-    """Restore swaps the data dir by renaming it next to itself (§9.2)."""
+    """Restore swaps the data dir by renaming it next to itself."""
     p = Path(path)
     if not p.exists():
         return True

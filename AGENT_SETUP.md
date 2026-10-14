@@ -43,12 +43,12 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
     themselves, in their own terminal, as the service user, or to send `/login clawvisor`
     to the bot, and use the link directly; the agent runs neither.
     The dashboard must be opened over HTTPS or an SSH tunnel to `http://127.0.0.1:<port>`
-    (plain http to another address logs out at once); see the README's Clawvisor section.
+    (plain http to another address logs out at once); see docs/apps/clawvisor.md.
 11. Tell the person to run setup from their own login account with `--app X --user X`
     (never from an app account or the hub account; setup stops if the login account is the
     hub, the app user, or already holds a Talaria config).
     For a Clawvisor install that Hermes must reach, ask the person which networking
-    option from the README's Clawvisor section to use: dummy NIC (recommended; needs
+    option from docs/apps/clawvisor.md to use: dummy NIC (recommended; needs
     root, so the person runs that snippet), Tailscale, or host loopback (no root, but
     exposes all host-loopback services to the Hermes container). Edit only the
     `talaria.conf` of the user you run as; for the other app, tell the person which line
@@ -63,8 +63,8 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
 11a. For a gbrain install:
     - Run setup first: it writes `talaria.conf` and STOPs asking for `dashboard.public_url`.
       Ask the person for the https address MCP connectors will use, add it as
-      `dashboard.public_url` (e.g. `https://<host>.<tailnet>.ts.net`, port 443; see README:
-      gbrain) to `talaria.conf`, and run setup again.
+      `dashboard.public_url` (e.g. `https://<host>.<tailnet>.ts.net`, port 443; see
+      docs/apps/gbrain.md) to `talaria.conf`, and run setup again.
     - **The agent never sees provider keys; the person adds them.** Tell the person to add
       them (e.g. `OPENROUTER_API_KEY=…`) to `~gbrain/.config/talaria/gbrain.env` themselves,
       in their own terminal and editor as the service user, then restart `gbrain.service`
@@ -72,10 +72,10 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
       `grep` or copy that file, and never ask for a key in the chat. The same file holds
       the admin token (`GBRAIN_ADMIN_BOOTSTRAP_TOKEN`); the same rules apply. Model tiers
       are gbrain's own config (`gbrain config`); with a non-Anthropic provider the person
-      sets them to that provider's model ids (README, "gbrain").
-    - Public access is Tailscale Serve and Funnel, configured by the person as root (README:
+      sets them to that provider's model ids (docs/apps/gbrain.md).
+    - Public access is Tailscale Serve and Funnel, configured by the person as root (docs/apps/gbrain.md:
       "Public MCP endpoints with Tailscale Serve and Funnel"). Show the commands (including the
-      `tools/tailscale-admin-redirect.py` for `/admin` on 443, run by the person with `sudo python3 -I` from their own clone at the release tag, README); never run them.
+      `tools/tailscale-admin-redirect.py` for `/admin` on 443, run by the person with `sudo python3 -I` from their own clone at the release tag, docs/apps/gbrain.md); never run them.
       Explain that only the connector paths become public and that `/register` lets
       anyone create a pending client the person must approve.
     - The person logs in with `/login gbrain` in the bot (or the token in `/admin`), adds the connectors in claude.ai or ChatGPT and
