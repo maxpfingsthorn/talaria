@@ -68,6 +68,7 @@ def test_02_offer_shows_the_schema_change_and_deploys(gb_env):
 
 
 def test_03_login_sends_a_single_use_admin_link(gb_env):
+    since = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     tg = gb_env["app"].telegram
     tg.wait_polling()
     tg.inject("/login gbrain")
@@ -77,14 +78,17 @@ def test_03_login_sends_a_single_use_admin_link(gb_env):
     assert tg.previews[tg.sent.index(link)] is True
     req = "ab12" * 16
     tg.inject(f"/login gbrain https://brain.example.invalid/admin/consent?oauth_request={req}&x=1")
-    link = tg.wait_sent("/admin/auth/")
-    assert f"?oauth_request={req}" in link
-    assert tg.previews[tg.sent.index(link)] is True
+    link2 = tg.wait_sent("/admin/auth/")
+    assert f"?oauth_request={req}" in link2
+    assert tg.previews[tg.sent.index(link2)] is True
     assert not tg.edits     # the 300 s expiry is covered by unit tests
-    # the one-time token must not leak into the journals (hub bot, gbrain account, system)
-    token = link.split("/admin/auth/", 1)[1][:64]
-    log = sh("sudo", "journalctl", "--no-pager", "-o", "cat", check=False).stdout
-    assert token not in log
+    # the one-time tokens must not leak into the journals (hub bot, gbrain account, system)
+    tokens = [x.split("/admin/auth/", 1)[1][:64] for x in (link, link2)]
+    assert len(set(tokens)) == 2 and all(len(t) == 64 for t in tokens)
+    log = sh("sudo", "journalctl", "--no-pager", "-o", "cat", "--since", since).stdout
+    # positive control: sudo logs the hub's op call, so this proves the journal was read
+    assert "op login-link" in log
+    assert not any(t in log for t in tokens)
 
 
 def test_04_maintenance_runs_dream_and_restarts(gb_env):

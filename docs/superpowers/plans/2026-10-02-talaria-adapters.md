@@ -1,5 +1,7 @@
 # Talaria app adapters and Clawvisor — Implementation Plan
 
+> Historical: written for Talaria v0.3-v0.4; paths and test names may have changed since (e.g. helpers/ → tools/).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Move everything Hermes-specific in Talaria behind an `App` adapter without changing Hermes behaviour (v0.3.0), add a Clawvisor adapter (v0.4.0), then roll Clawvisor out on this host and connect Hermes to it.

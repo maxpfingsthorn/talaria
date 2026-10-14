@@ -8,9 +8,12 @@ from talaria import __version__
 from talaria.hubexec import NoAnswer, Unreachable
 from talaria.notify import Message
 from talaria.op import PROTOCOL
+from talaria.tags import semver_newer
 
 VERSIONS = "Talaria versions differ on this host; run /update"
 SKEW = "Talaria on this app is not at the hub's version; /update retries it"   # a note, nothing blocks
+AHEAD = "Talaria on this app (v{ver}) is newer than the hub's; /update v{ver} brings the hub up to it"
+AHEAD_START = AHEAD.partition("{")[0]
 
 
 def unreachable_text(title: str) -> str:
@@ -69,9 +72,9 @@ def quick(entry, argv: list[str], timeout: float = 60) -> tuple[str, list]:
     return "", []
 
 
-def hello(entry) -> str | None:
+def hello(entry, timeout: float = 60) -> str | None:
     try:
-        lines = entry.executor.call(["hello"])
+        lines = entry.executor.call(["hello"], timeout=timeout)
     except Unreachable:
         return unreachable_text(entry.title)
     except NoAnswer:
@@ -79,7 +82,9 @@ def hello(entry) -> str | None:
     h = next((d for d in lines if d.get("kind") == "hello" and d.get("protocol") == PROTOCOL), None)
     if h is not None:
         v = h.get("version")  # absent before v0.5: protocol is all there is to compare
-        return SKEW if isinstance(v, str) and v != __version__ else None
+        if not isinstance(v, str) or v == __version__:
+            return None
+        return AHEAD.format(ver=v) if semver_newer(f"v{v}", f"v{__version__}") else SKEW
     if entry.executor.returncode and getattr(entry.executor, "stderr_line", ""):
         return f"{VERSIONS} ({failed_text(entry, 'hello')})"
     return VERSIONS
@@ -119,14 +124,28 @@ def lagging(entry) -> bool:
 
 
 def with_skew(text: str) -> str:
-    return f"{text}\n({SKEW})"
+    return with_note(text, SKEW)
 
 
-def status_texts(hub, mismatch=frozenset(), skewed=frozenset()) -> dict[str, str]:
-    """Each app's status block, by app name (empty when the app said nothing)."""
-    return {name: f"{e.title}: {VERSIONS}" if name in mismatch else
-            with_skew(quick(e, ["status"])[0]) if name in skewed else quick(e, ["status"])[0]
-            for name, e in hub.apps.items()}
+def with_note(text: str, note: str) -> str:
+    return f"{text}\n({note})"
+
+
+def status_texts(hub, mismatch=frozenset(), skewed=frozenset(), texts=None, notes=None) -> dict[str, str]:
+    """Each app's status block, by app name (empty when the app said nothing). `texts` holds
+    ready blocks that replace asking the app; `notes` adds a parenthesised line to an app's."""
+    texts, notes = texts or {}, notes or {}
+    out = {}
+    for name, e in hub.apps.items():
+        if name in texts:
+            out[name] = texts[name]
+        elif name in mismatch:
+            out[name] = f"{e.title}: {VERSIONS}"
+        else:
+            note = SKEW if name in skewed else notes.get(name)
+            text = quick(e, ["status"])[0]
+            out[name] = with_note(text, note) if note else text
+    return out
 
 
 def is_running(text: str) -> bool:

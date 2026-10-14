@@ -199,3 +199,11 @@ def test_manual_check_sends_no_lag_reminder(h2):
     ex(h2, "clawvisor").on("hello", lines=[{**hello(app="clawvisor"), "version": "0.0.1"}])
     hubcheck.check(h2, timer=False)
     assert h2.ctx.notify.texts() == ["hermes checked", "clawvisor checked"]
+
+
+def test_timer_reminder_for_an_app_ahead_has_no_update_hint(h2):
+    ex(h2, "clawvisor").on("hello", lines=[{**hello(app="clawvisor"), "version": "99.0.0"}])
+    hubcheck.check(h2, timer=True)
+    assert ("clawvisor", "stream", ("check", "--timer")) in h2.log
+    assert h2.ctx.notify.texts() == [
+        "hermes checked", f"Clawvisor: {relay.AHEAD.format(ver='99.0.0')}.", "clawvisor checked"]

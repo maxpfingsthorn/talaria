@@ -1,5 +1,7 @@
 # Talaria — one bot for all apps on a host (hub design)
 
+> Historical: written for Talaria v0.5; paths and test names may have changed since (e.g. helpers/ → tools/).
+
 Date: 2026-10-07
 Status: design approved in conversation by the owner (2026-10-07); spec under review
 Supersedes: the "one bot for several installs" exclusion in

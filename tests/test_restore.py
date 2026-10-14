@@ -90,13 +90,13 @@ def test_move_missing_cases(tmp_path):
     (dst / "a/keep.txt").write_text("dst version")
     (dst / "file_vs_dir").mkdir()
     (dst / "linkdir").mkdir()
-    restore._move_missing(src / "a", dst / "a")
-    restore._move_missing(src / "file_vs_dir", dst / "file_vs_dir")
-    restore._move_missing(src / "linkdir", dst / "linkdir")
-    restore._move_missing(src / "missing", dst / "missing")
+    restore._move_missing(src / "a", dst / "a", dst)
+    restore._move_missing(src / "file_vs_dir", dst / "file_vs_dir", dst)
+    restore._move_missing(src / "linkdir", dst / "linkdir", dst)
+    restore._move_missing(src / "missing", dst / "missing", dst)
     (src / "fresh").mkdir()
     (src / "fresh/f.txt").write_text("f")
-    restore._move_missing(src / "fresh", dst / "deep/er/fresh")
+    restore._move_missing(src / "fresh", dst / "deep/er/fresh", dst)
     assert (dst / "a/keep.txt").read_text() == "dst version"
     assert (dst / "a/b/new.txt").read_text() == "n"
     assert (dst / "file_vs_dir").is_dir() and (src / "file_vs_dir").exists()
@@ -110,7 +110,7 @@ def test_move_missing_dangling_symlink_is_moved(tmp_path):
     src.mkdir()
     dst.mkdir()
     (src / "dangling").symlink_to(tmp_path / "nowhere")
-    restore._move_missing(src / "dangling", dst / "dangling")
+    restore._move_missing(src / "dangling", dst / "dangling", dst)
     assert (dst / "dangling").is_symlink()
 
 

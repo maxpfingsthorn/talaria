@@ -1,3 +1,4 @@
+import errno
 import os
 import sqlite3
 import shutil
@@ -337,10 +338,11 @@ def test_copy_data_skips_file_that_vanishes(tmp_path, monkeypatch):
     src.mkdir()
     (src / "gone.txt").write_text("x")
     (src / "stays.txt").write_text("y")
-    real = os.lstat
-    monkeypatch.setattr(rehearse.os, "lstat",
-                        lambda p, *a, **k: (_ for _ in ()).throw(FileNotFoundError(p))
-                        if str(p).endswith("gone.txt") else real(p, *a, **k))
+    real = os.stat
+    gone = FileNotFoundError(errno.ENOENT, "No such file or directory", "gone.txt")
+    monkeypatch.setattr(rehearse.os, "stat",     # only the walk's stat, which goes by dir fd
+                        lambda p, *a, **k: (_ for _ in ()).throw(gone)
+                        if "dir_fd" in k and str(p) == "gone.txt" else real(p, *a, **k))
     rehearse.copy_data(src, dst, ())
     assert (dst / "stays.txt").exists() and not (dst / "gone.txt").exists()
 
@@ -463,12 +465,138 @@ def test_candidate_message_replaced_and_no_doctor_problems(happy):
     assert m.untrusted == []
 
 
-def test_copy_data_uses_the_non_following_copy_function(tmp_path, monkeypatch):
-    seen = {}
+def test_copy_never_follows_a_dir_swapped_for_a_symlink(tmp_path, monkeypatch):
+    src, dst, outside = tmp_path / "src", tmp_path / "dst", tmp_path / "outside"
+    (src / "sub").mkdir(parents=True)
+    (src / "sub/f").write_text("inside")
+    outside.mkdir()
+    (outside / "secret").write_text("host")
+    real = os.stat
+    swapped = []
 
-    def fake(src, dst, **kw):
-        seen.update(kw)
-    monkeypatch.setattr(rehearse.shutil, "copytree", fake)
-    rehearse.copy_data(tmp_path, tmp_path / "dst", ())
-    assert seen["copy_function"] is rehearse.safefs.copy_regular
+    def stat(name, *a, **k):
+        r = real(name, *a, **k)         # seen as a directory ...
+        if name == "sub" and not swapped:
+            swapped.append(1)           # ... then swapped before the descent
+            os.rename(src / "sub", tmp_path / "moved")
+            os.symlink(outside, src / "sub")
+        return r
+    monkeypatch.setattr(rehearse.os, "stat", stat)
+    rehearse.copy_data(src, dst, ())
+    assert swapped
+    assert not list(dst.rglob("secret")) and not (dst / "sub").exists()
 
+
+def test_copy_never_opens_a_file_swapped_for_a_symlink(tmp_path, monkeypatch):
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    src.mkdir()
+    (src / "f").write_text("x")
+    (tmp_path / "secret").write_text("host")
+    real = os.scandir
+
+    def scandir(fd):
+        if not isinstance(fd, int):
+            return real(fd)
+        entries = list(real(fd))
+        (src / "f").unlink()
+        os.symlink(tmp_path / "secret", src / "f")
+        return iter(entries)
+    monkeypatch.setattr(rehearse.os, "scandir", scandir)
+    rehearse.copy_data(src, dst, ())
+    assert not (dst / "f").exists() or os.path.islink(dst / "f")
+
+
+def test_copy_keeps_directory_modes_and_skips_special_files(tmp_path):
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    (src / "d/e").mkdir(parents=True)
+    (src / "d/e/f").write_text("x")
+    (src / "d").chmod(0o750)
+    os.mkfifo(src / "pipe")
+    rehearse.copy_data(src, dst, ())
+    assert (dst / "d/e/f").read_text() == "x"
+    assert (dst / "d").stat().st_mode & 0o777 == 0o750
+    assert not (dst / "pipe").exists()
+
+
+def test_copy_excludes_nested_relative_paths(tmp_path):
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    (src / "home/.cache").mkdir(parents=True)
+    (src / "home/.cache/x").write_text("x")
+    (src / "home/keep").write_text("k")
+    rehearse.copy_data(src, dst, ("home/.cache",))
+    assert (dst / "home/keep").exists() and not (dst / "home/.cache").exists()
+
+
+def _db(path):
+    c = sqlite3.connect(path)
+    c.execute("CREATE TABLE t (x)")
+    c.commit()
+    c.close()
+
+
+def test_sqlite_copy_detects_a_swap(tmp_path, monkeypatch):
+    src, dst = tmp_path / "s.db", tmp_path / "d.db"
+    _db(src)
+    dst.write_text("copy")
+    real_connect = sqlite3.connect
+
+    class Swap(sqlite3.Connection):
+        def backup(self, target, **kw):
+            super().backup(target, **kw)
+            other = tmp_path / "other.db"
+            _db(other)
+            os.replace(other, src)          # a different inode now sits at src
+
+    def connect(target, **kw):
+        if "mode=ro" in str(target):
+            kw["factory"] = Swap
+        return real_connect(target, **kw)
+    monkeypatch.setattr(rehearse.sqlite3, "connect", connect)
+    with pytest.raises(OSError, match="changed during the copy"):
+        rehearse._sqlite_copy(src, dst, tmp_path)
+    assert not dst.exists()
+
+
+
+
+def test_sqlite_copy_refuses_a_parent_dir_swapped_for_a_symlink(tmp_path):
+    root, outside = tmp_path / "data", tmp_path / "outside"
+    (root / "sub").mkdir(parents=True)
+    outside.mkdir()
+    _db(outside / "s.db")
+    dst = tmp_path / "d.db"
+    dst.write_text("copy")
+    os.rmdir(root / "sub")
+    os.symlink(outside, root / "sub")       # swapped since the walk copied sub/s.db
+    with pytest.raises(OSError, match="changed during the copy"):
+        rehearse._sqlite_copy(root / "sub" / "s.db", dst, root)
+    assert not dst.exists()
+
+
+def test_sqlite_copy_refuses_a_file_sqlite_did_not_open(tmp_path, monkeypatch):
+    """A parent swapped to a symlink and back around connect(): sqlite holds another file."""
+    root = tmp_path / "data"
+    root.mkdir()
+    _db(root / "s.db")
+    dst = tmp_path / "d.db"
+    dst.write_text("copy")
+    monkeypatch.setattr(rehearse, "_holds", lambda ident, skip: False)
+    with pytest.raises(OSError, match="changed during the copy"):
+        rehearse._sqlite_copy(root / "s.db", dst, root)
+    assert not dst.exists()
+
+
+def test_holds_finds_another_fd_on_the_same_file(tmp_path):
+    f = tmp_path / "x"
+    f.write_text("x")
+    a, b = os.open(f, os.O_RDONLY), os.open(f, os.O_RDONLY)
+    try:
+        st = os.fstat(a)
+        assert rehearse._holds((st.st_dev, st.st_ino), a)
+        os.close(b)
+        b = -1
+        assert not rehearse._holds((st.st_dev, st.st_ino), a)
+    finally:
+        os.close(a)
+        if b >= 0:
+            os.close(b)

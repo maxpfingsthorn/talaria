@@ -23,13 +23,20 @@ def git_release_tags(sh, repo: str) -> dict[str, str]:
     return {t: c for t, c in _ls_remote(sh, repo).items() if is_release(t)}
 
 
+# podman fetches every tag and then truncates to --limit
+TAG_LIMIT = 100000
+
+
 def registry_tags(sh, image: str, tls_verify: bool = True) -> set[str]:
-    argv = ["podman", "search", "--list-tags", "--limit", "1000"]
+    argv = ["podman", "search", "--list-tags", "--limit", str(TAG_LIMIT)]
     if not tls_verify:
         argv.append("--tls-verify=false")
     argv.append(image)
     lines = sh.run(argv, timeout=120).stdout.splitlines()[1:]
-    return {l.split()[-1] for l in lines if l.split()}
+    found = {l.split()[-1] for l in lines if l.split()}
+    if len(lines) >= TAG_LIMIT:
+        raise ValueError(f"{image}: {TAG_LIMIT} or more tags; the list may be cut")
+    return found
 
 
 def latest_semver(sh, repo: str) -> str | None:
