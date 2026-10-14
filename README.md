@@ -687,11 +687,12 @@ requests into `main`, on `main` itself, on release tags and on demand (Actions â
 workflow). The contract test and mutation testing run weekly and on release; see
 [`docs/mutation-report.md`](docs/mutation-report.md).
 
-Branches: work happens on `develop`. Changes go in through pull requests against `develop`,
-which need green unit tests (`unit (3.10)`, `unit (3.13)`) and an up-to-date branch; nobody
-pushes to `develop` or `main` directly. A release is a pull request from `develop` to `main`,
-which also needs `e2e`, then a `vX.Y.Z` tag on `main`, which runs CI, mutation testing and
-the contract test and publishes the GitHub release. Release tags cannot be moved or deleted.
+How to contribute, and the rules that keep existing installs working, are in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+Releases: a pull request from `develop` to `main`, which also needs `e2e`, then a `vX.Y.Z`
+tag on `main`, which runs CI, mutation testing and the contract test and publishes the
+GitHub release. Release tags cannot be moved or deleted.
 
 Releases come at most once a week unless a fix is urgent. Each one has an entry in
 [`CHANGELOG.md`](CHANGELOG.md) written for the people running Talaria: what changes for
