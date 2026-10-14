@@ -269,6 +269,7 @@ GOOD = "123456:" + "A" * 35
 
 def tok_ctx(tmp_path, monkeypatch, stdin, fail=None, tty=False):
     import io
+
     from tests.fakes import make_test_ctx
     ctx = make_test_ctx(tmp_path)
     made = []

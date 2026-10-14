@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from talaria import apps, rehearse, units
+from talaria import rehearse, units
 from talaria.conf import write_env_value
 from talaria.images import RevisionMismatch
 from tests.fakes import make_test_ctx
@@ -130,8 +130,8 @@ def test_oversized_binary_asset_message_names_the_right_asset_and_tag(tmp_path):
     """Guards the second _get() call's own tag/label: the checksums.txt download always
     succeeds here, so only the binary asset's cap is hit, and the message must name that
     asset and the real tag, not whatever the checksums call happened to use."""
-    from talaria.ctx import TooLarge
     from talaria.apps.clawvisor import MAX_BINARY
+    from talaria.ctx import TooLarge
     ctx = make_test_ctx(tmp_path, app="clawvisor")
     ctx.sh.on("uname", "-m", out="x86_64\n")
 
@@ -577,6 +577,7 @@ def test_report_lines_joins_multiple_new_migrations_with_newlines(tmp_path):
 
 def test_prepare_generates_secrets_once(tmp_path):
     import base64
+
     from talaria.conf import parse_kv
     ctx = make_test_ctx(tmp_path, app="clawvisor")
     out = ctx.app.prepare(ctx)
@@ -589,7 +590,7 @@ def test_prepare_generates_secrets_once(tmp_path):
     assert oct(ctx.paths.app_env.stat().st_mode & 0o777) == "0o600"
     assert oct((ctx.conf.data_dir / "vault.key").stat().st_mode & 0o777) == "0o600"
     assert oct(ctx.conf.data_dir.stat().st_mode & 0o777) == "0o700"
-    assert out and all("secret" not in l.lower() or "generated" in l for l in out)
+    assert out and all("secret" not in ln.lower() or "generated" in ln for ln in out)
     assert ctx.app.prepare(ctx) == []                       # second run: nothing new
     assert parse_kv(ctx.paths.app_env.read_text())["JWT_SECRET"] == env["JWT_SECRET"]
     assert (ctx.conf.data_dir / "vault.key").read_text() == key

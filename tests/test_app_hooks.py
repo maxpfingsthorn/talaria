@@ -7,8 +7,7 @@ from talaria.shell import Result
 from tests.fakes import make_test_ctx
 from tests.test_rehearse import IMG, st_with_current
 from tests.test_setup import svc  # noqa: F401  (fixture)
-from tests.test_setup_service_golden import (NEW, PULLED, PW, RESTART, RUNNING,  # noqa: F401
-                                             UNITS, run, s)
+from tests.test_setup_service_golden import NEW, PULLED, PW, RESTART, RUNNING, UNITS, run, s  # noqa: F401
 
 
 def test_initialize_runs_after_the_image_is_tagged_and_before_the_start(s, monkeypatch, capsys):

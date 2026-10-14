@@ -4,14 +4,12 @@ import json
 
 import pytest
 
-from talaria import __version__, hubcheck, hubupdate, lock, op, relay, selfupdate, setup, telegram
-from talaria.hubexec import AppEntry
+from talaria import __version__, hubcheck, hubupdate, lock, op, relay, selfupdate, setup
 from talaria.shell import Result
 from tests.fakes import make_test_ctx
 from tests.hubfakes import ex, hello, make_hub, message, reply
 from tests.test_setup import args, op_env, svc  # noqa: F401  (fixture)
-from tests.test_telegram import calls, cb, spawned, upd, _bot
-
+from tests.test_telegram import _bot, calls, cb, spawned, upd
 
 # ---- I1: a failed self-update restores the previous checkout ----
 
@@ -27,7 +25,6 @@ def test_app_failed_setup_restores_the_previous_checkout(tmp_path, capsys):
 
 def test_app_holds_the_op_lock_from_before_fetch_until_after_setup(tmp_path):
     ctx = make_test_ctx(tmp_path)
-    d = str(ctx.paths.install_dir)
     busy = []
 
     def probe(argv, input):
@@ -220,7 +217,7 @@ def test_hub_update_runs_setup_without_a_restart(tmp_path):
 
 
 def test_no_restart_flag_skips_the_restart(tmp_path, monkeypatch, capsys):
-    from tests.test_setup_hub import hub_ctx, hargs, paired  # noqa: F401
+    from tests.test_setup_hub import hargs, hub_ctx, paired  # noqa: F401
     ctx = hub_ctx(tmp_path, env="TALARIA_TELEGRAM_TOKEN=1:" + "a" * 35
                   + "\nTALARIA_TELEGRAM_USER_ID=42\n")
     monkeypatch.setattr(setup.units, "install_hub_units", lambda c: True)

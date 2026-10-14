@@ -7,7 +7,7 @@ license = { text = "MIT" }
 dependencies = []
 
 [dependency-groups]
-dev = ["pytest>=8", "mutmut>=3.2", "pyyaml>=6", "shellcheck-py>=0.10"]
+dev = ["pytest>=8", "mutmut>=3.2", "pyyaml>=6", "shellcheck-py>=0.10", "ruff>=0.17,<0.18"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -21,3 +21,15 @@ do_not_mutate = ["helpers/_upstream.py"]
 also_copy = ["templates/", "bin/", "tools/"]
 pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = ["-q", "-x", "-p", "no:cacheprovider"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+# pyflakes, pycodestyle errors, import order, pyupgrade, bugbear; no formatter
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# tests import helpers mid-file per section, use one-line lambdas and short statements
+"tests/**" = ["E402", "E702", "E731", "B905", "F811"]   # F811: pytest fixtures imported, then injected

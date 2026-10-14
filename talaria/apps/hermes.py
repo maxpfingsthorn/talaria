@@ -23,8 +23,8 @@ MAX_KEYS = 10
 def _doctor_changes(before: str, after: str) -> list[str]:
     """Only problem lines that are new ("+") or gone ("-"); passing checks are noise."""
     b, a = before.splitlines(), after.splitlines()
-    out = [f"+ {l.strip()}" for l in a if PROBLEM.search(l) and l not in b]
-    out += [f"- {l.strip()}" for l in b if PROBLEM.search(l) and l not in a]
+    out = [f"+ {ln.strip()}" for ln in a if PROBLEM.search(ln) and ln not in b]
+    out += [f"- {ln.strip()}" for ln in b if PROBLEM.search(ln) and ln not in a]
     return out[:40]
 
 

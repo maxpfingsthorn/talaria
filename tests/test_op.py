@@ -1,4 +1,3 @@
-import argparse
 import io
 import json
 import os
@@ -11,7 +10,7 @@ from tests.fakes import make_test_ctx
 
 
 def lines(buf):
-    return [json.loads(l) for l in buf.getvalue().splitlines()]
+    return [json.loads(ln) for ln in buf.getvalue().splitlines()]
 
 
 @pytest.fixture

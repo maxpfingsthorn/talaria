@@ -85,7 +85,7 @@ def tail(r, n: int = 20) -> str:
 
 
 def last_line(r) -> str:
-    lines = [l.strip() for l in (r.stderr or r.stdout or "").splitlines() if l.strip()]
+    lines = [ln.strip() for ln in (r.stderr or r.stdout or "").splitlines() if ln.strip()]
     return lines[-1][:300] if lines else f"exit {r.returncode}"
 
 

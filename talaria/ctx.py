@@ -4,10 +4,10 @@ import http.client
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
 
 _ROOT = Path(__file__).resolve().parent.parent
 

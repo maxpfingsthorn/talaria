@@ -10,9 +10,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from talaria.ctx import Paths
 from talaria import adopt, apps, images, lock, rehearse, service, state, telegram, units
 from talaria.conf import check_bind, load_conf, parse_kv, write_env_value
+from talaria.ctx import Paths
 from talaria.disk import NOT_RENAMABLE, renamable
 from talaria.hubconf import NAME_RE, load_hub_conf, register_app
 from talaria.notify import ApiError, TelegramAPI
@@ -266,7 +266,8 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
     if selinux_enforcing(sh):
         say("STOP", "SELinux is enforcing; Talaria v1 does not support that")
         return 1
-    lingers = lambda name: (Path(linger_dir) / name).exists()
+    def lingers(name):
+        return (Path(linger_dir) / name).exists()
     pw = _pw(getpwnam, user)
     app_lines, installed = [], False  # pragma: no mutate  (a missing account always ends in the root paste before `installed` is read)
     if pw is None:

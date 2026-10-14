@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 RELEASE_TAG = re.compile(r"^v(20\d\d)\.(\d{1,2})\.(\d{1,2})(?:\.(\d+))?$")
 SEMVER = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")

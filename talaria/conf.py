@@ -4,9 +4,9 @@ import ipaddress
 import os
 import re
 import sys
-from urllib.parse import urlsplit
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 def parse_kv(text: str) -> dict[str, str]:
@@ -296,12 +296,12 @@ def load_conf(paths, strict: bool = False, checks: bool | None = None) -> Conf:
 def write_env_value(path: Path, key: str, value: str) -> None:
     lines = path.read_text().splitlines() if path.exists() else []
     new, found = [], False
-    for l in lines:
-        if l.startswith(f"{key}="):
+    for ln in lines:
+        if ln.startswith(f"{key}="):
             new.append(f"{key}={value}")
             found = True
         else:
-            new.append(l)
+            new.append(ln)
     if not found:
         new.append(f"{key}={value}")
     path.parent.mkdir(parents=True, exist_ok=True)

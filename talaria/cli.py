@@ -5,8 +5,19 @@ import os
 import sys
 import traceback
 
-from talaria import (__version__, backup, check, deploy, history, lock, maintain,
-                     rollback, service, state, status)
+from talaria import (
+    __version__,
+    backup,
+    check,
+    deploy,
+    history,
+    lock,
+    maintain,
+    rollback,
+    service,
+    state,
+    status,
+)
 from talaria.apps.base import LoginRefused
 from talaria.backup import ID_RE
 from talaria.ctx import make_ctx

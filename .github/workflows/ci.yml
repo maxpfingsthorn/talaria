@@ -15,6 +15,7 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: uv sync --locked
       - run: uv run shellcheck bin/talaria
+      - run: uv run ruff check .
       - run: uv run pytest -v
       - name: no deployment-specific values
         run: |

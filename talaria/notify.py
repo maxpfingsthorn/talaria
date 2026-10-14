@@ -37,7 +37,7 @@ def _split(block) -> tuple:
 
 def _assemble(text: str, blocks: list, bodies: list, commands: list[str]) -> str:
     parts = [html.escape(text)]
-    for block, body in zip(blocks, bodies):
+    for block, body in zip(blocks, bodies, strict=False):
         title, _ = _split(block)
         pre = f"<pre>{html.escape(body)}</pre>"
         parts.append(f"<b>{html.escape(title)}</b>\n{pre}" if title else pre)

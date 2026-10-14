@@ -1,10 +1,9 @@
 import copy
 
 import pytest
-import json
 
 from talaria import state
-from talaria.shell import Result, Shell
+from talaria.shell import Shell
 from tests.fakes import make_test_ctx
 
 CUR = {"tag": "v2026.8.3", "id": "sha256:cur", "ref": "x@sha256:c", "digest": "sha256:c"}

@@ -3,8 +3,7 @@ the move of a v0.4 install's bot to a new hub. Runs after test_e2e.py and
 test_e2e_clawvisor.py in the same session."""
 import pytest
 
-from tests.e2e.conftest import (HUB, WORK, AppEnv, as_user, bus_ready, root_block, seed_conf,
-                                sh, wait_for)
+from tests.e2e.conftest import HUB, WORK, AppEnv, as_user, bus_ready, root_block, seed_conf, sh, wait_for
 
 pytestmark = pytest.mark.e2e
 

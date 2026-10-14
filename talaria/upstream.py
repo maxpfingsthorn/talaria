@@ -33,7 +33,7 @@ def registry_tags(sh, image: str, tls_verify: bool = True) -> set[str]:
         argv.append("--tls-verify=false")
     argv.append(image)
     lines = sh.run(argv, timeout=120).stdout.splitlines()[1:]
-    found = {l.split()[-1] for l in lines if l.split()}
+    found = {ln.split()[-1] for ln in lines if ln.split()}
     if len(lines) >= TAG_LIMIT:
         raise ValueError(f"{image}: {TAG_LIMIT} or more tags; the list may be cut")
     return found
