@@ -1,4 +1,4 @@
-"""`talaria op`: the only door from the hub into an app install (spec §4).
+"""`talaria op`: the only door from the hub into an app install.
 
 Runs as the app's account (through `sudo -n -u <app>` from the hub, or directly in
 transitional mode). Parses its own arguments strictly; writes JSON lines to stdout and
@@ -82,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("id", type=cli._backup_id)
     r.add_argument("mode", choices=("describe", "confirm"))
     add("button").add_argument("data")
-    s = add("self-update")              # must stay accepted by every later version (§4.2)
+    s = add("self-update")              # must stay accepted by every later version
     s.add_argument("tag", type=cli._semver)
     s.add_argument("--dry-run", action="store_true")
     s.add_argument("--commit", type=_commit)   # optional: a v0.7.2 hub does not send it

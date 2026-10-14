@@ -1,4 +1,4 @@
-"""Turns `talaria op` output into Telegram content for the hub (spec §4.3, §5.3)."""
+"""Turns `talaria op` output into Telegram content for the hub."""
 from __future__ import annotations
 
 import sys
@@ -25,7 +25,7 @@ def no_answer_text(title: str) -> str:
 
 
 def prefix(app: str, rows) -> list:
-    """Callback data names its app, so the hub knows where a tap goes (spec §5.2)."""
+    """Callback data names its app, so the hub knows where a tap goes."""
     return [[(str(label), f"{app}|{data}") for label, data in row] for row in rows or []]
 
 

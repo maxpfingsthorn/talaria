@@ -1,4 +1,4 @@
-"""The nightly maintenance window, app side (spec 2026-10-09 §5.2): `talaria maintain
+"""The nightly maintenance window, app side: `talaria maintain
 [--timer]`. The hub's talaria-maintain.timer asks every 15 minutes; this module decides
 whether the window is due, then stops the app, runs its hook and starts it again."""
 from __future__ import annotations

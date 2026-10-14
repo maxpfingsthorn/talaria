@@ -1,4 +1,4 @@
-"""The hub's daily check (spec §5.4) and the one Talaria-release check per host (§6)."""
+"""The hub's daily check and the one Talaria-release check per host."""
 from __future__ import annotations
 
 import getpass

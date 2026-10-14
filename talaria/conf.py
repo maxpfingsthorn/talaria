@@ -117,7 +117,7 @@ class Conf:
     check_time: str = "04:30"
     check_days: tuple = ()            # app: days the timer looks for releases; () = every day
     maintenance_time: str = ""        # app: start of the maintenance window; "" = none
-    # test-only keys (spec §10)
+    # test-only keys
     registry_tls_verify: bool = True
     min_release: str = "v2026.6.5"
     settle_seconds: int = 60

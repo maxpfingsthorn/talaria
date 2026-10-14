@@ -4,3 +4,6 @@ __pycache__/
 mutants/
 *.egg-info/
 .superpowers/
+
+# design notes and plans stay out of the repo
+docs/superpowers/

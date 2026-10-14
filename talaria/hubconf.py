@@ -1,4 +1,4 @@
-"""The hub's settings (spec §3). An install is the hub iff ~/.config/talaria/hub.conf exists."""
+"""The hub's settings. An install is the hub iff ~/.config/talaria/hub.conf exists."""
 from __future__ import annotations
 
 import os

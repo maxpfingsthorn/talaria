@@ -1,4 +1,4 @@
-"""How the hub reaches an app: `talaria op …` as the app's account (spec §4, §5.3)."""
+"""How the hub reaches an app: `talaria op …` as the app's account."""
 from __future__ import annotations
 
 import json
@@ -109,7 +109,7 @@ class SudoExecutor(_Executor):
 
 
 class LocalExecutor(_Executor):
-    """Transitional mode (spec §7.5): a v0.4 app account still runs its own bot, so op
+    """Transitional mode: a v0.4 app account still runs its own bot, so op
     runs as the same account, without sudo."""
 
     def __init__(self, app: str, bin_link):

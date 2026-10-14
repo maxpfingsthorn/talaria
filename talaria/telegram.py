@@ -76,7 +76,7 @@ def pair(ctx, api, code: str, timeout_s: int = 900, announce=lambda: None) -> di
 
 def read_form(cmd: str, args: list[str]) -> str | None:
     """What a "Which app?" button runs for this command: its read or describe form, never
-    a confirm (spec §5.1)."""
+    a confirm."""
     if cmd in ("/status", "/backups") and not args:
         return cmd[1:]
     if cmd in ("/approve", "/reject") and len(args) == 1 and TAG_ARG.match(args[0]):
@@ -420,7 +420,7 @@ class Bot:
         self.offset = backlog[-1]["update_id"] + 1 if backlog else None
         if self.offset is not None:
             self.api.call("getUpdates", offset=self.offset, timeout=0)
-        # spec §4.4: each app's protocol, once per bot start (an update restarts the bot)
+        # each app's protocol, once per bot start (an update restarts the bot)
         probes = {n: relay.hello(e) or "" for n, e in self.hub.apps.items()}
         self.mismatch = {n for n, h in probes.items() if h.startswith(relay.VERSIONS)}
         self.skewed = {n for n, h in probes.items() if h.startswith(relay.SKEW)}
