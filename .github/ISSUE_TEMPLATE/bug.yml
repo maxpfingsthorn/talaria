@@ -1,0 +1,53 @@
+name: Something went wrong
+description: An update, rollback, restore, backup or bot command did not do what it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before you paste anything, remove host names, IP addresses, user and chat IDs, tokens and keys. Never paste a login link.
+  - type: dropdown
+    id: app
+    attributes:
+      label: App
+      options: [Hermes, Clawvisor, gbrain, Talaria itself (hub, bot, self-update)]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Talaria version and app version
+      description: As `/status` shows them.
+      placeholder: Talaria v0.7.3, gbrain v0.60.175.0
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: messages
+    attributes:
+      label: Bot messages
+      description: The Telegram messages around the problem, as text.
+      render: text
+  - type: textarea
+    id: journal
+    attributes:
+      label: Journal
+      description: |
+        The app account's log around that time, e.g.
+        `sudo -u <app user> XDG_RUNTIME_DIR=/run/user/$(id -u <app user>) journalctl --user --since "1 hour ago"`
+        and the hub's with `<hub user>` (default `talaria`).
+      render: text
+  - type: input
+    id: system
+    attributes:
+      label: System
+      placeholder: Ubuntu 24.04, podman 4.9.3, amd64
+  - type: input
+    id: found
+    attributes:
+      label: How did you find Talaria? (optional)
