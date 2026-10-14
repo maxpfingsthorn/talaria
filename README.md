@@ -1,5 +1,11 @@
 # Talaria
 
+[![release](https://img.shields.io/github/v/release/maxpfingsthorn/talaria)](https://github.com/maxpfingsthorn/talaria/releases)
+[![ci](https://github.com/maxpfingsthorn/talaria/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/maxpfingsthorn/talaria/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+![python](https://img.shields.io/badge/python-%E2%89%A53.10%20%C2%B7%20stdlib%20only-informational)
+![podman](https://img.shields.io/badge/runs%20on-rootless%20podman-892CA0)
+
 **Updates for self-hosted AI agents that ask first and can undo themselves.**
 
 Talaria tries each new release of your agent apps on a copy of their data, asks you in
