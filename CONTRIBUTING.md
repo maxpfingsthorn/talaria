@@ -27,7 +27,10 @@ git clone https://github.com/maxpfingsthorn/talaria && cd talaria
 git checkout develop
 uv sync
 uv run pytest            # unit tests: fast, no podman, no root
+uv run ruff check .      # lint; CI runs it too
 ```
+
+Optional: `uvx pre-commit install` runs ruff and shellcheck before each commit.
 
 Other test suites:
 
