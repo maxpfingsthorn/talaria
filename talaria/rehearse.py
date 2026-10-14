@@ -4,8 +4,8 @@ import errno
 import os
 import shutil
 import sqlite3
-import subprocess
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -81,7 +81,7 @@ def copy_data(src: Path, dst: Path, excludes) -> None:
         os.utime(dst, ns=(st.st_atime_ns, st.st_mtime_ns))
     finally:
         os.close(fd)
-    for root, dirs, files in os.walk(dst):
+    for root, _dirs, files in os.walk(dst):
         for f in files:
             p = Path(root) / f
             if p.is_symlink() or not p.is_file():

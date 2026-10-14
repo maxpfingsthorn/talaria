@@ -1,5 +1,4 @@
 # tests/test_hubexec.py
-import os
 import threading
 from types import SimpleNamespace
 

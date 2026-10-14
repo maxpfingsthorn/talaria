@@ -2,8 +2,19 @@ import re
 
 import pytest
 
-from tests.e2e.conftest import (HUB, USER, AppEnv, as_user, bus_ready, root_block, seed_conf,
-                                seed_hub_conf, sh, talaria, wait_for)
+from tests.e2e.conftest import (
+    HUB,
+    USER,
+    AppEnv,
+    as_user,
+    bus_ready,
+    root_block,
+    seed_conf,
+    seed_hub_conf,
+    sh,
+    talaria,
+    wait_for,
+)
 
 pytestmark = pytest.mark.e2e
 

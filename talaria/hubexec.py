@@ -6,9 +6,9 @@ import pwd
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
 
 from talaria import apps
 
@@ -39,7 +39,7 @@ def parse_lines(text: str, app: str) -> list[dict]:
 
 def last_line(text: str, limit: int = 200) -> str:
     """The last non-empty line of an op's stderr (Talaria's own traceback), for a report."""
-    lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
     return lines[-1][:limit] if lines else ""
 
 

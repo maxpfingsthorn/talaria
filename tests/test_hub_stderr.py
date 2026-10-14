@@ -1,6 +1,6 @@
 from talaria import hubupdate, relay
 from talaria.hubexec import SudoExecutor, last_line
-from tests.hubfakes import ex, hello, make_hub, message
+from tests.hubfakes import ex, hello, make_hub
 
 
 def test_last_line_trims_and_skips_blanks():

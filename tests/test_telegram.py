@@ -2,9 +2,9 @@
 import pytest
 
 from talaria import __version__, relay, telegram
-from talaria.telegram import NOT_NEWER
 from talaria.hubexec import NoAnswer, Unreachable
 from talaria.notify import ApiError
+from talaria.telegram import NOT_NEWER
 from tests.fakes import make_test_ctx
 from tests.hubfakes import ex, hello, line, make_hub, reply
 
@@ -177,7 +177,7 @@ def test_which_app(bot2, text, form):
 
 
 def test_which_app_restore_button_fits():
-    assert len(f"hub|w:clawvisor:restore:20261231T235959Z-pre-v2026.12.31.99-2".encode()) <= 64
+    assert len(b"hub|w:clawvisor:restore:20261231T235959Z-pre-v2026.12.31.99-2") <= 64
     assert telegram.read_form("/restore", ["20261231T235959Z-pre-v2026.12.31.99-2"]) == \
         "restore:20261231T235959Z-pre-v2026.12.31.99-2"
 

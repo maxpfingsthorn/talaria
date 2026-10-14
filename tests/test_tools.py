@@ -1,14 +1,13 @@
-import json
-import pytest
-
 # --- tools/tailscale-admin-redirect.py ---------------------------------
-
 import copy
 import glob
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 REDIRECT = Path(__file__).resolve().parent.parent / "tools" / "tailscale-admin-redirect.py"
 HOST = "h.example.ts.net"

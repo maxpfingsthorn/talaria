@@ -25,7 +25,7 @@ def migrate(up) -> dict:
             res["ok"] = True
     except (Exception, SystemExit) as e:
         res["error"] = f"{type(e).__name__}: {e}"
-    res["messages"] = [l for l in buf.getvalue().splitlines() if l.strip()][:200]
+    res["messages"] = [ln for ln in buf.getvalue().splitlines() if ln.strip()][:200]
     return res
 
 
