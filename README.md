@@ -60,6 +60,13 @@ hub account per host, rootless podman with Quadlet, Telegram for approvals.
 Scope: Hermes installs that run from the official container image (not the git-based
 `hermes update` path); Clawvisor and gbrain from their GitHub release binaries.
 
+Not supported, and not planned for now: Docker (rootful or rootless), Kubernetes, macOS,
+messengers other than Telegram, and Hermes installs updated with `hermes update`.
+
+No telemetry: Talaria itself talks only to GitHub (release tags and assets), the container
+registries it pulls images from and the Telegram Bot API. It reports nothing about your
+installation to anyone.
+
 Talaria is an independent project and is not affiliated with or endorsed by Nous Research,
 the Clawvisor project or the gbrain project.
 
@@ -685,5 +692,10 @@ which need green unit tests (`unit (3.10)`, `unit (3.13)`) and an up-to-date bra
 pushes to `develop` or `main` directly. A release is a pull request from `develop` to `main`,
 which also needs `e2e`, then a `vX.Y.Z` tag on `main`, which runs CI, mutation testing and
 the contract test and publishes the GitHub release. Release tags cannot be moved or deleted.
+
+Releases come at most once a week unless a fix is urgent. Each one has an entry in
+[`CHANGELOG.md`](CHANGELOG.md) written for the people running Talaria: what changes for
+them, anything they have to do, and how to update. After the release workflow publishes, the
+GitHub release notes are replaced with that entry.
 
 Licence: MIT.
