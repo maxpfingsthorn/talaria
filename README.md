@@ -1,8 +1,30 @@
 # Talaria
 
-Safe, approved updates for self-hosted AI agent apps on rootless podman. Opinionated.
+[![release](https://img.shields.io/github/v/release/maxpfingsthorn/talaria)](https://github.com/maxpfingsthorn/talaria/releases)
+[![ci](https://github.com/maxpfingsthorn/talaria/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/maxpfingsthorn/talaria/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+![python](https://img.shields.io/badge/python-%E2%89%A53.10%20%C2%B7%20stdlib%20only-informational)
+![podman](https://img.shields.io/badge/runs%20on-rootless%20podman-892CA0)
 
-Talaria manages three apps, each in its own service account, all under one Telegram bot:
+**Updates for self-hosted AI agents that ask first and can undo themselves.**
+
+Talaria tries each new release of your agent apps on a copy of their data, asks you in
+Telegram, and rolls back by itself if the real deploy fails. Auto-updaters like Watchtower
+pull the new image and hope; Talaria rehearses first.
+
+<p align="center">
+  <img src="docs/telegram-chat.png" width="480"
+       alt="The Talaria bot in Telegram: after /check it offers gbrain v0.60.175.0 with the rehearsal result (brain schema 237 → 238) and Approve/Reject buttons, reports Hermes and Clawvisor current, then offers Talaria v0.7.1, lists which apps would restart and reports the update installed for Hermes, Clawvisor and gbrain.">
+</p>
+
+1. **Find** a new release and check the download against what the release publishes.
+2. **Rehearse** it on a throwaway copy of your data and report what would change.
+3. **Ask** you in Telegram: Approve or Reject.
+4. **Back up, deploy, check health.** On failure, image and data roll back together.
+
+Nothing runs as root after setup: each app lives in its own service account under
+rootless podman. Talaria is young (since September 2026) and runs daily on the author's own
+host. Linux, systemd and rootless podman only.
 
 | App | What it is | Talaria section |
 |---|---|---|
@@ -10,7 +32,8 @@ Talaria manages three apps, each in its own service account, all under one Teleg
 | [Clawvisor](https://github.com/clawvisor/clawvisor) | a gatekeeper service for AI agents | [Clawvisor](#clawvisor) |
 | [gbrain](https://github.com/garrytan/gbrain) | an agent memory "brain" with an MCP server | [gbrain](#gbrain) |
 
-Setting this up with a coding agent? Point it at [`AGENT_SETUP.md`](AGENT_SETUP.md).
+All three run under one Telegram bot. Setting this up with a coding agent? Point it at
+[`AGENT_SETUP.md`](AGENT_SETUP.md).
 
 ## What it does
 
@@ -30,11 +53,6 @@ Setting this up with a coding agent? Point it at [`AGENT_SETUP.md`](AGENT_SETUP.
 - **Sends dashboard login links** on request (`/login`, for Clawvisor and gbrain).
 - **Updates itself** the same way: a new Talaria release is offered, never installed unasked.
 - Messages you only for decisions and failures.
-
-<p align="center">
-  <img src="docs/telegram-chat.png" width="480"
-       alt="The Talaria bot in Telegram: after /check it offers gbrain v0.60.175.0 with the rehearsal result (brain schema 237 → 238) and Approve/Reject buttons, reports Hermes and Clawvisor current, then offers Talaria v0.7.1, lists which apps would restart and reports the update installed for Hermes, Clawvisor and gbrain.">
-</p>
 
 Opinionated: one install of each app per host, one dedicated service user per app plus one
 hub account per host, rootless podman with Quadlet, Telegram for approvals.
