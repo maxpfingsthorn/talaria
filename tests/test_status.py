@@ -78,6 +78,7 @@ def test_status_exact(tmp_path, monkeypatch):
     assert status.status_text(ctx) == "\n".join([
         "Hermes v2026.8.3 (0123456789ab), running.",
         "12.3 GB free, data 0.50 GB.",
+        "Dashboard: http://127.0.0.1:9119 (user admin)",
         "Pending: v2026.9.24. /approve v2026.9.24 · /reject v2026.9.24",
         "Interrupted deploy v2026.9.24 (2h ago). Hermes is stopped. Send /rollback CONFIRM to "
         "restore the state before it.",
@@ -117,6 +118,37 @@ def test_status_names_the_app_and_data_size(tmp_path, monkeypatch):
     text = status.status_text(ctx)
     assert text.splitlines()[0].startswith("Demo unknown")
     assert "19.0 GB free, data 0.25 GB." in text
+
+
+def test_status_dashboard_prefers_public_url(tmp_path, monkeypatch):
+    ctx = sctx(tmp_path)
+    ctx.conf.dashboard_public_url = "https://hermes.example"
+    assert "\nDashboard: https://hermes.example (user admin)\n" in status.status_text(ctx) + "\n"
+
+
+def test_status_dashboard_uses_bind_address_and_port(tmp_path):
+    ctx = sctx(tmp_path)
+    ctx.conf.dashboard_bind, ctx.conf.tailscale_ip = "tailscale loopback", "100.64.0.9"
+    ctx.conf.dashboard_port = 9200
+    assert "Dashboard: http://100.64.0.9:9200 (user admin)" in status.status_text(ctx)
+
+
+def test_status_dashboard_omitted_without_an_address(tmp_path):
+    ctx = sctx(tmp_path)
+    ctx.conf.dashboard_bind, ctx.conf.tailscale_ip = "tailscale", ""
+    assert "Dashboard" not in status.status_text(ctx)
+
+
+def test_status_dashboard_omitted_when_not_running(tmp_path):
+    ctx = sctx(tmp_path)
+    ctx.sh.on("systemctl", "--user", "is-active", out="inactive\n")
+    assert "Dashboard" not in status.status_text(ctx)
+
+
+def test_status_no_dashboard_line_for_apps_without_one(tmp_path, monkeypatch):
+    ctx = sctx(tmp_path)
+    monkeypatch.setattr(type(ctx.app), "dashboard_text", lambda self, c: None)
+    assert "Dashboard" not in status.status_text(ctx)
 
 
 def test_interrupted_texts_exact(tmp_path):
