@@ -21,7 +21,7 @@ from talaria.tags import semver_newer
 PROTOCOL = 1
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 OPS = ("status", "backups", "check", "maintain", "deploy", "reject", "rollback", "restore", "button",
-       "hello", "interrupted", "self-update", "quadlet", "login-link")
+       "hello", "interrupted", "self-update", "quadlet", "login-link", "restart")
 STALE = "Out of date — send /status"
 
 
@@ -71,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
     def add(name):
         return sub.add_parser(name, add_help=False, allow_abbrev=False)  # pragma: no mutate  (None == False; help=True and abbreviations are pinned by tests)
 
-    for name in ("status", "backups", "hello", "interrupted"):
+    for name in ("status", "backups", "hello", "interrupted", "restart"):
         add(name)
     add("check").add_argument("--timer", action="store_true")
     add("maintain").add_argument("--timer", action="store_true")
@@ -196,6 +196,8 @@ def _run(ctx, args, out) -> int:
         ns = argparse.Namespace(cmd="maintain", timer=args.timer)
     elif o == "deploy":
         ns = argparse.Namespace(cmd="deploy", tag=args.tag, timer=False)
+    elif o == "restart":
+        ns = argparse.Namespace(cmd="restart", timer=False)
     elif o == "rollback":
         ns = argparse.Namespace(cmd="rollback", confirm=True, timer=False)
     else:

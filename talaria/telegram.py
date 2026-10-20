@@ -18,6 +18,7 @@ ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 NOT_NEWER = "Talaria {tag} is not newer than the installed v{cur}"
 HELP = ("/status · /login [app] · /check [app|talaria] · /approve [app] <tag> · /reject [app] <tag> · "
         "/rollback [app] [CONFIRM] · /backups [app] · /restore [app] <id> [CONFIRM] · "
+        "/restart [app] · "
         "/update <version>")
 MENU = [("status", "Every app: version, state, pending update"),
         ("login", "Get a dashboard login link: /login [app]"),
@@ -27,8 +28,10 @@ MENU = [("status", "Every app: version, state, pending update"),
         ("rollback", "Undo the last change: /rollback [app] (asks to confirm)"),
         ("backups", "List backups: /backups [app]"),
         ("restore", "Restore a backup: /restore [app] <id> (asks to confirm)"),
+        ("restart", "Restart an app's container, nothing else: /restart [app]"),
         ("update", "Update Talaria itself: /update <version>")]
 FIRST_LOGIN_RELEASE = "v0.7.0"
+FIRST_RESTART_RELEASE = "v0.7.4"   # the first app release that has `op restart`
 LINK_TTL = 300   # seconds until the expiry notice replaces the link
 UPDATE_FIRST = "{title} runs Talaria {ver}; update Talaria first: /update v{hub}"
 EXPIRED_UNSURE = "If a login link for {title} arrived, it has expired. Send /login {app} for a new one."
@@ -37,7 +40,8 @@ EXPIRED = "Login link for {title} expired. Send /login {app} for a new one."
 LOGIN_USAGE = "Usage: /login [app] [OAuth request id or consent URL]"
 NO_LOGIN_APP = "No app here offers login links."
 APP_WORD = re.compile(r"^[a-z][a-z_-]{0,31}$")
-APP_CMDS = ("/status", "/backups", "/check", "/approve", "/reject", "/rollback", "/restore")
+APP_CMDS = ("/status", "/backups", "/check", "/approve", "/reject", "/rollback", "/restore",
+            "/restart")
 LONG_OPS = ("check", "deploy", "rollback", "restore")
 OUT_OF_DATE = "⌛ Out of date"
 FORMS = {"status": "/status", "backups": "/backups", "rollback": "/rollback"}
@@ -274,6 +278,8 @@ class Bot:
             return "No apps registered."
         if len(names) == 1:
             return self.app_command(names[0], cmd, args)
+        if cmd == "/restart" and not args:   # one tap must not restart: name the app
+            return f"Which app? /restart <app>. Apps: {', '.join(names)}"
         form = read_form(cmd, args)
         if form is None:
             return nu
@@ -304,6 +310,12 @@ class Bot:
         if cmd == "/rollback" and args == ["CONFIRM"]:
             self.spawn(f"{app}-rollback", "relay", app, "rollback", "confirm")
             return f"Rolling back {e.title}. I will report the result."
+        if cmd == "/restart" and not args:
+            v = relay.version(e)
+            if v and semver_newer(FIRST_RESTART_RELEASE, f"v{v}"):
+                return UPDATE_FIRST.format(title=e.title, ver=v, hub=__version__)
+            self.spawn(f"{app}-restart", "relay", app, "restart")
+            return f"Restarting {e.title}. I will report the result."
         if cmd == "/restore" and args and ID_RE.match(args[0]):
             if len(args) == 1:
                 return relay.quick(e, ["restore", args[0], "describe"])

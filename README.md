@@ -141,7 +141,7 @@ pairing.
 
 | Telegram command | Effect |
 |---|---|
-| `/status` | every app: version and state, free disk, data size, pending update, interrupted change |
+| `/status` | every app: version and state, free disk, data size, dashboard address (Hermes), pending update, interrupted change |
 | `/check` | look for new releases now, for every app and for Talaria itself; always ends with a summary, even when nothing is new |
 | `/check <app>` | the same for one app |
 | `/check talaria` | only the Talaria release: the release notice if there is a newer one, else "Talaria vX is current." |
@@ -151,11 +151,13 @@ pairing.
 | `/rollback [app] CONFIRM` | roll back |
 | `/backups [app]` | list backups |
 | `/restore [app] <id>` / `/restore [app] <id> CONFIRM` | describe / restore a backup |
+| `/restart [app]` | stop and start the app's container (same image, same data); refused while an interrupted change waits for `/rollback CONFIRM` |
 | `/login [app] [OAuth request id or consent URL]` | a one-time admin login link for gbrain or Clawvisor, sent with previews off and replaced by an "expired" notice after 5 minutes; `/status` has a button for it |
 | `/update <version>` | show which apps a Talaria update would restart, with an **Update** button (what the daily notice's **What would vX change?** button does) |
 
 With one app registered, the app name is optional. With several, a command without one
-answers "Which app?" with a button per app (not `/check`, which checks everything); the button runs the read-only or describe
+answers "Which app?" with a button per app (not `/check`, which checks everything, and not
+`/restart`, which asks you to type the app name); the button runs the read-only or describe
 form (status, rollback description), never a confirm.
 
 The bot registers these commands with Telegram, so they appear under the **Menu**

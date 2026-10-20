@@ -35,10 +35,10 @@ def target(ctx, st) -> tuple[str, dict] | None:
 
 
 def clear_stale_op(ctx, st) -> None:
-    """A maintain/rehearse op that changed nothing is cleared when the app runs again
+    """A maintain/rehearse/restart op that changed nothing is cleared when the app runs again
     (systemd restarted it): the timer would otherwise skip the app for good."""
     op = st.get("op")
-    if op and op["op"] in ("maintain", "rehearse") and not op.get("changed") \
+    if op and op["op"] in ("maintain", "rehearse", "restart") and not op.get("changed") \
             and marker.read(ctx.paths) is None and service.is_active(ctx):
         st["op"] = None
         state.save(ctx.paths, st)
