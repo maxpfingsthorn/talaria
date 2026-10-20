@@ -40,6 +40,10 @@ class App:
         """Lines to show the owner; at least one contains the link. Never prints."""
         raise LoginRefused(f"not available for {self.title}")
 
+    def dashboard_text(self, ctx) -> str | None:
+        """A status line naming the dashboard address, for apps without login links."""
+        return None
+
     def is_release(self, tag: str) -> bool:
         raise NotImplementedError
 
