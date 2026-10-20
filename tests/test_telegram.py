@@ -240,7 +240,7 @@ def test_invalid_arguments_never_spawn(bot):
 def test_help_text_exact():
     assert telegram.HELP == ("/status · /login [app] · /check [app|talaria] · /approve [app] <tag> · /reject [app] <tag> · "
                              "/rollback [app] [CONFIRM] · /backups [app] · "
-                             "/restore [app] <id> [CONFIRM] · /update <version>")
+                             "/restore [app] <id> [CONFIRM] · /restart [app] · /update <version>")
 
 
 def test_update_command_spawns_the_offer(bot):
@@ -325,7 +325,7 @@ def test_startup_registers_the_app_neutral_menu_for_the_owner_only(bot):
     assert params["scope"] == {"type": "chat", "chat_id": OWNER}
     assert [(c["command"], c["description"]) for c in params["commands"]] == telegram.MENU
     assert [c for c, _ in telegram.MENU] == ["status", "login", "check", "approve", "reject", "rollback",
-                                             "backups", "restore", "update"]
+                                             "backups", "restore", "restart", "update"]
     assert all(0 < len(d) <= 256 and "Hermes" not in d for _, d in telegram.MENU)
 
 
@@ -1070,3 +1070,38 @@ def test_a_server_error_on_the_link_counts_as_maybe_delivered(tmp_path):
     b.handle(upd(2, "/login"))
     assert len(b.expiring) == 1 and b.expiring[0][1] is None
     assert not any(t.startswith("Telegram refused") for t in api.sent())
+
+
+# ---- /restart ----
+
+def test_restart_spawns_the_relay(bot):
+    ctx, api, b = bot
+    ex(b.hub, "hermes").on("hello", lines=[hello(app="hermes", version="0.7.4")])
+    b.handle(upd(1, "/restart"))
+    assert api.sent() == ["Restarting Hermes. I will report the result."]
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "relay", "hermes", "restart"]]
+    assert ctx.sh.called("systemd-run")[0][4].startswith("--unit=talaria-hermes-restart-")
+
+
+def test_restart_names_the_app_with_several(bot2):
+    ctx, api, b = bot2
+    b.handle(upd(1, "/restart"))
+    assert api.sent() == ["Which app? /restart <app>. Apps: hermes, clawvisor"]
+    assert spawned(ctx) == []
+    ex(b.hub, "clawvisor").on("hello", lines=[hello(app="clawvisor", version="0.7.4")])
+    b.handle(upd(2, "/restart clawvisor"))
+    assert spawned(ctx) == [[str(ctx.paths.bin_link), "relay", "clawvisor", "restart"]]
+
+
+def test_restart_gate_on_old_app_version(bot):
+    ctx, api, b = bot
+    ex(b.hub, "hermes").on("hello", lines=[hello(app="hermes", version="0.7.3")])
+    b.handle(upd(1, "/restart hermes"))
+    assert api.sent() == [telegram.UPDATE_FIRST.format(title="Hermes", ver="0.7.3", hub=__version__)]
+    assert spawned(ctx) == []
+
+
+def test_restart_with_extra_words_is_not_understood(bot):
+    ctx, api, b = bot
+    b.handle(upd(1, "/restart hermes now"))
+    assert api.sent()[-1].startswith("Not understood.") and spawned(ctx) == []
