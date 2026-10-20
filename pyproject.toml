@@ -1,6 +1,6 @@
 [project]
 name = "talaria"
-version = "0.7.3"
+version = "0.7.4"
 description = "Safe, approved updates for self-hosted AI agent apps on rootless podman"
 requires-python = ">=3.10"
 license = { text = "MIT" }

@@ -5,6 +5,19 @@ What changes for you in each release. Update from the bot ("Update Talaria" or
 Releases before v0.7.3 are listed on the
 [releases page](https://github.com/maxpfingsthorn/talaria/releases).
 
+## v0.7.4 (2026-10-20)
+
+- **`/restart [app]`.** Stops and starts an app's container: same image, same data, no
+  backup. Use it, for example, after logging an app in to a new provider. Talaria checks
+  that the app came back and tells you. If it did not, `/rollback CONFIRM` starts it
+  again (nothing is restored). The command is refused while an interrupted change waits
+  for `/rollback CONFIRM`. With several apps, name the app: `/restart hermes`. It works
+  once the app runs v0.7.4, so update Talaria first. As the app's account, it is
+  `talaria restart`.
+- **Hermes dashboard in `/status`.** While Hermes runs, its status shows
+  `Dashboard: <address> (user admin)`. That is `dashboard.public_url` if you set one,
+  otherwise the first address the dashboard is published on.
+
 ## v0.7.3 (2026-10-14)
 
 - **Pinned Talaria updates.** The hub tells every app which commit it installed, and an app
