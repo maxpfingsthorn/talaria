@@ -30,7 +30,7 @@ class App:
     before_start_error = "before_start failed"   # core prefix when ctx.app.before_start() raises
     prepare_summary = "secrets"             # what ctx.app.prepare() generates, for PLAN texts
     copy_stopped = False                    # stop the service while the rehearsal copies its data
-    has_maintenance = False                 # the app has a maintenance() hook (spec 2026-10-09 §5.2)
+    has_maintenance = False                 # the app has a maintenance() hook
     default_check_days: tuple = ()          # talaria.conf check.days default; () = every day
     default_maintenance_time = ""           # talaria.conf maintenance.time default; "" = none
     has_login_link = False                  # the app has a login_link() hook
@@ -39,6 +39,10 @@ class App:
     def login_link(self, ctx, oauth_request: str | None = None) -> list[str]:
         """Lines to show the owner; at least one contains the link. Never prints."""
         raise LoginRefused(f"not available for {self.title}")
+
+    def dashboard_text(self, ctx) -> str | None:
+        """A status line naming the dashboard address, for apps without login links."""
+        return None
 
     def is_release(self, tag: str) -> bool:
         raise NotImplementedError

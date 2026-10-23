@@ -207,12 +207,10 @@ def test_unexpected_check_error_is_reported(tmp_path, monkeypatch, capsys):
 
 # ---- op ----
 
-import io  # noqa: E402
 import json  # noqa: E402
 
 from talaria import op, rollback, selfupdate, state  # noqa: E402
 from talaria.notify import Message  # noqa: E402
-from talaria.shell import CommandError  # noqa: E402
 from tests.fakes import make_test_ctx  # noqa: E402
 
 
@@ -288,7 +286,7 @@ def test_describe_ops_hand_the_real_ctx_to_rollback(tmp_path, monkeypatch):
     assert op.main(["rollback", "describe"], make=lambda: ctx, out=out) == 0
     assert op.main(["restore", "20260927T043000Z-manual", "describe"], make=lambda: ctx,
                    out=out) == 0
-    first, second = [json.loads(l) for l in out.getvalue().splitlines()]
+    first, second = [json.loads(ln) for ln in out.getvalue().splitlines()]
     assert (first["text"], first["buttons"]) == ("d", [[["Go", "rb:x:1"]]])
     assert (second["text"], second["buttons"]) == ("r 20260927T043000Z-manual",
                                                    [[["Go", "rb:x:1"]]])

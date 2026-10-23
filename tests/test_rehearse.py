@@ -1,7 +1,7 @@
 import errno
 import os
-import sqlite3
 import shutil
+import sqlite3
 
 import pytest
 
@@ -68,6 +68,7 @@ def happy(tmp_path, monkeypatch):
 
 def st_with_current():
     import copy
+
     from talaria import state
     st = copy.deepcopy(state.DEFAULT)
     st["current"] = dict(CUR)

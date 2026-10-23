@@ -33,6 +33,9 @@ def status_text(ctx) -> str:
     lines = [f"{ctx.app.title} {cur.get('tag', 'unknown')} ({(cur.get('id') or '')[7:19]}), "
              f"{running}.",
              f"{free:.1f} GB free, data {size:.2f} GB."]
+    dash = ctx.app.dashboard_text(ctx) if running == "running" else None
+    if dash:
+        lines.append(dash)
     if st.get("pending"):
         t = st["pending"]["tag"]
         lines.append(f"Pending: {t}. /approve {t} · /reject {t}")

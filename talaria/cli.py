@@ -5,8 +5,20 @@ import os
 import sys
 import traceback
 
-from talaria import (__version__, backup, check, deploy, history, lock, maintain,
-                     rollback, service, state, status)
+from talaria import (
+    __version__,
+    backup,
+    check,
+    deploy,
+    history,
+    lock,
+    maintain,
+    restart,
+    rollback,
+    service,
+    state,
+    status,
+)
 from talaria.apps.base import LoginRefused
 from talaria.backup import ID_RE
 from talaria.ctx import make_ctx
@@ -65,7 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     r = sub.add_parser("restore")
     r.add_argument("id", type=_backup_id)
     r.add_argument("--confirm", action="store_true")
-    for name in ("backup", "backups", "status", "history", "bot", "login-link"):
+    for name in ("backup", "backups", "status", "history", "bot", "login-link", "restart"):
         sub.add_parser(name)
     sub.add_parser("self-update").add_argument("tag", type=_semver)
     r = sub.add_parser("relay")                  # hub only: run a long op, send its messages
@@ -149,6 +161,8 @@ def _locked(ctx, args) -> int | None:
         rollback.rollback_cmd(ctx)
     elif cmd == "restore":
         rollback.restore_cmd(ctx, args.id)
+    elif cmd == "restart":
+        restart.run(ctx, state.load(ctx.paths))
     elif cmd == "backup":
         return _manual_backup(ctx)
 

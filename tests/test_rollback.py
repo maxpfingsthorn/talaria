@@ -1,4 +1,5 @@
 import pytest
+
 from talaria import backup, deploy, marker, rollback, state
 from tests.opsfakes import CUR, NEW, load, ops_ctx
 
@@ -146,13 +147,12 @@ def test_age_units(tmp_path):
 
 # ---- exact behaviour (mutation testing) ----
 
-from talaria import disk, images
+from talaria import disk
 from tests.opsfakes import ops_ctx as _ops
 
 
 def spy_swap(monkeypatch, ctx):
     seen = []
-    from talaria import restore
     real = rollback.restore_data
 
     def spy(c, b):

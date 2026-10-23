@@ -50,7 +50,7 @@ def deploy(ctx, tag: str) -> None:
         ctx.notify.send(Message(f"Deploy of {tag} refused: {e}. Nothing was stopped."))
         return
     old = st["current"]
-    # recorded before Hermes stops, so a crash in the backup can be recovered (§7.7)
+    # recorded before Hermes stops, so a crash in the backup can be recovered
     st["op"] = {"op": "deploy", "tag": tag, "backup": None, "changed": False,
                 "started": ctx.now().isoformat()}
     state.save(ctx.paths, st)

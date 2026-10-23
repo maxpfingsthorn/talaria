@@ -85,7 +85,7 @@ def tail(r, n: int = 20) -> str:
 
 
 def last_line(r) -> str:
-    lines = [l.strip() for l in (r.stderr or r.stdout or "").splitlines() if l.strip()]
+    lines = [ln.strip() for ln in (r.stderr or r.stdout or "").splitlines() if ln.strip()]
     return lines[-1][:300] if lines else f"exit {r.returncode}"
 
 
@@ -177,9 +177,9 @@ class Gbrain(App):
     can_adopt = False
     prepare_summary = "admin token"
     before_start_error = "the brain check before start failed"
-    copy_stopped = True               # PGLite's files are consistent only at rest (spike §8)
+    copy_stopped = True               # PGLite's files are consistent only at rest
     has_maintenance = True            # gbrain dream
-    default_check_days = ("mon", "thu")   # several releases a day (spec §5.1)
+    default_check_days = ("mon", "thu")   # several releases a day
     default_maintenance_time = "01:30"
 
     def is_release(self, tag: str) -> bool:
@@ -299,7 +299,7 @@ class Gbrain(App):
             raise ValueError(NEEDS_URL)
         data = ctx.conf.data_dir
         data.mkdir(mode=0o700, parents=True, exist_ok=True)  # pragma: no mutate  (chmod below sets the mode)
-        os.chmod(data, 0o700)              # some PGLite files are 0644 (spike §2)
+        os.chmod(data, 0o700)              # some PGLite files are 0644
         env = parse_kv(ctx.paths.app_env.read_text()) if ctx.paths.app_env.exists() else {}
         if env.get(TOKEN_KEY):
             return []
@@ -379,7 +379,7 @@ class Gbrain(App):
     def before_start(self, ctx, pending: dict) -> tuple[str | None, list]:
         """The new release opens (and migrates) the stopped production brain once, offline,
         so its schema can be compared with the rehearsal's; the CLI cannot open the brain
-        while the server holds it (spike §8)."""
+        while the server holds it."""
         r = oneoff(ctx, pending["image"]["id"], ctx.conf.data_dir, ["doctor", "--json"])
         try:
             v = parse_schema(r.stdout)

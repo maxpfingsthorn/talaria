@@ -1,4 +1,4 @@
-"""Updating Talaria on the whole host: hub first, apps next, bot restart last (spec §6).
+"""Updating Talaria on the whole host: hub first, apps next, bot restart last.
 Everything this module uses is imported at load time: `self_update` checks out new code
 underneath the running process."""
 from __future__ import annotations

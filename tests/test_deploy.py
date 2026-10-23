@@ -1,4 +1,5 @@
 import subprocess
+
 from talaria import backup, deploy, marker
 from talaria.apps import hermes as hermes_app
 from tests.opsfakes import CUR, NEW, load, ops_ctx
@@ -96,8 +97,8 @@ def test_rollback_failure_leaves_marker_and_says_so(tmp_path, monkeypatch):
 def test_retention_after_deploy(tmp_path, monkeypatch):
     ctx = ops_ctx(tmp_path, monkeypatch)
     ctx.conf.backup_keep = 1
-    for i in range(3):
-        backup.create(ctx, f"manual", CUR)
+    for _ in range(3):
+        backup.create(ctx, "manual", CUR)
         ctx.clock.sleep(1)
     deploy.deploy(ctx, "v2026.9.24")
     ids = [b.id for b in backup.list_backups(ctx)]
@@ -109,7 +110,6 @@ def test_retention_after_deploy(tmp_path, monkeypatch):
 import pytest
 
 from talaria import state
-from tests.opsfakes import load
 
 
 class Killed(Exception):

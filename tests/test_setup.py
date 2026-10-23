@@ -1,9 +1,8 @@
 import argparse
 import copy
-import os
 import io
+import os
 from types import SimpleNamespace
-from pathlib import Path
 
 import pytest
 
@@ -559,8 +558,8 @@ def test_root_block_is_one_quoted_heredoc_paste():
 
 def test_every_sudoers_rule_is_validated_before_it_is_installed():
     lines = _full_block().splitlines()
-    installs = [i for i, l in enumerate(lines) if l.startswith("install -m 440")]
-    checks = [i for i, l in enumerate(lines) if l.startswith("visudo -cf")]
+    installs = [i for i, ln in enumerate(lines) if ln.startswith("install -m 440")]
+    checks = [i for i, ln in enumerate(lines) if ln.startswith("visudo -cf")]
     assert len(installs) == len(checks) == 3
     assert all(c == i - 1 for c, i in zip(checks, installs))
     assert "> /etc/sudoers.d" not in _full_block()     # never written in place

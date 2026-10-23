@@ -23,8 +23,8 @@ MAX_KEYS = 10
 def _doctor_changes(before: str, after: str) -> list[str]:
     """Only problem lines that are new ("+") or gone ("-"); passing checks are noise."""
     b, a = before.splitlines(), after.splitlines()
-    out = [f"+ {l.strip()}" for l in a if PROBLEM.search(l) and l not in b]
-    out += [f"- {l.strip()}" for l in b if PROBLEM.search(l) and l not in a]
+    out = [f"+ {ln.strip()}" for ln in a if PROBLEM.search(ln) and ln not in b]
+    out += [f"- {ln.strip()}" for ln in b if PROBLEM.search(ln) and ln not in a]
     return out[:40]
 
 
@@ -178,6 +178,15 @@ class Hermes(App):
         write_env_value(ctx.paths.app_env, "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD",
                         secrets.token_urlsafe(24))
         return [f"dashboard password generated in {ctx.paths.app_env} (user admin)"]
+
+    def dashboard_text(self, ctx) -> str | None:
+        if ctx.conf.dashboard_public_url:
+            url = ctx.conf.dashboard_public_url
+        elif ctx.conf.bind_ip:   # "" when the tailscale address is unknown
+            url = f"http://{ctx.conf.bind_ip}:{ctx.conf.dashboard_port}"
+        else:
+            return None
+        return f"Dashboard: {url} (user admin)"
 
     def ready_text(self, ctx) -> str:
         return (f"Hermes is running. Dashboard: http://{ctx.conf.bind_ip}:"

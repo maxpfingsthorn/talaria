@@ -1,16 +1,44 @@
 # Talaria
 
-Safe, approved updates for self-hosted AI agent apps on rootless podman. Opinionated.
+[![release](https://img.shields.io/github/v/release/maxpfingsthorn/talaria)](https://github.com/maxpfingsthorn/talaria/releases)
+[![ci](https://github.com/maxpfingsthorn/talaria/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/maxpfingsthorn/talaria/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+![python](https://img.shields.io/badge/python-%E2%89%A53.10%20%C2%B7%20stdlib%20only-informational)
+![podman](https://img.shields.io/badge/runs%20on-rootless%20podman-892CA0)
 
-Talaria manages three apps, each in its own service account, all under one Telegram bot:
+**Updates for self-hosted AI agent apps that ask first and can undo themselves.**
+Today it manages [Hermes Agent](https://github.com/NousResearch/hermes-agent),
+[Clawvisor](https://github.com/clawvisor/clawvisor) and [gbrain](https://github.com/garrytan/gbrain).
 
-| App | What it is | Talaria section |
-|---|---|---|
-| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | the agent itself | [Hermes](#hermes) |
-| [Clawvisor](https://github.com/clawvisor/clawvisor) | a gatekeeper service for AI agents | [Clawvisor](#clawvisor) |
-| [gbrain](https://github.com/garrytan/gbrain) | an agent memory "brain" with an MCP server | [gbrain](#gbrain) |
+Before you are asked, Talaria runs each new release's migrations and checks against a copy
+of your data. It then asks you in Telegram, deploys with a backup, and rolls back image and
+data together if the deploy fails its health check. Auto-updaters like Watchtower pull the
+new image and hope.
 
-Setting this up with a coding agent? Point it at [`AGENT_SETUP.md`](AGENT_SETUP.md).
+<p align="center">
+  <img src="docs/telegram-chat.png" width="480"
+       alt="The Talaria bot in Telegram: after /check it offers gbrain v0.60.175.0 with the rehearsal result (brain schema 237 → 238) and Approve/Reject buttons, reports Hermes and Clawvisor current, then offers Talaria v0.7.1, lists which apps would restart and reports the update installed for Hermes, Clawvisor and gbrain.">
+</p>
+
+1. **Find** a new release and check the download against what the release publishes.
+2. **Rehearse** it on a throwaway copy of your data, offline: the new release migrates the
+   copy and runs its own checks there (the table below says which), and you get a report of
+   what would change.
+3. **Ask** you in Telegram: Approve or Reject.
+4. **Back up, deploy, check health.** On failure, image and data roll back together.
+
+Nothing runs as root after setup: each app lives in its own service account under
+rootless podman. Talaria is young (since September 2026) and runs daily on the author's own
+host. Linux, systemd and rootless podman only.
+
+| App | What it is | What the rehearsal runs | Guide |
+|---|---|---|---|
+| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | the agent itself | config and database migrations, `hermes doctor` and a config diff; the gateway is not started | [docs/apps/hermes.md](docs/apps/hermes.md) |
+| [Clawvisor](https://github.com/clawvisor/clawvisor) | a gatekeeper service for AI agents | starts the new release on the copy and waits until it is ready; reports the migrations it applied | [docs/apps/clawvisor.md](docs/apps/clawvisor.md) |
+| [gbrain](https://github.com/garrytan/gbrain) | an agent memory "brain" with an MCP server | `gbrain doctor` (applies the schema migration) and a recall of a marker page; the server is not started | [docs/apps/gbrain.md](docs/apps/gbrain.md) |
+
+All three run under one Telegram bot. Setting this up with a coding agent? Point it at
+[`AGENT_SETUP.md`](AGENT_SETUP.md).
 
 ## What it does
 
@@ -20,7 +48,8 @@ Setting this up with a coding agent? Point it at [`AGENT_SETUP.md`](AGENT_SETUP.
   also against its build provenance when `gh` is available), then built into a local image.
   These checks compare the download with what the same release publishes (integrity, not an
   independent signature).
-- **Rehearses the update on a throwaway copy** of your data and reports what would change:
+- **Rehearses the update on a throwaway copy** of your data, offline, and reports what would
+  change:
   Hermes's config and database versions, migrations and a config diff; Clawvisor's database
   migrations; gbrain's schema version.
 - **Waits for your approval** on Telegram: one bot per host for every app.
@@ -31,16 +60,18 @@ Setting this up with a coding agent? Point it at [`AGENT_SETUP.md`](AGENT_SETUP.
 - **Updates itself** the same way: a new Talaria release is offered, never installed unasked.
 - Messages you only for decisions and failures.
 
-<p align="center">
-  <img src="docs/telegram-chat.png" width="480"
-       alt="The Talaria bot in Telegram: after /check it offers gbrain v0.60.175.0 with the rehearsal result (brain schema 237 → 238) and Approve/Reject buttons, reports Hermes and Clawvisor current, then offers Talaria v0.7.1, lists which apps would restart and reports the update installed for Hermes, Clawvisor and gbrain.">
-</p>
-
 Opinionated: one install of each app per host, one dedicated service user per app plus one
 hub account per host, rootless podman with Quadlet, Telegram for approvals.
 
 Scope: Hermes installs that run from the official container image (not the git-based
 `hermes update` path); Clawvisor and gbrain from their GitHub release binaries.
+
+Not supported, and not planned for now: Docker (rootful or rootless), Kubernetes, macOS,
+messengers other than Telegram, and Hermes installs updated with `hermes update`.
+
+No telemetry: Talaria itself talks only to GitHub (release tags and assets), the container
+registries it pulls images from and the Telegram Bot API. It reports nothing about your
+installation to anyone.
 
 Talaria is an independent project and is not affiliated with or endorsed by Nous Research,
 the Clawvisor project or the gbrain project.
@@ -52,7 +83,7 @@ the Clawvisor project or the gbrain project.
 Each app runs in its own account with its own rootless podman, data and backups. The hub
 account holds the only bot token and no app data; it can run nothing but `talaria op` as
 each app. Podman networks cannot cross accounts, so containers reach each other only
-through a published host address (see [Clawvisor](#clawvisor)).
+through a published host address (see [Clawvisor](docs/apps/clawvisor.md)).
 
 ## Requirements
 
@@ -106,34 +137,11 @@ host, as the hub: `sudo -u talaria -H ~talaria/.local/bin/talaria set-token` (se
 the exact command). A second app on the same host uses the same bot: no new token, no
 pairing.
 
-## What setup changes
-
-- The hub account (default `talaria`) and the app's service account (default `hermes`),
-  linger for both, and three sudo rules, each checked with `visudo` before it is installed:
-  - `/etc/sudoers.d/talaria-<user>` and `/etc/sudoers.d/talaria-talaria`: your login account
-    may act as the app's account and as the hub;
-  - `/etc/sudoers.d/talaria-talaria-<user>`: the hub may run
-    `~<user>/.local/bin/talaria op …` as the app's account — nothing else.
-- For the hub:
-  - `~/.local/share/talaria` and `~/.local/bin/talaria` (the same release tag as the apps);
-  - `~/.config/talaria/hub.conf` (registered apps, check time) and `.env` with the bot token;
-  - `talaria-check.timer`, `talaria-maintain.timer` and `talaria-telegram.service`.
-- For the app's account:
-  - `~/.local/share/talaria` (this repo at a release tag) and `~/.local/bin/talaria`;
-  - `~/.config/talaria/` (`talaria.conf`, and `<app>.env` with the app's secrets, e.g.
-    `hermes.env` with the dashboard password);
-  - `~/.local/state/talaria/` (state, backups, history);
-  - `~/.config/containers/systemd/<app>.container`.
-- Adopting an existing install renames its Quadlet to `*.talaria-orig`, takes a full
-  backup first, and keeps the data where it is.
-- Setup never moves a Talaria install backwards: if the hub already runs a newer release
-  than your checkout, it stops and asks you to check out the newer tag.
-
 ## Daily use
 
 | Telegram command | Effect |
 |---|---|
-| `/status` | every app: version and state, free disk, data size, pending update, interrupted change |
+| `/status` | every app: version and state, free disk, data size, dashboard address (Hermes), pending update, interrupted change |
 | `/check` | look for new releases now, for every app and for Talaria itself; always ends with a summary, even when nothing is new |
 | `/check <app>` | the same for one app |
 | `/check talaria` | only the Talaria release: the release notice if there is a newer one, else "Talaria vX is current." |
@@ -143,11 +151,13 @@ pairing.
 | `/rollback [app] CONFIRM` | roll back |
 | `/backups [app]` | list backups |
 | `/restore [app] <id>` / `/restore [app] <id> CONFIRM` | describe / restore a backup |
+| `/restart [app]` | stop and start the app's container (same image, same data); refused while an interrupted change waits for `/rollback CONFIRM` |
 | `/login [app] [OAuth request id or consent URL]` | a one-time admin login link for gbrain or Clawvisor, sent with previews off and replaced by an "expired" notice after 5 minutes; `/status` has a button for it |
 | `/update <version>` | show which apps a Talaria update would restart, with an **Update** button (what the daily notice's **What would vX change?** button does) |
 
 With one app registered, the app name is optional. With several, a command without one
-answers "Which app?" with a button per app (not `/check`, which checks everything); the button runs the read-only or describe
+answers "Which app?" with a button per app (not `/check`, which checks everything, and not
+`/restart`, which asks you to type the app name); the button runs the read-only or describe
 form (status, rollback description), never a confirm.
 
 The bot registers these commands with Telegram, so they appear under the **Menu**
@@ -164,374 +174,6 @@ Nothing else.
 **A rollback replaces the data with the backup taken before the last deploy.** `/rollback`
 shows that backup's age before you confirm. Talaria first backs up the current data, and
 the rollback message names the `/restore <id> CONFIRM` that undoes it.
-
-## Hermes
-
-Hermes is the default app (`--app hermes`, account `hermes`). Talaria runs the official
-image (`docker.io/nousresearch/hermes-agent`) as `hermes gateway run`, with the dashboard
-inside the same container, and refuses releases older than v2026.6.5. An existing Hermes
-install is adopted: setup renames its Quadlet to `*.talaria-orig`, takes a full backup
-first and keeps the data where it is (`--adopt UNIT` picks one when there are several).
-
-### Dashboard
-
-The dashboard always requires a login: user `admin`, password in
-`~/.config/talaria/hermes.env` of the service user.
-
-- Default (`dashboard.bind = loopback`): `ssh -L 9119:127.0.0.1:9119 <host>`, then open
-  `http://127.0.0.1:9119`.
-- Tailscale: set `dashboard.bind = tailscale` in `talaria.conf` and run setup again.
-  The dashboard is then reachable on the host's Tailscale address only.
-
-Public IPv4 addresses are rejected, but a private address is only as private as its network:
-use a "LAN address" only on a network you trust (home or office). On a cloud VM the
-private/VPC address may be reachable from elsewhere (1:1 NAT, provider network), so prefer
-Tailscale or an SSH tunnel there.
-
-After editing `talaria.conf`, run setup again: it validates the file (a bad value would stop
-the bot at its next start).
-
-## Configuration
-
-`~/.config/talaria/talaria.conf` of the service user, `key = value`. Defaults below are
-Hermes's; a Clawvisor or gbrain install (`app = clawvisor`, `app = gbrain`) gets its own defaults
-for `data_dir`, `dashboard.port`, `repo`, `image`, `min_release`, `backup.exclude`,
-`check.days` and `maintenance.time`.
-
-| Key | Default |
-|---|---|
-| `data_dir` | `~/hermes-data` |
-| `image` | `docker.io/nousresearch/hermes-agent` |
-| `repo` (`hermes_repo` also accepted) | `https://github.com/NousResearch/hermes-agent` |
-| `talaria_repo` | not used since v0.5 (see the hub's `hub.conf`) |
-| `dashboard.public_url` | empty; `https://<host>` (or `http://127.0.0.1`/`http://localhost`), no path. `login-link` prints its link with this address first. Sets Clawvisor's `PUBLIC_URL`; changes nothing Talaria publishes or health-checks |
-| `dashboard.bind` | `loopback`; or a space-separated list of 1-3 of `loopback`, `tailscale` and private IPv4 addresses (never `0.0.0.0`, public or other `127.x` addresses). The first is the primary address (health checks); each is published |
-| `dashboard.port` | `9119` |
-| `backup.keep` | `5` |
-| `backup.exclude` | `.cache .npm home/.cache home/.npm backups` (`backups/config` is always kept) |
-| `disk.floor_gb` | `6` |
-| `check.time` | not used since v0.5 (see the hub's `hub.conf`) |
-| `check.days` | every day (gbrain: `mon thu`); space-separated `mon` … `sun`: the days the hub's daily timer looks for this app's releases. `/check` always looks. Empty = every day |
-| `maintenance.time` | none (gbrain: `01:30`); `HH:MM` local time: start of a two-hour window in which Talaria runs the app's maintenance once (gbrain: `gbrain dream`). Empty turns it off |
-| `host_loopback` | `false` (`true`: the container may reach the host's loopback at `10.0.2.2`; needs `slirp4netns`) |
-| `add_hosts` | (none; space-separated `name:ip` pairs, e.g. `clawvisor:10.254.254.1`) |
-
-Comments must be on their own line (`# …`); a trailing `# …` becomes part of the value.
-Booleans are `true` or `false`. Setup also rejects a key given twice, a port outside
-1-65535, a relative `data_dir` and a `tailscale_ip` outside `100.64.0.0/10`.
-
-Run setup again after changing it. An unknown key stops setup (naming the key) but is only
-warned about at runtime, so a key added for a newer Talaria does not cut an older install
-off; still update first, then add new keys.
-
-### The hub's `hub.conf`
-
-`~/.config/talaria/hub.conf` of the hub account, `key = value`:
-
-| Key | Default |
-|---|---|
-| `apps` | written by setup: `<app>:<account>` pairs, e.g. `hermes:hermes clawvisor:clawvisor` |
-| `check.time` | `04:30` (the daily check of every app and of Talaria itself) |
-| `talaria_repo` | this repository |
-| `telegram_api` | `https://api.telegram.org` |
-
-Run setup again (for any app) after changing it.
-
-## Clawvisor
-
-Talaria can also manage [Clawvisor](https://github.com/clawvisor/clawvisor) the same
-way it manages Hermes: release detection, a rehearsal on a copy, Telegram approval,
-backup, deploy, verify, and rollback of image and data together.
-
-Each app has its own service account and its own Talaria install, under one hub. To run both Hermes and Clawvisor on the same
-host, set Clawvisor up as its own service user, separate from Hermes's:
-
-```bash
-bin/talaria setup --plan --app clawvisor --user clawvisor
-bin/talaria setup --app clawvisor --user clawvisor
-```
-
-Clawvisor's README warns that an agent sharing an environment with it can read its
-database, so it never shares a user, a podman network or a data dir with Hermes.
-
-**Clawvisor uses the same bot as Hermes.** Its setup registers it with the hub; there is
-no second bot, token or pairing. In the chat, name the app when you type a command:
-`/approve clawvisor v0.9.10`.
-
-Clawvisor's `HOME` is its data dir, so custom adapters
-(`~clawvisor/clawvisor-data/.clawvisor/adapters/`) persist and are backed up and rolled back
-with the data; the login session file (`.clawvisor/.local-session`) is excluded from backups.
-
-Clawvisor has no dashboard password; its first login is a single-use, short-lived
-link. As the `clawvisor` service user, **in your own terminal** (never through a
-coding agent): `talaria login-link`, or send `/login clawvisor` to the bot: it sends the link in your
-private chat with previews off and replaces it with an "expired" notice after 5 minutes.
-Treat the link like a password — **never paste it into an agent's context, a ticket, or
-anywhere it could be logged; the bot's private chat is the exception, because the link
-is single-use and short-lived.** If an agent is driving setup, have it stop here and let the person at
-the keyboard run this step and use the link themselves.
-
-Hermes and Clawvisor run as two rootless podman users, so no podman network joins them.
-To let Hermes reach Clawvisor (`http://clawvisor:25297`), pick one option. Each time,
-re-run setup for the app whose `talaria.conf` you changed. Clawvisor's own dashboard,
-on a dummy NIC or loopback, is reached from your laptop through an SSH tunnel
-(`ssh -L 25297:<address>:25297 <host>`, then open the login link with the address replaced
-by `127.0.0.1`; `login-link` prints that hint). To also reach it from your browser without a
-tunnel, list a second address: `dashboard.bind = 10.254.254.1 tailscale` publishes it on the
-dummy NIC (for Hermes) and on your Tailscale address (for your browser); `login-link` then
-prints one link per address.
-
-Clawvisor in a container always runs in "non-local" mode, so its login cookie is
-`Secure`: browsers keep it only over HTTPS or on `http://localhost` / `http://127.0.0.1`.
-Open the dashboard through an SSH tunnel at `http://127.0.0.1:<port>` (works on any bind),
-or over HTTPS, e.g. `sudo tailscale serve --bg --https=443 http://<bind address>:<port>`
-(tailnet-only; `funnel` would make it public), and set
-`dashboard.public_url = https://<host>.<tailnet>.ts.net` so `login-link` prints that link
-first. Plain `http://` to a Tailscale, LAN or dummy-NIC address logs you out right after
-login ("Link expired or already used").
-
-`dashboard.public_url` also becomes Clawvisor's `PUBLIC_URL` (a line in its Quadlet), which
-Google OAuth needs: the redirect URI is `<public_url>/api/oauth/callback`, see Clawvisor's
-[GOOGLE_OAUTH_SETUP.md](https://github.com/clawvisor/clawvisor/blob/main/docs/GOOGLE_OAUTH_SETUP.md).
-`login-link` does not depend on it: it hands Clawvisor a throwaway session file
-(`<data dir>/.login-link`, removed afterwards) that points at the container's own address.
-
-**1. Dummy NIC (recommended).** Only services bound to its address are exposed, but that
-holds for the host only: a neighbour on your LAN that routes `10.254.254.1` via your server,
-or rootful containers on the same host, can still reach it. As root,
-once (the address is arbitrary private space; pick one unused on your networks):
-
-```bash
-cat >/etc/systemd/network/10-talaria0.netdev <<'EOF2'
-[NetDev]
-Name=talaria0
-Kind=dummy
-EOF2
-cat >/etc/systemd/network/10-talaria0.network <<'EOF2'
-[Match]
-Name=talaria0
-
-[Link]
-RequiredForOnline=no
-
-[Network]
-Address=10.254.254.1/32
-EOF2
-networkctl reload    # needs systemd-networkd running (default on Ubuntu Server)
-```
-
-Optional: drop traffic to that address unless it arrives on `lo` (rootless podman and host
-processes reach it through `lo`, so nothing intended breaks). Not persistent; persist it via
-your distribution's `nftables.conf`:
-
-```bash
-nft add table inet talaria; nft add chain inet talaria in '{ type filter hook input priority 0; }'; nft add rule inet talaria in ip daddr 10.254.254.1 iifname != "lo" drop
-```
-
-- Clawvisor's `talaria.conf`: `dashboard.bind = 10.254.254.1`
-- Hermes's `talaria.conf`: `add_hosts = clawvisor:10.254.254.1`
-
-**2. Tailscale.** If you already use it (it also gives remote dashboard access).
-
-- Clawvisor's: `dashboard.bind = tailscale` (setup records `tailscale_ip`)
-- Hermes's: `add_hosts = clawvisor:<tailscale ip>`
-
-**3. Host loopback (no root).** Clawvisor stays on `127.0.0.1`. Hermes's container joins
-`slirp4netns:allow_host_loopback=true` and sees the host's loopback at `10.0.2.2`.
-Needs the `slirp4netns` package. **Warning:** the Hermes container can then reach every
-service listening on the host's loopback, not just Clawvisor.
-
-- Clawvisor's: nothing (default `dashboard.bind = loopback`)
-- Hermes's: `host_loopback = true` and `add_hosts = clawvisor:10.0.2.2`
-
-In all three, the two service users never share a podman network.
-
-Clawvisor keeps everything in SQLite (WAL mode, one connection); it publishes no
-container image, so Talaria downloads each release's binary, checks its SHA-256
-against the checksums the same release publishes (an integrity check, not an
-independent signature), and builds a local image from a pinned distroless
-base. Its log tables (`audit_log`, `gateway_request_log`, `runtime_events`) are
-never pruned upstream and grow without bound — `/status` reports the data
-directory's size so you notice before disk space runs out; Talaria itself does
-not prune them.
-
-Google OAuth login (it needs an https redirect) is out of scope; use the one-time
-login link instead. Adopting an existing Clawvisor install is also out of scope —
-only a fresh install is supported.
-
-## gbrain
-
-Talaria can manage [gbrain](https://github.com/garrytan/gbrain), an agent memory "brain"
-with an MCP server, the way it manages Hermes and Clawvisor. That covers release
-detection, a rehearsal on a copy, Telegram approval, backup, deploy, verify, and
-rollback of image and data together. gbrain runs in its own service account under the
-same bot:
-
-```bash
-bin/talaria setup --plan --app gbrain --user gbrain
-bin/talaria setup --app gbrain --user gbrain
-```
-
-- **`dashboard.public_url` is required.** It is the https address MCP connectors use,
-  for example `dashboard.public_url = https://<host>.<tailnet>.ts.net` (include the port
-  only if it is not 443).
-  It becomes gbrain's `--public-url`, which is its OAuth issuer. Setup stops without it.
-- **Image.** gbrain publishes no container image. Talaria downloads the release's
-  `gbrain-linux-x64` and checks its SHA-256 against the digest GitHub publishes for that
-  asset. When `gh` is installed and logged in for the service account, Talaria also checks
-  the build provenance (`gh attestation verify`), which is the only check beyond
-  same-release integrity. Otherwise setup prints a `NOTE` and only
-  the digest is checked. Talaria then builds a local image from a pinned distroless base.
-- **Storage.** gbrain keeps its data in PGLite (embedded Postgres) in `~gbrain/gbrain-data`,
-  mode 0700, because some PGLite files inside it are world-readable. Only one process can
-  open the brain at a time. Rehearsal copies, backups and maintenance therefore stop the
-  server for a moment. The rehearsal never starts the new server: it runs
-  `gbrain doctor --json` (schema version) and recalls a marker page that setup wrote, on
-  the copy, offline and without your keys.
-- **Admin token.** Setup generates `GBRAIN_ADMIN_BOOTSTRAP_TOKEN` in
-  `~gbrain/.config/talaria/gbrain.env` (mode 0600), and you log in to `/admin` with it, or send `/login gbrain`
-  to the Telegram bot for a one-time login link.
-  Treat it like a password: never paste it into a chat or an agent's context.
-- **Provider keys** (embeddings, synthesis, the dream cycle) are yours to add, in your own
-  terminal as the service user: put them in the app env file
-  `~<user>/.config/talaria/gbrain.env`, for example `OPENROUTER_API_KEY=…` (or
-  `OPENAI_API_KEY=…`, `ANTHROPIC_API_KEY=…`, any provider gbrain supports), then run
-  `sudo -u <user> XDG_RUNTIME_DIR=/run/user/$(id -u <user>) systemctl --user restart gbrain.service`. gbrain picks up a changed key only after a
-  restart. Talaria never asks for provider keys and never prints them.
-- **Model tiers** (utility, reasoning, deep, subagent) are gbrain's own configuration
-  (`gbrain config`), not Talaria's. gbrain's defaults call Anthropic directly, so with
-  another provider set the tiers to that provider's model ids. **Also pin `chat_model` and
-  `expansion_model`** in the brain's config file (`~gbrain/gbrain-data/.gbrain/config.json`,
-  for example `"chat_model": "openrouter:<model>"`) and restart gbrain: automatic
-  extraction and synthesis check only these file pins, not the tiers, and otherwise fall back
-  to an Anthropic default. An MCP client's `whoami` shows `chat_llm` as `ok` once it works.
-  To choose embedding models
-  for an existing brain, stop gbrain first, because the command needs the brain to itself.
-  Run these as the service user (from another account, with `sudo -u <user>` and the
-  `XDG_RUNTIME_DIR` shown, which rootless podman and `systemctl --user` need):
-
-  ```bash
-  sudo -u <user> XDG_RUNTIME_DIR=/run/user/$(id -u <user>) systemctl --user stop gbrain.service
-  sudo -u <user> XDG_RUNTIME_DIR=/run/user/$(id -u <user>) podman run --rm --read-only --userns=keep-id:uid=65532,gid=65532 \
-    -v ~<user>/gbrain-data:/data:Z -e HOME=/data -e GBRAIN_HOME=/data \
-    --env-file ~<user>/.config/talaria/gbrain.env localhost/gbrain:current \
-    embeddings enable --embedding-model <provider:model>
-  sudo -u <user> XDG_RUNTIME_DIR=/run/user/$(id -u <user>) systemctl --user start gbrain.service
-  ```
-- **Update cadence.** gbrain releases several times a day. By default
-  (`check.days = mon thu`) the daily timer looks for a gbrain release twice a week.
-  `/check gbrain` looks at any time.
-- **Nightly maintenance.** Each night, from `maintenance.time` (default `01:30`, local
-  time), Talaria stops gbrain, runs `gbrain dream` once in a one-off container, and starts
-  gbrain again. The dream cycle has network access and your provider keys; without keys it
-  runs only its file-based phases. Expect minutes of downtime. The run is skipped while
-  another Talaria operation runs or a change is interrupted. Success is silent. A failure
-  sends one message, and the next night retries. If gbrain is not running afterwards,
-  the message says so and `/rollback CONFIRM` in the bot starts it again (nothing is
-  restored); there is no retry until then. The hub's `talaria-maintain.timer` checks
-  every 15 minutes whether a window is due. `maintenance.time =` (empty) turns
-  maintenance off.
-- Out of scope: Postgres, gbrain's autopilot daemon, adopting an existing gbrain install,
-  and gbrain's own `self-upgrade` (Talaria turns its update checks off).
-
-### Who reaches what
-
-| Path | Who | Where |
-|---|---|---|
-| `/mcp`, `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource` (and `…/mcp`), `/authorize`, `/token`, `/register`, `/revoke` | cloud MCP connectors (claude.ai, ChatGPT) | public, port 443 |
-| everything, including `/admin` and `/metrics` | you, and local agents on the host or tailnet | tailnet only, port 10000 (or the published address) |
-| `/admin` (redirect only) | anyone; answers with a redirect to the tailnet-only admin port | public, port 443 |
-
-Cloud connectors use OAuth: they register themselves (dynamic client registration) and
-you approve each one in `/admin`. **With registration open, anyone who reaches
-`/register` can create a client.** It stays *pending*, and nothing is granted until you
-approve it. Approve only clients you just added yourself. Local agents (Hermes, Claude
-Code, Codex) get scoped tokens that you mint in `/admin`, and use the tailnet port or the
-published address.
-
-A connector's consent link and the bot's login links point at the public address
-(`https://<host>.<tailnet>.ts.net/admin/…`). With the redirect below, that address sends your
-browser to the tailnet-only admin port, keeping the rest of the link; outside your tailnet the
-target does not answer. gbrain keeps admin sessions in memory, so every restart (also the
-nightly maintenance) logs you out: send `/login gbrain` for a new link.
-
-### Public MCP endpoints with Tailscale Serve and Funnel
-
-Talaria does not configure Tailscale. For any app with a public MCP endpoint, publish the
-app on loopback (`dashboard.bind = loopback`, the default) or on its Tailscale address.
-Then, as root, once (`<port>` is the app's `dashboard.port`, 3131 for gbrain):
-
-```bash
-# public: exactly the connector paths, on 443
-for p in /mcp /.well-known/oauth-authorization-server /.well-known/oauth-protected-resource \
-         /authorize /token /register /revoke; do
-  tailscale funnel --bg --https=443 --set-path "$p" "http://127.0.0.1:<port>$p"
-done
-# tailnet only: the whole server, including its admin UI, on 10000
-tailscale serve --bg --https=10000 http://127.0.0.1:<port>
-# the admin redirect on 443 (Tailscale 1.92+; the serve CLI has no flag for it)
-git clone --branch vX.Y.Z https://github.com/maxpfingsthorn/talaria /root/talaria-vX.Y.Z   # the release you run
-python3 -I /root/talaria-vX.Y.Z/tools/tailscale-admin-redirect.py --host <host>.<tailnet>.ts.net
-tailscale funnel status
-```
-
-Run it from your own clone at the release tag, not from an installed copy: those belong to
-service accounts that can edit them, and `-I` keeps the current directory and the environment out of
-Python's import path, so nothing a service account can write runs as root. The helper adds
-only `/admin` on 443, as a redirect (`302:https://<host>.<tailnet>.ts.net:10000${REQUEST_URI}`); it
-first saves the previous config as `tailscale-serve.before-admin-redirect.<UTC stamp>.json` in the
-current directory and prints that path (it removes the file again if it aborts before applying anything). `--undo <file>` shows the current and the restored paths
-per port, then restores it (only a file that looks like a serve config). `--dry-run` shows the
-plan and writes nothing. It refuses when `/admin` already exists or 443 has no paths yet, and
-aborts if the serve config changes while it runs, so do not change it in the meantime.
-
-Funnel must be allowed for the node in your tailnet policy, and it only works on ports
-443, 8443 and 10000. **Funnel applies per port: never funnel a port that also serves a
-private app.** `tailscale funnel status` should list only the paths above (and `/admin` as a redirect) as public.
-Use 443: claude.ai's connector check did not reach a funnel on 8443. If 443 already
-serves a private app (for example Clawvisor via `tailscale serve`), move that app to another
-tailnet-only port first (`tailscale serve --https=443 off`, then `--https=<other port>`, and
-update its `dashboard.public_url`). Set `dashboard.public_url = https://<host>.<tailnet>.ts.net`
-and run setup again.
-
-## Security
-
-| Party | Trust |
-|---|---|
-| The paired Telegram account | trusted |
-| Your login account and coding agents running as it | fully trusted, through the sudo rule |
-| The Hermes agent, its data dir and everything in it | untrusted |
-| Upstream images and their output | untrusted beyond digest and revision checks (integrity against what the same release publishes, not an independent signature) |
-| This repository | trusted as cloned; install from the canonical URL at a tag |
-| The hub account (`talaria`) | holds the bot token; may run only `talaria op …` as each app |
-| gbrain's public connector paths (Tailscale Funnel) | untrusted; DCR clients stay pending until you approve them in /admin |
-
-- The agent cannot reach the updater: Talaria's files are outside the container's only
-  mount, and the container sees only its data and the dashboard password.
-- Upstream code never runs on the host. Rehearsal helpers run in containers without a
-  network.
-- One commander, paired with a code only the person at the terminal sees. Everyone else
-  is ignored.
-- Text from the agent or upstream is shown inert in messages. Destructive commands need
-  `CONFIRM` and say what they destroy. Config diffs mask values under secret-looking
-  keys, after secret-looking flags, in URL credentials and parameters, and values that
-  look like tokens. This is a heuristic; review what the bot shows you.
-- Talaria never follows symlinks in the data dir: backups and rehearsal copies keep them
-  as links, and restores extract into new directories.
-- The adoption plan shows only variable names on `Environment=` lines and hides
-  `PodmanArgs=`, `Exec=` and `Secret=` lines entirely.
-- The hub reaches an app only through `talaria op`, which accepts a fixed list of operations (status, check, deploy, rollback, restore, button, self-update, …) and nothing with a shell. App accounts hold no bot token.
-- No root after setup.
-
-Known limitations:
-
-- Change Hermes images only through Talaria. Starting another image by hand on
-  migrated data is unsupported.
-- `.env` backup copies that Hermes itself writes stay in the data dir and in backups.
-- A rollback while Hermes is blocked by an interrupted change takes no extra backup: the
-  data it replaces is the half-changed state.
-- While a change is interrupted, Talaria refuses to deploy or rehearse anything new until
-  you recover with `/rollback CONFIRM`.
 
 ## Manual recovery
 
@@ -555,97 +197,29 @@ half-changed data). As the service user (`sudo -u <user>` from another account):
    would replace the data you just put back); use `/restore` or the shell steps above.
    Until the interrupted state is cleared, Talaria refuses new changes and `talaria backup`.
 
-## Removing the sudo rules
+## Documentation
 
-After setup you can remove your own rules: `sudo rm /etc/sudoers.d/talaria-<user>
-/etc/sudoers.d/talaria-talaria`. Talaria keeps working; only `talaria setup` from your
-login account needs them again. Keep `/etc/sudoers.d/talaria-talaria-<user>`: the bot needs
-it to reach the app.
+- Per app: [Hermes](docs/apps/hermes.md), [Clawvisor](docs/apps/clawvisor.md),
+  [gbrain](docs/apps/gbrain.md)
+- [Configuration](docs/configuration.md): every `talaria.conf` and `hub.conf` key
+- [Security](docs/security.md): trust model, what setup changes, removing the sudo rules
+- [Operations](docs/operations.md): updating Talaria, uninstalling
+- [Design](docs/design.md): how the pieces fit, the update flow and its failure handling
+- [Changelog](CHANGELOG.md)
 
-## Updating Talaria
+## How it's built
 
-The hub checks for new Talaria releases daily and sends a notice with a **What would
-vX.Y.Z change?** button; tapping it (or `/update vX.Y.Z`) lists which apps the update would
-restart, with an **Update Talaria to vX.Y.Z** button.
-The update runs hub first, then each app, then restarts the bot, and reports per app. From
-a shell, as the hub:
+Talaria is written with AI coding assistants (Claude Code). The maintainer designs, reviews
+and decides every change; the safety net is the checks, not trust in whoever typed the code:
 
-```bash
-sudo -u talaria -H ~talaria/.local/bin/talaria self-update vX.Y.Z
-```
-
-The bot refuses a version that is not newer than the one installed (no downgrades), and
-the apps refuse releases older than v0.5.0 (the first with a hub interface). If an update fails on an account, that
-account's previous version is restored and its setup re-run (units re-rendered, the app
-restarted if needed); an app whose update failed keeps its version, and
-keeps working: `/status` adds a note that it is not at the hub's version, and the daily
-check still runs for it. Only a different protocol (or an app that does not answer `hello`)
-blocks its commands with "Talaria versions differ on this host; run /update" until an
-update succeeds (the bot re-checks the app on each command, so it needs no restart
-afterwards). `/update vX.Y.Z` with the version the hub already runs is accepted while an app
-lags, and updates only the lagging apps; with none lagging it says so.
-
-**v0.6.1.** The step from v0.6.0 to v0.6.1 is still run by v0.6.0's self-update code, so
-the new behaviour of a failed update (previous version restored, its setup re-run, only
-the wanted tag fetched) applies from the update after that. Self-update itself keeps
-accepting every `talaria.conf` and `hub.conf` that v0.6.0 accepted; the stricter value
-checks (duplicate keys, port range, booleans, `tailscale_ip`, `check.time`) apply only
-when a person runs `talaria setup`.
-
-### Moving from v0.4
-
-v0.4 ran one bot per app. After `self-update v0.5.0`, an install keeps its own bot and
-reminds you daily to move it: from a v0.5 checkout, as your login account, run
-`bin/talaria setup --app <app> --user <user>`. Setup prints one root paste (the hub account
-and its rules), stops the app's own bot, moves its token and pairing to the hub — the same
-bot and chat, no new pairing — and starts the hub's bot. The app is not restarted. If the
-hub already has a bot, the app's own token is dropped. If an app still runs its own bot,
-setup of another app stops ("set <app> up first") until that app has been moved, so its
-bot is not left polling alongside the hub's; and it stops if the old bot is still running.
-
-## Uninstall
-
-As the hub (`talaria`):
-
-```bash
-systemctl --user disable --now talaria-check.timer talaria-maintain.timer talaria-telegram.service
-rm ~/.config/systemd/user/talaria-*
-rm -r ~/.local/share/talaria ~/.local/bin/talaria ~/.config/talaria
-systemctl --user daemon-reload
-```
-
-As each app's service user:
-
-```bash
-systemctl --user stop hermes.service
-rm ~/.config/containers/systemd/hermes.container
-rm -r ~/.local/share/talaria ~/.local/bin/talaria ~/.config/talaria
-systemctl --user daemon-reload
-podman images --format '{{.Repository}}:{{.Tag}}' localhost/hermes-agent | xargs -r podman image rm
-```
-
-Then as root: `rm /etc/sudoers.d/talaria-*` and `loginctl disable-linger <user>` for each
-account (or `userdel -r <user>` if the account served nothing else; that also deletes the
-data).
-
-Your data dir and `~/.local/state/talaria/backups` are left untouched.
-
-## Architecture
-
-Talaria is a small app-neutral core (state, backup, deploy, rollback, restore,
-rehearsal, setup, notify) plus a thin per-app adapter under `talaria/apps/` that
-supplies everything that differs between the apps Talaria can manage: release
-discovery and image fetch, health and data-version checks, quadlet template
-variables, secret setup and the texts shown to you. `ctx.app` is the adapter in
-use; `talaria.apps.get(name)` looks one up by the `app` key in `talaria.conf`.
-`talaria/apps/hermes.py`, `talaria/apps/clawvisor.py` and `talaria/apps/gbrain.py` are the adapters today. `talaria/maintain.py` (app side) and `talaria/hubmaintain.py` (hub timer) run maintenance windows.
-
-One hub account per host runs the Telegram bot and the daily timer (`talaria/telegram.py`,
-`talaria/hubcheck.py`, `talaria/hubupdate.py`); `hub.conf` makes an account the hub
-(`talaria/hubconf.py`). The hub reaches each app only through `talaria op`
-(`talaria/op.py`), run as the app's account through one sudo rule (`talaria/hubexec.py`).
-`op` writes JSON lines, which `talaria/relay.py` turns into Telegram messages, prefixing
-button data with the app's name.
+- about 1,650 unit tests, run on Python 3.10 and 3.13 on every pull request;
+- end-to-end tests in CI that create real service accounts and drive rootless podman,
+  systemd user units, sudo rules and a fake Telegram and release server through updates,
+  rollbacks, restores and self-updates;
+- a weekly contract test against the newest upstream Hermes image;
+- mutation testing: a release is refused below an 85 % score (currently about 97 %; see
+  [docs/mutation-report.md](docs/mutation-report.md));
+- larger changes get an independent review pass before they are merged.
 
 ## Development
 
@@ -662,10 +236,16 @@ requests into `main`, on `main` itself, on release tags and on demand (Actions �
 workflow). The contract test and mutation testing run weekly and on release; see
 [`docs/mutation-report.md`](docs/mutation-report.md).
 
-Branches: work happens on `develop`. Changes go in through pull requests against `develop`,
-which need green unit tests (`unit (3.10)`, `unit (3.13)`) and an up-to-date branch; nobody
-pushes to `develop` or `main` directly. A release is a pull request from `develop` to `main`,
-which also needs `e2e`, then a `vX.Y.Z` tag on `main`, which runs CI, mutation testing and
-the contract test and publishes the GitHub release. Release tags cannot be moved or deleted.
+How to contribute, and the rules that keep existing installs working, are in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+Releases: a pull request from `develop` to `main`, which also needs `e2e`, then a `vX.Y.Z`
+tag on `main`, which runs CI, mutation testing and the contract test and publishes the
+GitHub release. Release tags cannot be moved or deleted.
+
+Releases come at most once a week unless a fix is urgent. Each one has an entry in
+[`CHANGELOG.md`](CHANGELOG.md) written for the people running Talaria: what changes for
+them, anything they have to do, and how to update. After the release workflow publishes, the
+GitHub release notes are replaced with that entry.
 
 Licence: MIT.

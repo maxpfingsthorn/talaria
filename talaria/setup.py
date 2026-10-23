@@ -10,9 +10,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from talaria.ctx import Paths
 from talaria import adopt, apps, images, lock, rehearse, service, state, telegram, units
 from talaria.conf import check_bind, load_conf, parse_kv, write_env_value
+from talaria.ctx import Paths
 from talaria.disk import NOT_RENAMABLE, renamable
 from talaria.hubconf import NAME_RE, load_hub_conf, register_app
 from talaria.notify import ApiError, TelegramAPI
@@ -79,7 +79,7 @@ def account_lines(user: str, operator: str, create: bool) -> list[str]:
 
 
 def op_rule_lines(hub: str, user: str) -> list[str]:
-    """The hub may run `talaria op …` as the app and nothing else (spec §4.1). The app's
+    """The hub may run `talaria op …` as the app and nothing else. The app's
     home comes from the passwd database when the block runs."""
     return [f"home=$(getent passwd {user} | cut -d: -f6)", "test -n \"$home\"",
             *_sudoers(f"\"{hub} ALL=({user}) NOPASSWD: $home/.local/bin/talaria op *\"",
@@ -178,7 +178,7 @@ def _v04_bot(sh, user: str, home: str) -> tuple[bool, bool]:
 
 
 def _migrate(sh, user: str, pw, hub: str, hub_pw, found, move) -> int:
-    """Spec §7.4, between the app's and the hub's setup: one bot per host. Each step is
+    """Between the app's and the hub's setup: one bot per host. Each step is
     idempotent, so a re-run after an interruption resumes. The app's Quadlet and service
     are never touched."""
     has_units, has_token = found
@@ -210,7 +210,7 @@ def _migrate(sh, user: str, pw, hub: str, hub_pw, found, move) -> int:
 
 
 def import_telegram(ctx, stream) -> int:
-    """Spec §7.4 step 2, the hub's end of the pipe: the app's Telegram lines on stdin."""
+    """The hub's end of the pipe: the app's Telegram lines on stdin."""
     kv = parse_kv(stream.read())
     token, uid = kv.get("TALARIA_TELEGRAM_TOKEN", ""), kv.get("TALARIA_TELEGRAM_USER_ID", "")  # pragma: no mutate  (any non-matching default is rejected the same way)
     if not TOKEN_RE.match(token):
@@ -266,7 +266,8 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
     if selinux_enforcing(sh):
         say("STOP", "SELinux is enforcing; Talaria v1 does not support that")
         return 1
-    lingers = lambda name: (Path(linger_dir) / name).exists()
+    def lingers(name):
+        return (Path(linger_dir) / name).exists()
     pw = _pw(getpwnam, user)
     app_lines, installed = [], False  # pragma: no mutate  (a missing account always ends in the root paste before `installed` is read)
     if pw is None:
@@ -420,7 +421,7 @@ def _telegram_ready(ctx, api=None) -> int | None:
 
 
 def hub_phase(ctx, args, api=None) -> int:
-    """The hub account's own setup (spec §7.2, §7.3): hub.conf, bot token and pairing,
+    """The hub account's own setup: hub.conf, bot token and pairing,
     the bot and timer units. `--register app:user` adds an app."""
     p = ctx.paths
     ensure_dir(p.conf_dir)

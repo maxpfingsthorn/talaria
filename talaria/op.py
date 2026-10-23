@@ -1,4 +1,4 @@
-"""`talaria op`: the only door from the hub into an app install (spec §4).
+"""`talaria op`: the only door from the hub into an app install.
 
 Runs as the app's account (through `sudo -n -u <app>` from the hub, or directly in
 transitional mode). Parses its own arguments strictly; writes JSON lines to stdout and
@@ -21,7 +21,7 @@ from talaria.tags import semver_newer
 PROTOCOL = 1
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 OPS = ("status", "backups", "check", "maintain", "deploy", "reject", "rollback", "restore", "button",
-       "hello", "interrupted", "self-update", "quadlet", "login-link")
+       "hello", "interrupted", "self-update", "quadlet", "login-link", "restart")
 STALE = "Out of date — send /status"
 
 
@@ -71,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
     def add(name):
         return sub.add_parser(name, add_help=False, allow_abbrev=False)  # pragma: no mutate  (None == False; help=True and abbreviations are pinned by tests)
 
-    for name in ("status", "backups", "hello", "interrupted"):
+    for name in ("status", "backups", "hello", "interrupted", "restart"):
         add(name)
     add("check").add_argument("--timer", action="store_true")
     add("maintain").add_argument("--timer", action="store_true")
@@ -82,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("id", type=cli._backup_id)
     r.add_argument("mode", choices=("describe", "confirm"))
     add("button").add_argument("data")
-    s = add("self-update")              # must stay accepted by every later version (§4.2)
+    s = add("self-update")              # must stay accepted by every later version
     s.add_argument("tag", type=cli._semver)
     s.add_argument("--dry-run", action="store_true")
     s.add_argument("--commit", type=_commit)   # optional: a v0.7.2 hub does not send it
@@ -196,6 +196,8 @@ def _run(ctx, args, out) -> int:
         ns = argparse.Namespace(cmd="maintain", timer=args.timer)
     elif o == "deploy":
         ns = argparse.Namespace(cmd="deploy", tag=args.tag, timer=False)
+    elif o == "restart":
+        ns = argparse.Namespace(cmd="restart", timer=False)
     elif o == "rollback":
         ns = argparse.Namespace(cmd="rollback", confirm=True, timer=False)
     else:

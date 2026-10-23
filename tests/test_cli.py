@@ -221,7 +221,7 @@ def test_versions_agree():
     import re
     py = re.search(r'^version = "([^"]+)"', (ROOT / "pyproject.toml").read_text(), re.M)[1]
     lock = re.search(r'name = "talaria"\nversion = "([^"]+)"', (ROOT / "uv.lock").read_text())[1]
-    assert py == lock == talaria.__version__ == "0.7.3"
+    assert py == lock == talaria.__version__ == "0.7.4"
 
 
 def test_login_link_prints_the_public_url_first(tmp_path, monkeypatch, capsys):

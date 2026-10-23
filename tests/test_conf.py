@@ -1,5 +1,6 @@
-import pytest
 from pathlib import Path
+
+import pytest
 
 from talaria.conf import load_conf, parse_kv, write_env_value
 from talaria.ctx import Paths
@@ -208,8 +209,10 @@ def test_bad_value_of_known_key_still_errors_at_runtime(tmp_path):
 
 
 def test_setup_loads_strictly(tmp_path, monkeypatch, capsys):
-    from talaria import ctx as ctxmod, setup
     from types import SimpleNamespace
+
+    from talaria import ctx as ctxmod
+    from talaria import setup
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     p = Paths(tmp_path)
     p.conf_dir.mkdir(parents=True, exist_ok=True)
@@ -280,8 +283,8 @@ def test_runtime_load_accepts_v060_quirks(tmp_path):
 
 def test_runtime_and_service_setup_accept_what_v060_accepted(tmp_path):
     """strict=True with checks=False (setup --as-service --lock-held) keeps v0.6.0's rules."""
-    from talaria.ctx import Paths
     from talaria.conf import load_conf
+    from talaria.ctx import Paths
     p = Paths(tmp_path)
     p.conf_dir.mkdir(parents=True)
     p.conf_file.write_text("dashboard.bind = loopback\ndashboard.bind = tailscale\n"

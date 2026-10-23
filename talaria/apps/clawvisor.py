@@ -154,8 +154,8 @@ class Clawvisor(App):
                     or _get(ctx, f"{base}/{asset}", work / "clawvisor-server", MAX_BINARY,
                             tag, asset) != 200:
                 raise Transient(f"release assets of {tag} are not published yet")
-            want = {l.split()[-1]: l.split()[0] for l in
-                    (work / "checksums.txt").read_text().splitlines() if len(l.split()) == 2}
+            want = {ln.split()[-1]: ln.split()[0] for ln in
+                    (work / "checksums.txt").read_text().splitlines() if len(ln.split()) == 2}
             got = hashlib.sha256((work / "clawvisor-server").read_bytes()).hexdigest()
             if want.get(asset) != got:
                 raise RevisionMismatch(f"{tag}: checksum of {asset} does not match checksums.txt")

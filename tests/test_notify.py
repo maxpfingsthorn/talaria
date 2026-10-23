@@ -1,5 +1,6 @@
-import pytest
 import json
+
+import pytest
 
 from talaria.conf import Conf
 from talaria.notify import ApiError, Message, TelegramNotifier, render
@@ -69,6 +70,7 @@ def test_send_without_token_only_logs(capsys):
 def test_api_passes_timeout_to_telegram_and_waits_longer(monkeypatch):
     import io
     import urllib.request
+
     from talaria.notify import TelegramAPI
     seen = {}
 

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea
+    url: https://github.com/maxpfingsthorn/talaria/discussions
+    about: Ask how something works or suggest a feature in Discussions.
+  - name: I run Talaria
+    url: https://github.com/maxpfingsthorn/talaria/discussions/categories/show-and-tell
+    about: Tell us which apps you run with it. It is the only way we learn that anyone does; Talaria never phones home.
+  - name: Security vulnerability
+    url: https://github.com/maxpfingsthorn/talaria/security/advisories/new
+    about: Report privately, never in a public issue.

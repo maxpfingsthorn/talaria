@@ -1,20 +1,19 @@
 """Mutation survivors of the gbrain adapter and the maintenance window (v0.6.0): exact
 timeouts, check flags, messages and edge inputs."""
-import json
 import os
 import stat
 from datetime import datetime, timezone
 
 import pytest
 
-from talaria import apps, maintain, state
+from talaria import apps, maintain
 from talaria.apps import gbrain as gb
 from talaria.images import RevisionMismatch
 from talaria.rehearse import Transient
 from talaria.shell import Result
 from tests.fakes import make_test_ctx
 from tests.hubfakes import ex, make_hub, message
-from tests.test_gbrain import BIN, GH, SUM, TAG, brain, doctor, gctx, release_json
+from tests.test_gbrain import SUM, TAG, brain, gctx
 from tests.test_maintain import mctx, st0, utc  # noqa: F401  (fixtures)
 
 
