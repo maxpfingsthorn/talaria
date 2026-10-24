@@ -570,7 +570,8 @@ def test_plan_for_a_missing_app_account_says_what_will_happen(monkeypatch, tmp_p
     assert run(args(user="hermes", plan=True)) == 0
     assert capsys.readouterr().out == (
         "PLAN: create the account hermes: setup prints a block to run as root\n"
-        "PLAN: then run setup again with --user hermes to install Talaria for it\n")
+        "PLAN: then run setup again with --user hermes to install Talaria for it\n"
+        "PLAN: sudo rule for admin \u2192 hermes: password required\n")
 
 
 def test_hub_name_defaults_when_the_namespace_has_none(monkeypatch, tmp_path, capsys):
