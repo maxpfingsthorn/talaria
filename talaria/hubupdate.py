@@ -28,6 +28,8 @@ def would_restart(entry, tag: str) -> str:
     except NoAnswer:
         return "unknown (no answer)"
     for d in lines:
+        if d.get("kind") == "reply" and d.get("trusted") is False:
+            return "unknown (not signed by a trusted key)"
         if d.get("kind") == "reply" and isinstance(d.get("restart"), bool):
             return "yes" if d["restart"] else "no"
     return "unknown"

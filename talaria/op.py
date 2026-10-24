@@ -11,7 +11,7 @@ import json
 import re
 import sys
 
-from talaria import __version__, cli, rollback, selfupdate, state, status, units
+from talaria import __version__, cli, rollback, selfupdate, state, status, trust, units
 from talaria.apps.base import OAUTH_REQUEST_RE, LoginRefused
 from talaria.backup import ID_RE
 from talaria.notify import Message
@@ -138,6 +138,9 @@ def _self_update(ctx, args, out) -> int:
     if args.dry_run:
         try:
             restart = selfupdate.dry_run(ctx, args.tag)
+        except trust.Untrusted as e:
+            emit(out, "reply", text=f"not signed by a trusted key: {e}", buttons=[], trusted=False)
+            return 1
         except (CommandError, ValueError) as e:
             return _reply(out, f"dry run failed: {e}") or 1
         emit(out, "reply", text=f"would restart: {'yes' if restart else 'no'}", buttons=[],

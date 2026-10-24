@@ -6,7 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from talaria import lock
+from talaria import lock, trust
 from talaria.cli import EXIT_BUSY
 from talaria.hubexec import parse_lines
 from talaria.shell import CommandError
@@ -40,12 +40,17 @@ def self_update(ctx, tag: str, commit: str | None = None) -> int:
             try:
                 prev = ctx.sh.run(["git", "-C", d, "rev-parse", "HEAD"]).stdout.strip()
                 fetch_tag(ctx.sh, d, tag)
+                trust.check(ctx.sh, d, tag, ctx.paths.state_dir)
                 got = tag_commit(ctx.sh, d, tag) if commit else commit
                 if got != commit:
                     print(f"self-update refused: {tag} is {got[:12]} here, the hub installed "
                           f"{commit[:12]}", file=sys.stderr)
                     return 1
                 ctx.sh.run(["git", "-C", d, "checkout", "-q", tag])
+            except trust.Untrusted as e:
+                print(f"self-update refused: {tag} is not signed by a trusted key ({e})",
+                      file=sys.stderr)
+                return 1
             except CommandError as e:
                 print(f"self-update failed: {e}", file=sys.stderr)
                 return 1
@@ -76,11 +81,13 @@ def self_update(ctx, tag: str, commit: str | None = None) -> int:
 
 def dry_run(ctx, tag: str) -> bool:
     """Would updating to `tag` change this app's Quadlet, and so restart the app? The new
-    version renders it with its own code in a throwaway worktree; nothing else changes."""
+    version renders it with its own code in a throwaway worktree; nothing else changes.
+    Raises `trust.Untrusted` if the tag is not signed by a trusted key (before any worktree)."""
     d = str(ctx.paths.install_dir)
     ensure_dir(ctx.paths.state_dir)
     wt = Path(tempfile.mkdtemp(prefix="dry-run-", dir=ctx.paths.state_dir))   # one per run
     fetch_tag(ctx.sh, d, tag)
+    trust.check(ctx.sh, d, tag, ctx.paths.state_dir)
     shutil.rmtree(wt, ignore_errors=True)  # pragma: no mutate  (the fresh dir is removable; the effect is pinned by test_dry_run_details)
     ctx.sh.run(["git", "-C", d, "worktree", "prune"], check=False)
     ctx.sh.run(["git", "-C", d, "worktree", "add", "-q", "--detach", str(wt), tag], timeout=120)

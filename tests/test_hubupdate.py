@@ -127,6 +127,14 @@ def test_would_restart(tmp_path):
     assert hubupdate.would_restart(e, "v0.8.0") == "unknown (no answer)"
 
 
+def test_would_restart_untrusted(tmp_path):
+    h = make_hub(tmp_path)
+    ex(h, "hermes").on("self-update", lines=[dict(reply("not signed by a trusted key: x"),
+                                                  trusted=False)], rc=1)
+    assert hubupdate.would_restart(h.apps["hermes"], "v0.8.0") == (
+        "unknown (not signed by a trusted key)")
+
+
 def test_offer_text_and_button(tmp_path):
     h = make_hub(tmp_path)
     ex(h, "hermes").on("self-update", lines=[dict(reply("would restart: no"), restart=False)])

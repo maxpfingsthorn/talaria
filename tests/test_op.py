@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from talaria import __version__, backup, cli, lock, op, rollback, state
+from talaria import __version__, backup, cli, lock, op, rollback, state, trust
 from talaria.notify import Message
 from tests.fakes import make_test_ctx
 
@@ -281,6 +281,17 @@ def test_self_update_dry_run_failure(opx, monkeypatch):
     assert run("self-update", "v0.6.0", "--dry-run") == (1, [{
         "v": 1, "kind": "reply", "text": "dry run failed: Talaria v0.6.0 did not render a Quadlet",
         "buttons": []}])
+
+
+def test_dry_run_untrusted_reply(opx, monkeypatch):
+    ctx, run = opx
+
+    def untrusted(c, t):
+        raise trust.Untrusted("bad sig")
+    monkeypatch.setattr(op.selfupdate, "dry_run", untrusted)
+    assert run("self-update", "v0.6.0", "--dry-run") == (1, [{
+        "v": 1, "kind": "reply", "text": "not signed by a trusted key: bad sig", "buttons": [],
+        "trusted": False}])
 
 
 @pytest.mark.parametrize("rc,text", [

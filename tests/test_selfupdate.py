@@ -3,7 +3,7 @@ import subprocess
 
 import pytest
 
-from talaria import lock, selfupdate
+from talaria import lock, selfupdate, trust
 from talaria.shell import CommandError, Result
 from tests.fakes import make_test_ctx
 
@@ -18,6 +18,38 @@ def test_self_update_checks_out_and_runs_the_new_setup(tmp_path):
                             ["git", "-C", d, "checkout", "-q", "v0.2.0"],
                             [str(ctx.paths.bin_link), "setup", "--as-service", "--lock-held"]]
     assert not ctx.sh.called("systemctl")       # an app install has no bot to restart
+
+
+def test_self_update_refuses_an_untrusted_tag(tmp_path, capsys, monkeypatch):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("git").on(str(ctx.paths.bin_link))
+    d = str(ctx.paths.install_dir)
+    seen = []
+
+    def check(sh, install_dir, tag, tmp_dir=None):
+        seen.append((sh, install_dir, tag, tmp_dir, list(ctx.sh.calls)))
+        raise trust.Untrusted("bad sig")
+    monkeypatch.setattr(trust, "check", check)
+    assert selfupdate.self_update(ctx, "v0.8.1") == 1
+    assert capsys.readouterr().err == ("self-update refused: v0.8.1 is not signed by a trusted "
+                                       "key (bad sig)\n")
+    assert len(seen) == 1
+    sh, install_dir, tag, tmp_dir, before = seen[0]
+    assert (sh, install_dir, tag, tmp_dir) == (ctx.sh, d, "v0.8.1", ctx.paths.state_dir)
+    assert before == [["git", "-C", d, "rev-parse", "HEAD"],
+                      ["git", "-C", d, "fetch", "-q", "origin",
+                       "+refs/tags/v0.8.1:refs/tags/v0.8.1"]]       # checked after the fetch
+    assert not ctx.sh.called("git", "-C", d, "checkout")
+    assert not ctx.sh.called(str(ctx.paths.bin_link))              # setup never ran
+
+
+def test_self_update_trusted_tag_is_checked_before_checkout(tmp_path, monkeypatch):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("git").on(str(ctx.paths.bin_link))
+    monkeypatch.setattr(trust, "check", lambda *a, **k: ctx.sh.calls.append(["CHECK"]))
+    assert selfupdate.self_update(ctx, "v0.8.1") == 0
+    assert [c[0] if c[0] == "CHECK" else c[3] for c in ctx.sh.calls[:4]] == [
+        "rev-parse", "fetch", "CHECK", "checkout"]
 
 
 def test_self_update_unknown_tag(tmp_path, capsys):
@@ -155,6 +187,22 @@ def test_dry_run_commands_exact(dry):
         (["git", "-C", d, "worktree", "add", "-q", "--detach", str(wt), "v0.6.0"], 120),
         ([str(wt / "bin/talaria"), "op", "quadlet"], 120),
         (["git", "-C", d, "worktree", "remove", "--force", str(wt)], None)]
+
+
+def test_dry_run_refuses_before_the_worktree(dry, monkeypatch):
+    ctx, wt = dry
+    d = str(ctx.paths.install_dir)
+    seen = []
+
+    def check(sh, install_dir, tag, tmp_dir=None):
+        seen.append((sh, install_dir, tag, tmp_dir, len(ctx.sh.calls)))
+        raise trust.Untrusted("bad sig")
+    monkeypatch.setattr(trust, "check", check)
+    with pytest.raises(trust.Untrusted, match="^bad sig$"):
+        selfupdate.dry_run(ctx, "v0.6.0")
+    assert seen == [(ctx.sh, d, "v0.6.0", ctx.paths.state_dir, 1)]    # right after the fetch
+    assert ctx.sh.calls == [["git", "-C", d, "fetch", "-q", "origin",
+                             "+refs/tags/v0.6.0:refs/tags/v0.6.0"]]  # no prune, no worktree add
 
 
 def test_dry_run_reports_a_changed_quadlet(dry):
