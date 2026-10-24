@@ -3,7 +3,18 @@ the move of a v0.4 install's bot to a new hub. Runs after test_e2e.py and
 test_e2e_clawvisor.py in the same session."""
 import pytest
 
-from tests.e2e.conftest import HUB, WORK, AppEnv, as_user, bus_ready, root_block, seed_conf, sh, wait_for
+from tests.e2e.conftest import (
+    HUB,
+    WORK,
+    AppEnv,
+    as_user,
+    bus_ready,
+    root_block,
+    seed_conf,
+    sh,
+    signed_tag,
+    wait_for,
+)
 
 pytestmark = pytest.mark.e2e
 
@@ -24,7 +35,7 @@ def test_02_update_talaria_through_the_bot(env, cv_env):
     src, tg = env["src"], env["tg"]
     sh("git", "-C", src, "-c", "user.email=e2e@example.invalid", "-c", "user.name=e2e",
        "commit", "-q", "--allow-empty", "-m", "e2e release")
-    sh("git", "-C", src, "tag", "v9.0.0")
+    signed_tag(src, "v9.0.0", env["sign_key"])
     sh("chmod", "-R", "a+rX", src)
     tg.inject("/update v9.0.0")
     offer = tg.wait_sent("Talaria v9.0.0 is available", timeout=600)
@@ -41,6 +52,24 @@ def test_02_update_talaria_through_the_bot(env, cv_env):
         assert tag == "v9.0.0", user
     wait_for(lambda: unit_active("talaria-telegram.service", HUB))
     assert unit_active("hermes.service", "hermes")
+
+
+def test_02b_unsigned_update_is_refused(env, cv_env):
+    src, tg = env["src"], env["tg"]
+    sh("git", "-C", src, "-c", "user.email=e2e@example.invalid", "-c", "user.name=e2e",
+       "commit", "-q", "--allow-empty", "-m", "e2e release signed by a stranger")
+    signed_tag(src, "v9.0.1", env["other_key"])
+    sh("chmod", "-R", "a+rX", src)
+    tg.inject("/update v9.0.1")
+    tg.wait_sent("Hermes would restart: unknown (not signed by a trusted key)", timeout=600)
+    tg.tap("hub|up:v9.0.1")
+    tg.wait_sent("Talaria v9.0.1 was not installed: it is not signed by a trusted key (",
+                 timeout=600)
+    for user in (HUB, "hermes", "cvtest"):
+        tag = as_user("git", "-C", f"/home/{user}/.local/share/talaria", "describe", "--tags",
+                      "--exact-match", user=user).stdout.strip()
+        assert tag == "v9.0.0", user
+    assert unit_active("talaria-telegram.service", HUB)
 
 
 def test_03_moves_the_bot_of_a_v04_install_to_a_new_hub(env):

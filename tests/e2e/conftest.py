@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -47,6 +48,12 @@ def talaria(*argv, user=USER, **kw):
     return as_user(f"/home/{user}/.local/bin/talaria", *argv, user=user, **kw)
 
 
+def signed_tag(src, tag, key):
+    """Annotated tag signed with the SSH key `key` (what a release looks like)."""
+    sh("git", "-C", src, "-c", "user.email=e2e@example.invalid", "-c", "user.name=e2e",
+       "-c", "gpg.format=ssh", "-c", f"user.signingkey={key}", "tag", "-s", tag, "-m", tag)
+
+
 class Upstream:
     """Local git repo + registry with dummy Hermes releases v2026.1.N."""
 
@@ -78,10 +85,25 @@ def _base_env():
     WORK.mkdir(mode=0o755)
     src = WORK / "talaria-src"
     shutil.copytree(ROOT, src, ignore=shutil.ignore_patterns(".venv", "mutants"))
+    # Signing keys live outside WORK: ssh-keygen refuses a private key others can read, and
+    # WORK is made world-readable for the service users.
+    keys = Path(tempfile.mkdtemp(prefix="talaria-e2e-sign-"))
+    sign_key, other_key = keys / "key", keys / "other"
+    for k in (sign_key, other_key):
+        sh("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", k)
+    pub = (keys / "key.pub").read_text().split()[:2]
+    (src / "keys").mkdir(exist_ok=True)
+    (src / "keys/allowed_signers").write_text(
+        f'e2e@example.invalid namespaces="git" {pub[0]} {pub[1]}\n')
+    # Setup --dev skips verification and installs src's HEAD, so HEAD must already trust the key.
+    sh("git", "-C", src, "add", "keys/allowed_signers")
+    sh("git", "-C", src, "-c", "user.email=e2e@example.invalid", "-c", "user.name=e2e",
+       "commit", "-qam", "e2e signing key")
     sh("chmod", "-R", "a+rX", WORK)
     srv, tg = make_server()
-    yield {"src": src, "tg": tg}
+    yield {"src": src, "tg": tg, "sign_key": sign_key, "other_key": other_key}
     srv.shutdown()
+    shutil.rmtree(keys, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")
