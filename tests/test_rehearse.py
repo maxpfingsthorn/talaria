@@ -1,11 +1,12 @@
 import errno
 import os
 import shutil
+import signal
 import sqlite3
 
 import pytest
 
-from talaria import rehearse
+from talaria import backup, marker, rehearse, rollback, service, state
 from talaria.apps import hermes as hermes_app
 from talaria.containers import HelperError
 from talaria.images import RevisionMismatch
@@ -14,6 +15,42 @@ from tests.fakes import make_test_ctx
 
 IMG = {"tag": "v2026.9.24", "id": "sha256:new", "ref": "x@sha256:d", "digest": "sha256:d"}
 CUR = {"tag": "v2026.8.3", "id": "sha256:cur", "ref": "x@sha256:c", "digest": "sha256:c"}
+
+
+def test_killed_gbrain_copy_can_be_recovered_without_restoring_data(tmp_path, monkeypatch):
+    ctx = make_test_ctx(tmp_path, app="gbrain")
+    (ctx.conf.data_dir / "important").write_text("keep me")
+    st = state.load(ctx.paths)
+    state.save(ctx.paths, st)
+    ctx.sh.on("systemctl").on("systemctl", "--user", "is-active", out="active\n")
+    monkeypatch.setattr(ctx.app, "fetch", lambda *a: IMG)
+    monkeypatch.setattr(service, "post_start_check", lambda c: None)
+    stopped = tmp_path / "stopped"
+
+    def stop(c):
+        stopped.touch()
+
+    def die(*args):
+        os.kill(os.getpid(), signal.SIGKILL)
+
+    monkeypatch.setattr(service, "stop", stop)
+    monkeypatch.setattr(rehearse, "copy_data", die)
+    pid = os.fork()
+    if pid == 0:
+        try:
+            rehearse.rehearse(ctx, st, "v0.60.175.0", "commit")
+        finally:
+            os._exit(1)
+    _, status = os.waitpid(pid, 0)
+    assert os.WIFSIGNALED(status) and os.WTERMSIG(status) == signal.SIGKILL
+    assert stopped.exists()
+    assert "start gbrain" in rollback.describe(ctx)
+
+    rollback.rollback_cmd(ctx)
+    assert state.load(ctx.paths)["op"] is None
+    assert marker.read(ctx.paths) is None
+    assert (ctx.conf.data_dir / "important").read_text() == "keep me"
+    assert backup.list_backups(ctx) == []
 
 
 def test_copy_data_does_not_follow_symlink(tmp_path):
@@ -73,6 +110,24 @@ def st_with_current():
     st = copy.deepcopy(state.DEFAULT)
     st["current"] = dict(CUR)
     return st
+
+
+@pytest.mark.parametrize("copy_fails", [False, True])
+def test_stopped_copy_clears_recovery_state_after_restart(happy, monkeypatch, copy_fails):
+    happy.sh.on("systemctl").on("systemctl", "--user", "is-active", out="active\n")
+    monkeypatch.setattr(happy.app, "copy_stopped", True)
+    st = st_with_current()
+    if copy_fails:
+        def fail(*args):
+            raise OSError("copy failed")
+        monkeypatch.setattr(rehearse, "copy_data", fail)
+        with pytest.raises(rehearse.Transient, match="copy failed"):
+            rehearse.rehearse(happy, st, "v2026.9.24", "c0ffee")
+    else:
+        rehearse.rehearse(happy, st, "v2026.9.24", "c0ffee")
+    assert st["op"] is None
+    assert state.load(happy.paths)["op"] is None
+    assert rollback.interrupted(happy, state.load(happy.paths)) is None
 
 
 def test_rehearse_sets_pending_and_reports(happy):

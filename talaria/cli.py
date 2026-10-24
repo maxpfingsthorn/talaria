@@ -50,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="talaria")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("version")
+    sub.add_parser("latest-release", help="print the latest published stable Talaria release")
     s = sub.add_parser("setup")
     s.add_argument("--plan", action="store_true")
     s.add_argument("--user")
@@ -233,6 +234,20 @@ def main(argv: list[str] | None = None, make=make_ctx, make_hub=None) -> int:
     os.environ.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
     if args.cmd == "version":
         print(__version__)
+        return 0
+    if args.cmd == "latest-release":
+        from talaria.hubconf import HubConf
+        from talaria.shell import Shell
+        from talaria.upstream import latest_semver
+        try:
+            tag = latest_semver(Shell(), HubConf().talaria_repo)
+        except (OSError, ValueError) as e:
+            print(f"Could not look up the published release: {e}", file=sys.stderr)
+            return 1
+        if not tag:
+            print("No published release is available.", file=sys.stderr)
+            return 1
+        print(tag)
         return 0
     if args.cmd == "setup":
         from talaria import setup

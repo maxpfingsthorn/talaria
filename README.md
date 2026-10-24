@@ -12,8 +12,7 @@ Today it manages [Hermes Agent](https://github.com/NousResearch/hermes-agent),
 
 Before you are asked, Talaria runs each new release's migrations and checks against a copy
 of your data. It then asks you in Telegram, deploys with a backup, and rolls back image and
-data together if the deploy fails its health check. Auto-updaters like Watchtower pull the
-new image and hope.
+data together if the deploy fails its health check.
 
 <p align="center">
   <img src="docs/telegram-chat.png" width="480"
@@ -29,7 +28,8 @@ new image and hope.
 
 Nothing runs as root after setup: each app lives in its own service account under
 rootless podman. Talaria is young (since September 2026) and runs daily on the author's own
-host. Linux, systemd and rootless podman only.
+host. Early users are welcome; broader installation and recovery experience is still
+limited. Linux, systemd and rootless podman only.
 
 | App | What it is | What the rehearsal runs | Guide |
 |---|---|---|---|
@@ -39,6 +39,10 @@ host. Linux, systemd and rootless podman only.
 
 All three run under one Telegram bot. Setting this up with a coding agent? Point it at
 [`AGENT_SETUP.md`](AGENT_SETUP.md).
+
+**gbrain rehearsal briefly stops the running server to copy its PGLite data, before
+approval.** It restarts the current version before testing the copy. Copy time, and thus
+downtime, grows with the size of the brain.
 
 ## What it does
 
@@ -98,7 +102,7 @@ through a published host address (see [Clawvisor](docs/apps/clawvisor.md)).
 
 ```bash
 git clone https://github.com/maxpfingsthorn/talaria && cd talaria
-git checkout "$(git tag -l 'v*' --sort=-v:refname | head -1)"
+git checkout "$(bin/talaria latest-release)"
 bin/talaria setup --plan --user hermes   # what would happen
 bin/talaria setup --user hermes          # run again until it prints DONE
 ```
@@ -109,6 +113,10 @@ which runs the one Telegram bot and the daily check for every app on the host. B
 through one command you paste into your own terminal (sudo asks for your password). Clone
 over https as shown: setup installs Talaria for both accounts from your checkout's origin,
 and they have no SSH key.
+
+`latest-release` reads the published stable GitHub Release, so a tag whose checks are
+still running is not selected. If the lookup fails, stop and retry; do not select a tag
+by sorting the tag list. For a disposable evaluation, see [Trying Talaria](docs/trying.md).
 
 `--app hermes|clawvisor|gbrain` picks which app to manage (default `hermes`; the account
 defaults to the app's own name, e.g. `clawvisor`, unless `--user` says otherwise). Once
@@ -210,16 +218,19 @@ half-changed data). As the service user (`sudo -u <user>` from another account):
 ## How it's built
 
 Talaria is written with AI coding assistants (Claude Code). The maintainer designs, reviews
-and decides every change; the safety net is the checks, not trust in whoever typed the code:
+and decides changes. The checks exercise migrations, account isolation and recovery:
 
-- about 1,650 unit tests, run on Python 3.10 and 3.13 on every pull request;
+- unit tests on Python 3.10 and 3.13 on every pull request;
 - end-to-end tests in CI that create real service accounts and drive rootless podman,
   systemd user units, sudo rules and a fake Telegram and release server through updates,
   rollbacks, restores and self-updates;
-- a weekly contract test against the newest upstream Hermes image;
-- mutation testing: a release is refused below an 85 % score (currently about 97 %; see
-  [docs/mutation-report.md](docs/mutation-report.md));
+- weekly contract tests against the newest upstream releases of all three apps;
+- mutation testing: releases require at least 85 % (see the dated
+  [historical report](docs/mutation-report.md), and current results in Actions);
 - larger changes get an independent review pass before they are merged.
+
+These checks do not establish that every failure is recoverable. Regression tests cover
+known failures; integration tests use stand-in apps, and real-world experience is limited.
 
 ## Development
 

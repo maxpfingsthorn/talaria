@@ -194,6 +194,10 @@ def rehearse(ctx, st: dict, tag: str, commit: str) -> None:
         stopped = ctx.app.copy_stopped and service.is_active(ctx)
         try:
             if stopped:
+                # Persist before stopping: SIGKILL/OOM bypasses the restart in finally.
+                st["op"] = {"op": "rehearse", "changed": False,
+                            "started": ctx.now().isoformat()}
+                state.save(ctx.paths, st)
                 try:
                     service.stop(ctx)
                 except (CommandError, subprocess.TimeoutExpired) as e:
@@ -215,6 +219,8 @@ def rehearse(ctx, st: dict, tag: str, commit: str) -> None:
                     raise NeedsRecovery(f"{ctx.app.title} is not running after the rehearsal copy "
                                     f"({str(e)[:300]}). Send /rollback CONFIRM to start it "
                                     f"again.{more}") from None
+                st["op"] = None
+                state.save(ctx.paths, st)
         report = ctx.app.rehearse(ctx, st, image, copy, stage)
     finally:
         shutil.rmtree(stage, ignore_errors=True)

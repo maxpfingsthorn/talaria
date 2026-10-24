@@ -3,11 +3,13 @@
 You are a coding agent asked to "set up Talaria". Follow these steps exactly.
 
 1. Read this file fully before running anything.
-2. Clone the repository and check out its latest release tag:
+2. Clone the repository and check out its latest published stable release:
    ```bash
    git clone https://github.com/maxpfingsthorn/talaria && cd talaria
-   git checkout "$(git tag -l 'v*' --sort=-v:refname | head -1)"
+   git checkout "$(bin/talaria latest-release)"
    ```
+   If the release lookup or checkout fails, stop and report it. Never fall back to the
+   newest git tag: its release checks may not have passed.
 3. **Ask the person which app this install manages — Hermes, Clawvisor or gbrain — before
    running anything.** Don't assume: a host can run both, each as its own install.
    Pass `--app clawvisor` or `--app gbrain` for those installs; omit it (or pass `--app hermes`)

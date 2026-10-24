@@ -244,6 +244,7 @@ def test_restore_markers_op_and_texts(tmp_path, monkeypatch):
     pre = [b for b in backup.list_backups(ctx) if b.meta["label"] == "pre-restore"][0]
     assert pre.meta["image"] == NEW
     assert seen[0]["marker"] == {"op": "restore", "backup": pre.id, "image": NEW,
+                                 "restore_backup": target,
                                  "written": "2026-09-27T04:30:00+00:00"}
     assert seen[0]["op"] == {"op": "restore", "backup": target, "changed": True,
                              "started": "2026-09-27T04:30:00+00:00"}
@@ -740,3 +741,52 @@ def test_start_offer_without_a_target_is_unchanged(tmp_path, monkeypatch):
     ctx, _ = _skipped(tmp_path, monkeypatch, False)
     assert rollback.describe(ctx) == ("The interrupted maintain left nothing to undo. Send "
                                       "/rollback CONFIRM to start Hermes and check it.")
+
+
+@pytest.mark.parametrize("step", ["extract", "rename_old", "rename_new", "move_excluded"])
+def test_interrupted_explicit_restore_recovers_through_rollback(tmp_path, monkeypatch, step):
+    from talaria import restore
+    ctx = deployed(tmp_path, monkeypatch)
+    bid = load(ctx)["last_deploy"]["backup"]
+    real = getattr(restore, f"_step_{step}")
+
+    def crash(*args):
+        real(*args)
+        raise KeyboardInterrupt("restore process killed")
+
+    with monkeypatch.context() as interruption:
+        interruption.setattr(restore, f"_step_{step}", crash)
+        with pytest.raises(KeyboardInterrupt):
+            rollback.restore_cmd(ctx, bid)
+
+    rollback.rollback_cmd(ctx)
+
+    assert load(ctx)["op"] is None
+    assert marker.read(ctx.paths) is None
+    assert load(ctx)["current"] == NEW
+    assert (ctx.conf.data_dir / "memories/m.md").read_text() == "written after deploy"
+
+
+def test_recovery_of_explicit_restore_survives_another_interruption(tmp_path, monkeypatch):
+    from talaria import restore
+    ctx = deployed(tmp_path, monkeypatch)
+    bid = load(ctx)["last_deploy"]["backup"]
+    real = restore._step_rename_old
+
+    def crash(*args):
+        real(*args)
+        raise KeyboardInterrupt("restore process killed")
+
+    with monkeypatch.context() as interruption:
+        interruption.setattr(restore, "_step_rename_old", crash)
+        with pytest.raises(KeyboardInterrupt):
+            rollback.restore_cmd(ctx, bid)
+        # Recovery must retain its own progress if it too dies during a swap.
+        with pytest.raises(KeyboardInterrupt):
+            rollback.rollback(ctx)
+
+    rollback.rollback_cmd(ctx)
+    assert load(ctx)["op"] is None
+    assert marker.read(ctx.paths) is None
+    assert load(ctx)["current"] == NEW
+    assert (ctx.conf.data_dir / "memories/m.md").read_text() == "written after deploy"

@@ -39,7 +39,7 @@ off; still update first, then add new keys.
 |---|---|
 | `apps` | written by setup: `<app>:<account>` pairs, e.g. `hermes:hermes clawvisor:clawvisor` |
 | `check.time` | `04:30` (the daily check of every app and of Talaria itself) |
-| `talaria_repo` | this repository |
+| `talaria_repo` | this repository; notices read its latest published stable Release. Custom HTTP repositories can serve the same metadata at `<repo>/api/releases/latest`; a local git path still works for explicit version updates but has no automatic release discovery |
 | `telegram_api` | `https://api.telegram.org` |
 
 Run setup again (for any app) after changing it.

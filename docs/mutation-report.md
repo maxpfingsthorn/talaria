@@ -1,9 +1,13 @@
 # Mutation testing report
 
+This is a historical report for the commit below, not the current release's score.
+Current gate results are in the release workflow's mutation job. A high mutation score
+does not establish recovery correctness or replace integration and fault-injection tests.
+
 Date: 2026-10-09 · Commit: fd1ff3b + this report (v0.6.0, gbrain) · Tool: mutmut 3.8.0 (Python 3.12)
 
 **Score: 96.8 %** (threshold 85 %). 11,361 mutants: 10,980 killed, 12 timeouts (counted as
-killed), 367 survived, 0 without tests, 0 suspicious. Scoring is honest:
+killed), 367 survived, 0 without tests, 0 suspicious.
 `tests/mutation_score.py` counts no-tests and suspicious mutants as survivors. The full run
 was made once on the final code, after an earlier full run on the pre-fix code (11,412
 mutants, 95.9 %) that was used to find the gbrain, maintenance and routing survivors listed

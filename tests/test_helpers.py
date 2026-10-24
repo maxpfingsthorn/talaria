@@ -343,7 +343,8 @@ def test_sanitize_more(value, masked):
 
 
 @pytest.mark.parametrize("blob", ["a-" * 150_000, "?" + "key" * 100_000, "?key" * 75_000,
-                                  "--" + "key" * 100_000, "x" * 300_000, "a1" * 150_000])
+                                  "--" + "key" * 100_000, "x" * 300_000, "a1" * 150_000],
+                         ids=lambda b: b[:8])   # pytest -v prints ids; a huge one stalls CI logs
 def test_sanitize_is_linear(blob):
     import time
     t = time.monotonic()

@@ -102,7 +102,7 @@ def talaria_release(hub, force: bool = False) -> str:
     ctx = hub.ctx
     try:
         latest = latest_semver(ctx.sh, ctx.conf.talaria_repo)
-    except CommandError:
+    except (CommandError, OSError, ValueError):
         return "failed"
     if not latest or not semver_newer(latest, f"v{__version__}"):
         return "current"
