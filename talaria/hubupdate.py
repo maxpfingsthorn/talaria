@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 
-from talaria import __version__, lock, relay
+from talaria import __version__, lock, relay, trust
 from talaria.hubexec import NoAnswer, Unreachable
 from talaria.notify import Message
 from talaria.selfupdate import fetch_tag, tag_commit
@@ -116,8 +116,12 @@ def _self_update(hub, tag: str) -> int:
         try:
             prev = ctx.sh.run(["git", "-C", d, "rev-parse", "HEAD"]).stdout.strip()
             fetch_tag(ctx.sh, d, tag)
+            trust.check(ctx.sh, d, tag, ctx.paths.state_dir)
             pin = tag_commit(ctx.sh, d, tag)
             ctx.sh.run(["git", "-C", d, "checkout", "-q", tag])
+        except trust.Untrusted as e:
+            return _stop(ctx, f"Talaria {tag} was not installed: it is not signed by a trusted "
+                              f"key ({e}). Nothing changed.")
         except CommandError as e:
             return _stop(ctx, f"Talaria {tag} was not installed: the hub could not check it "
                               f"out ({e}). Nothing changed.")

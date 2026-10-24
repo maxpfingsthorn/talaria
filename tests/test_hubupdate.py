@@ -260,3 +260,57 @@ def test_an_odd_commit_id_is_not_sent_as_a_pin(h2):
     assert hubupdate.self_update(h2, "v0.8.0") == 0
     assert ("hermes", "stream", ("self-update", "v0.8.0")) in h2.events
     assert "(commit" not in h2.ctx.notify.texts()[-1]
+
+
+def _check_raising(monkeypatch, reason, calls=None):
+    from talaria import trust
+
+    def check(*a, **k):
+        if calls is not None:
+            calls.append(a)
+        raise trust.Untrusted(reason)
+    monkeypatch.setattr("talaria.trust.check", check)
+
+
+def _refused(h2, text):
+    assert h2.ctx.notify.texts() == [text]
+    assert not [e for e in h2.events
+                if e[0] in ("setup", "restart", "hermes", "clawvisor") or e[:2] == ("git", "checkout")]
+
+
+@pytest.mark.parametrize("reason", ["no signature found",
+                                    "this install has no trusted release keys"],
+                         ids=["unsigned", "no-keys"])
+def test_hub_refuses_an_untrusted_tag(h2, monkeypatch, capsys, reason):
+    calls = []
+    _check_raising(monkeypatch, reason, calls)
+    assert hubupdate.self_update(h2, "v0.8.1") == 1
+    text = (f"Talaria v0.8.1 was not installed: it is not signed by a trusted key ({reason}). "
+            "Nothing changed.")
+    _refused(h2, text)
+    assert text in capsys.readouterr().err
+    assert calls == [(h2.ctx.sh, str(h2.ctx.paths.install_dir), "v0.8.1", h2.ctx.paths.state_dir)]
+
+
+def test_retry_does_not_check(h2, monkeypatch):
+    tag = f"v{__version__}"
+    calls = []
+    _check_raising(monkeypatch, "no signature found", calls)
+    ex(h2, "hermes").on("hello", lines=[hello(app="hermes")])
+    ex(h2, "clawvisor").on("hello", lines=[{**hello(app="clawvisor"), "version": "0.0.1"}])
+    assert hubupdate.self_update(h2, tag) == 0
+    assert calls == []
+    assert [e for e in h2.events if e[1:2] == ("stream",)] == [
+        ("clawvisor", "stream", ("self-update", tag))]
+
+
+def test_transitional_does_not_check(tmp_path, monkeypatch):
+    calls = []
+    _check_raising(monkeypatch, "no signature found", calls)
+    h = make_hub(tmp_path, ("hermes",), transitional=True)
+    h.ctx.sh.on("systemctl", rc=0)
+    h.ctx.sh.on("git", rc=1)
+    ex(h, "hermes").on("self-update", lines=[reply("Talaria v0.8.0 installed.")])
+    ex(h, "hermes").on("hello", lines=[{**hello(), "version": "0.0.1"}])
+    assert hubupdate.self_update(h, "v0.8.0") == 0
+    assert calls == []
