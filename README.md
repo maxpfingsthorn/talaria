@@ -250,11 +250,9 @@ workflow). The contract test and mutation testing run weekly and on release; see
 How to contribute, and the rules that keep existing installs working, are in
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-Releases: merge a pull request from `develop` to `main`, including the version bump,
-then run Actions → release → Run workflow on `main` with `tag = vX.Y.Z`. CI, mutation
-testing and contract tests run against that commit before the workflow creates the tag
-and GitHub Release. This also protects older installed clients that discover tags directly.
-Never push release tags by hand. Release tags cannot be moved or deleted.
+Releases: a pull request from `develop` to `main`, which also needs `e2e`, then a `vX.Y.Z`
+tag on `main`, which runs CI, mutation testing and the contract test and publishes the
+GitHub release. Release tags cannot be moved or deleted.
 
 Releases come at most once a week unless a fix is urgent. Each one has an entry in
 [`CHANGELOG.md`](CHANGELOG.md) written for the people running Talaria: what changes for

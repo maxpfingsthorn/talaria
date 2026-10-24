@@ -21,9 +21,6 @@ Releases before v0.7.3 are listed on the
   published stable GitHub Releases, with no fallback to tags on an API failure.
   `bin/talaria latest-release` prints the selected version. This discovery behavior
   takes effect once this Talaria version is installed.
-- **Release process.** Maintainers now run the release workflow on `main` with a version
-  input. It runs every gate before creating the tag, protecting older clients that
-  discover tags directly. Do not push release tags by hand.
 
 ## v0.7.4 (2026-10-20)
 

@@ -18,7 +18,7 @@ addopts = "-m 'not e2e and not contract'"
 [tool.mutmut]
 source_paths = ["talaria/", "helpers/"]
 do_not_mutate = ["helpers/_upstream.py"]
-also_copy = ["templates/", "bin/", "tools/", ".github/"]
+also_copy = ["templates/", "bin/", "tools/"]
 pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = ["-q", "-x", "-p", "no:cacheprovider"]
 
