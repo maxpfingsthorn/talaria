@@ -12,7 +12,8 @@ dev = ["pytest>=8", "mutmut>=3.2", "pyyaml>=6", "shellcheck-py>=0.10", "ruff>=0.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["e2e: needs systemd + rootless podman (TALARIA_E2E=1)",
-           "contract: needs network + real Hermes image (TALARIA_CONTRACT=1)"]
+           "contract: needs network + real Hermes image (TALARIA_CONTRACT=1)",
+           "real_trust: run the real release-signature check (otherwise trust.check is a no-op)"]
 addopts = "-m 'not e2e and not contract'"
 
 [tool.mutmut]
