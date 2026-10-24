@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: uv sync --locked
-      - run: uv run shellcheck bin/talaria
+      - run: uv run shellcheck bin/talaria tools/verify-release-tag
       - run: uv run ruff check .
       - run: uv run pytest -v
       - name: no deployment-specific values
@@ -58,3 +58,25 @@ jobs:
           done
           sudo -u talaria -H cat /home/talaria/.config/talaria/hub.conf || true
           sudo -u hermes -H cat /home/hermes/.config/containers/systemd/hermes.container || true
+  mutation:
+    # the release gates: required checks on the PR into main (the tag-push workflow only verifies)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.base_ref == 'main')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - run: uv sync --locked
+      - run: uv run mutmut run && uv run mutmut export-cicd-stats
+      - run: uv run python tests/mutation_score.py
+  contract:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.base_ref == 'main')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - run: uv sync --locked
+      - run: TALARIA_CONTRACT=1 uv run pytest -m contract tests/contract -v
