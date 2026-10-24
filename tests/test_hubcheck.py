@@ -84,6 +84,16 @@ def test_offline_release_lookup_is_silent(h2, monkeypatch):
     assert h2.ctx.notify.texts() == ["hermes checked", "clawvisor checked"]
 
 
+@pytest.mark.parametrize("error", [OSError("offline"), ValueError("invalid release metadata")])
+def test_api_failure_is_reported_as_a_failed_lookup(h2, monkeypatch, error):
+    def lookup(sh, repo):
+        raise error
+
+    monkeypatch.setattr(hubcheck, "latest_semver", lookup)
+    assert hubcheck.check_talaria(h2) == 0
+    assert h2.ctx.notify.texts() == ["Talaria: could not look up the latest release."]
+
+
 def test_corrupt_hub_state_is_treated_as_empty(h2):
     h2.ctx.paths.hub_state.parent.mkdir(parents=True, exist_ok=True)
     h2.ctx.paths.hub_state.write_text("{nope")

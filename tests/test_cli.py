@@ -20,6 +20,29 @@ def test_version_command(capsys):
     assert capsys.readouterr().out.strip() == talaria.__version__
 
 
+def test_latest_release_works_without_an_install(monkeypatch, capsys):
+    from talaria import upstream
+    monkeypatch.setattr(upstream, "latest_semver", lambda sh, repo: "v0.7.3")
+    assert cli.main(["latest-release"], make=lambda: pytest.fail("needs no install")) == 0
+    assert capsys.readouterr().out == "v0.7.3\n"
+
+
+@pytest.mark.parametrize("result", [None, OSError("offline"), ValueError("invalid JSON")])
+def test_latest_release_failure_prints_no_checkout_target(monkeypatch, capsys, result):
+    from talaria import upstream
+
+    def lookup(sh, repo):
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(upstream, "latest_semver", lookup)
+    assert cli.main(["latest-release"]) == 1
+    out = capsys.readouterr()
+    assert out.out == ""
+    assert "published release" in out.err
+
+
 @not_under_mutmut
 def test_bin_wrapper_runs_module():
     out = subprocess.run([str(ROOT / "bin/talaria"), "version"],

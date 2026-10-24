@@ -5,6 +5,26 @@ What changes for you in each release. Update from the bot ("Update Talaria" or
 Releases before v0.7.3 are listed on the
 [releases page](https://github.com/maxpfingsthorn/talaria/releases).
 
+## Unreleased
+
+- **Restore isolation.** Carrying excluded files across a restore no longer follows
+  symlinked source parents. An app cannot use `home/.cache` to move files from the
+  service account's home into its container-visible data.
+  Extraction completion is now recorded outside the app's data, so archived files and
+  symlinks cannot forge that marker or redirect its writes.
+- **Interrupted restores.** `/rollback CONFIRM` can recover an explicit restore killed
+  between directory renames, including if recovery itself is interrupted.
+- **gbrain rehearsals.** Recovery state is recorded before stopping the server to copy
+  its brain. If the rehearsal process is killed, `/rollback CONFIRM` starts the unchanged
+  app again. The README now calls out this downtime before approval.
+- **Published Talaria releases.** Daily notices and the setup instructions select
+  published stable GitHub Releases, with no fallback to tags on an API failure.
+  `bin/talaria latest-release` prints the selected version. This discovery behavior
+  takes effect once this Talaria version is installed.
+- **Release process.** Maintainers now run the release workflow on `main` with a version
+  input. It runs every gate before creating the tag, protecting older clients that
+  discover tags directly. Do not push release tags by hand.
+
 ## v0.7.4 (2026-10-20)
 
 - **`/restart [app]`.** Stops and starts an app's container: same image, same data, no

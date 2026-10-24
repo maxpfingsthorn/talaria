@@ -1,3 +1,8 @@
+import http.client
+import io
+import json
+import urllib.error
+import urllib.request
 from types import SimpleNamespace
 
 import pytest
@@ -119,10 +124,76 @@ def test_registry_tags_tls_flag():
     assert "--tls-verify=false" in sh.calls[0]
 
 
-def test_latest_semver():
+def test_latest_semver_uses_published_release_instead_of_newer_git_tag(monkeypatch):
     sh = FakeShell().on("git", "ls-remote", out="a\trefs/tags/v0.1.0\nb\trefs/tags/v0.2.0\n"
-                                                "c\trefs/tags/v0.10.0-rc1\n")
-    assert upstream.latest_semver(sh, "r") == "v0.2.0"
+                                                "c\trefs/tags/v0.3.0\n")
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: io.BytesIO(json.dumps({
+        "tag_name": "v0.2.0", "draft": False, "prerelease": False,
+        "published_at": "2026-10-24T00:00:00Z"}).encode()))
+    assert upstream.latest_semver(sh, "https://github.com/example/talaria") == "v0.2.0"
+    assert sh.calls == []
+
+
+@pytest.mark.parametrize("changes", [
+    {"draft": True}, {"prerelease": True}, {"published_at": None},
+    {"tag_name": "v0.3.0-rc1"}, {"tag_name": "../../bad"},
+])
+def test_latest_semver_never_offers_an_unpublished_or_prerelease_tag(monkeypatch, changes):
+    record = {"tag_name": "v0.2.0", "draft": False, "prerelease": False,
+              "published_at": "2026-10-24T00:00:00Z", **changes}
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda *a, **k: io.BytesIO(json.dumps(record).encode()))
+    assert upstream.latest_semver(FakeShell(), "https://github.com/example/talaria") is None
+
+
+def test_release_lookup_failure_never_falls_back_to_tags(monkeypatch):
+    sh = FakeShell().on("git", "ls-remote", out="c\trefs/tags/v99.0.0\n")
+
+    def offline(*args, **kwargs):
+        raise urllib.error.URLError("offline")
+
+    monkeypatch.setattr(urllib.request, "urlopen", offline)
+    with pytest.raises(OSError):
+        upstream.latest_semver(sh, "https://github.com/example/talaria")
+    assert sh.calls == []
+
+
+@pytest.mark.parametrize("repo,url", [
+    ("https://github.com/example/talaria", "https://api.github.com/repos/example/talaria/releases/latest"),
+    ("https://github.com/example/talaria.git/", "https://api.github.com/repos/example/talaria/releases/latest"),
+    ("http://127.0.0.1:8092/talaria/", "http://127.0.0.1:8092/talaria/api/releases/latest"),
+])
+def test_release_lookup_uses_the_configured_repository(monkeypatch, repo, url):
+    seen = []
+
+    def get(req, timeout):
+        seen.append(req.full_url)
+        return io.BytesIO(json.dumps({"tag_name": "v1.2.3", "draft": False,
+                                     "prerelease": False, "published_at": "2026-10-24"}).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", get)
+    assert upstream.latest_semver(FakeShell(), repo) == "v1.2.3"
+    assert seen == [url]
+
+
+@pytest.mark.parametrize("body", [b"bad json", b"[]", b"x" * (1024 * 1024 + 1)])
+def test_malformed_release_metadata_fails_closed(monkeypatch, body):
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: io.BytesIO(body))
+    with pytest.raises(ValueError):
+        upstream.latest_semver(FakeShell(), "https://github.com/example/talaria")
+
+
+@pytest.mark.parametrize("code", [404, 403, 500])
+def test_release_lookup_http_errors(monkeypatch, code):
+    def get(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, code, "error", {}, None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", get)
+    if code == 404:
+        assert upstream.latest_semver(FakeShell(), "https://github.com/example/talaria") is None
+    else:
+        with pytest.raises(urllib.error.HTTPError):
+            upstream.latest_semver(FakeShell(), "https://github.com/example/talaria")
 
 
 def _ctx(git, release_allow=()):
@@ -144,3 +215,13 @@ def test_releases_filters_with_release_allow():
 def test_releases_allow_entry_not_in_git_is_ignored():
     ctx = _ctx({"v1": "a"}, release_allow=("v1", "v9"))
     assert tags.releases(ctx) == {"v1": "a"}
+
+
+@pytest.mark.parametrize("error", [http.client.IncompleteRead(b"{"), http.client.BadStatusLine("x")])
+def test_a_cut_or_malformed_response_is_a_lookup_failure(monkeypatch, error):
+    def get(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(urllib.request, "urlopen", get)
+    with pytest.raises(OSError, match="release lookup failed"):
+        upstream.latest_semver(FakeShell(), "https://github.com/example/talaria")

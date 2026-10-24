@@ -1,4 +1,5 @@
 import os
+import shutil
 
 import pytest
 
@@ -201,3 +202,101 @@ def test_move_missing_with_root_still_moves_under_real_dirs(tmp_path):
     (old / "home/.cache/x").write_text("x")
     restore._move_missing(old / "home/.cache", data / "home/.cache", root=data)
     assert (data / "home/.cache/x").read_text() == "x"
+
+
+def test_restore_does_not_move_host_cache_through_a_source_symlink(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    real_tar(ctx)
+    data = ctx.conf.data_dir
+    (data / "home").mkdir()
+    b = backup.create(ctx, "target", None)
+    (data / "home").rmdir()
+    host = tmp_path / "host-home"
+    (host / ".cache").mkdir(parents=True)
+    (host / ".cache/secret").write_text("host secret")
+    (data / "home").symlink_to(host)
+
+    restore.restore_data(ctx, b)
+
+    assert (host / ".cache/secret").read_text() == "host secret"
+    assert not (data / "home/.cache").exists()
+
+
+def test_excluded_source_directory_swapped_for_symlink_is_not_followed(tmp_path, monkeypatch):
+    ctx = make_test_ctx(tmp_path)
+    ctx.conf.backup_exclude = ("home/.cache",)
+    old = tmp_path / "old"
+    (old / "home/.cache").mkdir(parents=True)
+    host = tmp_path / "host-home"
+    (host / ".cache").mkdir(parents=True)
+    (host / ".cache/secret").write_text("host secret")
+    real_open = os.open
+    swapped = []
+
+    def swap(path, flags, *args, **kwargs):
+        if path == "home" and not swapped:
+            swapped.append(True)
+            os.rename(old / "home", old / "moved-home")
+            (old / "home").symlink_to(host)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(restore.os, "open", swap)
+    restore._step_move_excluded(ctx, old, ctx.conf.data_dir)
+    assert swapped
+    assert (host / ".cache/secret").read_text() == "host secret"
+    assert not (ctx.conf.data_dir / "home/.cache/secret").exists()
+
+
+def test_archived_completion_symlink_cannot_create_a_host_file(tmp_path):
+    ctx = make_test_ctx(tmp_path)
+    real_tar(ctx)
+    outside = tmp_path / "host-file"
+    (ctx.conf.data_dir / restore.DONE).symlink_to(outside)
+    b = backup.create(ctx, "target", None)
+
+    restore.restore_data(ctx, b)
+
+    assert not outside.exists()
+    assert (ctx.conf.data_dir / restore.DONE).is_symlink()
+
+
+def test_app_file_cannot_mark_an_interrupted_extraction_complete(tmp_path):
+    ctx, b = setup_ctx(tmp_path)
+    data = ctx.conf.data_dir
+    new, _ = restore._names(data, b.id)
+
+    def partial_extract(argv, input):
+        (new / restore.DONE).write_text("app-controlled file, not completion evidence")
+        raise KeyboardInterrupt("tar interrupted")
+
+    ctx.sh.on("tar", fn=partial_extract)
+    with pytest.raises(KeyboardInterrupt):
+        restore.restore_data(ctx, b)
+    real_tar(ctx)
+    restore.restore_data(ctx, b)
+    check_end_state(ctx, b)
+
+
+def test_completion_evidence_without_its_directory_extracts_again(tmp_path):
+    ctx, b = setup_ctx(tmp_path)
+    data = ctx.conf.data_dir
+    new, _ = restore._names(data, b.id)
+    restore._step_extract(ctx, b, new)
+    shutil.rmtree(new)                     # a cleanup removed the directory, not the evidence
+    restore.restore_data(ctx, b)
+    check_end_state(ctx, b)
+    assert not restore._completion(new).exists()
+
+
+def test_extraction_drops_stale_completion_evidence_first(tmp_path):
+    ctx, b = setup_ctx(tmp_path)
+    new, _ = restore._names(ctx.conf.data_dir, b.id)
+    restore._completion(new).write_text("complete\n")
+
+    def interrupted(argv, input):
+        raise KeyboardInterrupt("tar interrupted")
+
+    ctx.sh.on("tar", fn=interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        restore._step_extract(ctx, b, new)
+    assert not restore._completion(new).exists()

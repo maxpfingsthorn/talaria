@@ -2,6 +2,19 @@
 
 ## Updating Talaria
 
+Daily update notices use published stable GitHub Releases. `bin/talaria latest-release`
+prints the same selection for the default repository without requiring an installation; it
+does not read a `talaria_repo` set in `hub.conf`. API failures are reported
+as lookup failures; Talaria does not fall back to unpublished tags.
+
+An explicit `/update <tag>` or `talaria self-update <tag>` remains an operator-selected
+version, including for development. Use the published release unless you intend to test
+another tag. The release workflow creates official tags only after its gates pass.
+
+If publication fails after creating the tag, rerun the failed jobs of that workflow run.
+A retry accepts the existing tag only when it still points to the exact validated commit;
+it never moves or deletes a tag. An already published stable Release counts as success.
+
 The hub checks for new Talaria releases daily and sends a notice with a **What would
 vX.Y.Z change?** button; tapping it (or `/update vX.Y.Z`) lists which apps the update would
 restart, with an **Update Talaria to vX.Y.Z** button.

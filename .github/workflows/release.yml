@@ -1,13 +1,33 @@
 name: release
 on:
-  push:
-    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release version (vX.Y.Z); run from main after merging the version bump"
+        required: true
+        type: string
 permissions:
   contents: read
+concurrency:
+  group: talaria-release
+  cancel-in-progress: false
 jobs:
+  version:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: validate release version and branch
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "v$(python3 -c 'import talaria; print(talaria.__version__)')" = "$RELEASE_TAG"
   ci:
+    needs: version
     uses: ./.github/workflows/ci.yml
   mutation:
+    needs: version
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -16,6 +36,7 @@ jobs:
       - run: uv run mutmut run && uv run mutmut export-cicd-stats
       - run: uv run python tests/mutation_score.py
   contract:
+    needs: version
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -23,13 +44,27 @@ jobs:
       - run: uv sync --locked
       - run: TALARIA_CONTRACT=1 uv run pytest -m contract tests/contract -v
   publish:
-    needs: [ci, mutation, contract]
+    needs: [version, ci, mutation, contract]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: test "v$(python3 -c 'import talaria; print(talaria.__version__)')" = "$GITHUB_REF_NAME"
-      - run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+      # Older installed clients discover tags. Create no tag until EVERY gate passes.
+      # Never move a tag. A retry may reuse only this run's already-validated commit.
+      - name: create validated tag and publish release
+        run: |
+          if ! gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$GITHUB_SHA"; then
+            existing=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" \
+              --jq 'select(.object.type == "commit") | .object.sha')
+            test "$existing" = "$GITHUB_SHA"
+          fi
+          if ! gh release create "$RELEASE_TAG" --generate-notes --verify-tag; then
+            published=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+              --jq '(.draft == false and .prerelease == false and .published_at != null)')
+            test "$published" = true
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}

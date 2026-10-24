@@ -44,9 +44,10 @@ button data with the app's name.
 3. **Rehearse.** The data dir is copied (fd-based walk that never follows symlinks; SQLite
    files through the backup API) and the new release runs against the copy with networking
    off. What runs depends on the app (see the table in the [README](../README.md)). A
-   failure here ends the attempt; production is untouched.
+   failure here ends the attempt without deploying the candidate. gbrain's server is
+   stopped while its PGLite data is copied, then restarted before the copy is tested.
 4. **Offer.** The result becomes the *pending* candidate and the bot sends the report with
-   Approve and Reject buttons. Nothing changes until you approve.
+   Approve and Reject buttons. The candidate is not deployed until you approve.
 5. **Deploy** (on Approve):
    1. Check free disk space and that the image is present; otherwise refuse, nothing stopped.
    2. Record the operation in the state file, stop the app, commit the config history and
@@ -68,6 +69,12 @@ If the process dies mid-deploy, rollback or restore, the marker stays and the ap
 start. The bot reports it at its next start and `/rollback` (or `/rollback CONFIRM`) finishes
 the job from the recorded backup. The [README](../README.md#manual-recovery) describes the
 manual path.
+
+An explicit restore records both the backup to recover to and the backup whose directory
+swap is in progress. Recovery finishes that swap before restoring the pre-restore backup,
+so it can recover even when the live data directory was moved aside. A stopped rehearsal
+records its operation before stopping; recovery starts the unchanged app without restoring
+data.
 
 ## Updating Talaria itself
 

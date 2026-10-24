@@ -134,7 +134,8 @@ def fresh(ctx, minute: str) -> bool:
 def _swap(ctx, b, image: dict, op: str, revert: tuple[str, dict]) -> str | None:
     """Stop, restore b, switch to image, start, check. The marker points at `revert`."""
     service.stop(ctx)
-    marker.write(ctx.paths, op, revert[0], revert[1], ctx.now())
+    marker.write(ctx.paths, op, revert[0], revert[1], ctx.now(),
+                 restore_backup=b.id if b.id != revert[0] else None)
     restore_data(ctx, b)
     st = state.load(ctx.paths)
     st["current"], st["previous"], st["last_deploy"] = image, None, None
@@ -183,6 +184,12 @@ def rollback(ctx) -> tuple[str | None, str | None]:
             raise Refused(f"the pre-rollback backup failed: {e}") from e
         st["op"]["changed"] = True
         state.save(ctx.paths, st)
+    if m and m.get("restore_backup") and m["restore_backup"] != bid:
+        # An explicit restore may have renamed data away using a different backup ID.
+        # Finish that filesystem swap before undoing it. Keep the original marker until
+        # it finishes, so a second interruption follows the same recovery path.
+        service.stop(ctx)
+        restore_data(ctx, backup.get(ctx, m["restore_backup"]))
     reason = _swap(ctx, b, image, op, (bid, image))
     if reason:
         service.stop(ctx)
