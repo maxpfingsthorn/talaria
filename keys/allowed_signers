@@ -1,0 +1,7 @@
+# Talaria release signing keys. Line order: 1Password main, yubikey-1, yubikey-2.
+# 1Password main (ssh-ed25519)
+85039+maxpfingsthorn@users.noreply.github.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH69t8uzK+Si9lteRgBYAbQjfRDRYeMUVzH0PzU2IeXR
+# yubikey-1 (sk-ssh-ed25519)
+85039+maxpfingsthorn@users.noreply.github.com namespaces="git" sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIOnEVGBbAGH60HDX1/vSz3Vf6BgrV/RtMgJFzmL7OtVAAAAAD3NzaDpnaXQtc2lnbmluZw== yubikey-1
+# yubikey-2 (sk-ssh-ed25519)
+85039+maxpfingsthorn@users.noreply.github.com namespaces="git" sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIC8Q3NOCdimwAycVK2DWXYEgmOv1DDVdzaBAtx63wy26AAAAD3NzaDpnaXQtc2lnbmluZw== yubikey-2

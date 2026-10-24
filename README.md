@@ -215,6 +215,15 @@ half-changed data). As the service user (`sudo -u <user>` from another account):
 - [Design](docs/design.md): how the pieces fit, the update flow and its failure handling
 - [Changelog](CHANGELOG.md)
 
+### Release signing keys
+
+Release tags are signed with SSH keys; setup and self-update install a tag only if it is
+signed by one of these (also listed in `keys/allowed_signers`):
+
+- 1Password main (ed25519): `SHA256:ob49+O53abdllIuiNpG41DSh+LillBnxCp5+WQM4vBQ`
+- yubikey-1 (sk-ed25519): `SHA256:tbAvHjz+RsSsKDQqrUOQoA+VLfqvlFpuwjCbGOTwWQY`
+- yubikey-2 (sk-ed25519): `SHA256:o/yXZPCUepVc67iVKUK0Rg2St70Bc4FvL9rZg/c8h7Q`
+
 ## How it's built
 
 Talaria is written with AI coding assistants (Claude Code). The maintainer designs, reviews

@@ -37,6 +37,20 @@ Known limitations:
 - While a change is interrupted, Talaria refuses to deploy or rehearse anything new until
   you recover with `/rollback CONFIRM`.
 
+## Release signing keys
+
+Release tags are signed with SSH keys; setup and self-update install a tag only if it is
+signed by one of these (also listed in `keys/allowed_signers`):
+
+- 1Password main (ed25519): `SHA256:ob49+O53abdllIuiNpG41DSh+LillBnxCp5+WQM4vBQ`
+- yubikey-1 (sk-ed25519): `SHA256:tbAvHjz+RsSsKDQqrUOQoA+VLfqvlFpuwjCbGOTwWQY`
+- yubikey-2 (sk-ed25519): `SHA256:o/yXZPCUepVc67iVKUK0Rg2St70Bc4FvL9rZg/c8h7Q`
+
+An install reads the trusted keys from `keys/allowed_signers` at its own current `HEAD`, never
+from the working tree or from the new tag, so a tag cannot vouch for itself. A release can add
+or remove keys only if it is signed by a key the install already trusts; the new list applies
+to the release after it.
+
 ## What setup changes
 
 - The hub account (default `talaria`) and the app's service account (default `hermes`),
