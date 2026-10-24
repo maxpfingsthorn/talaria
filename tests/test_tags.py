@@ -176,7 +176,8 @@ def test_release_lookup_uses_the_configured_repository(monkeypatch, repo, url):
     assert seen == [url]
 
 
-@pytest.mark.parametrize("body", [b"bad json", b"[]", b"x" * (1024 * 1024 + 1)])
+@pytest.mark.parametrize("body", [b"bad json", b"[]", b"x" * (1024 * 1024 + 1)],
+                         ids=["bad-json", "list", "too-large"])
 def test_malformed_release_metadata_fails_closed(monkeypatch, body):
     monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: io.BytesIO(body))
     with pytest.raises(ValueError):
