@@ -1010,3 +1010,67 @@ def test_untrusted_tag_stops_before_the_sudo_stop_too(monkeypatch, tmp_path, cap
     monkeypatch.setattr("talaria.trust.check", _refuse)
     assert run(args(user="hermes")) == 1
     assert "not signed by a trusted key" in capsys.readouterr().out and calls == []
+
+
+def test_a_passwordless_rule_without_linger_keeps_its_form(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, linger=False, passwordless=True)
+    assert run(args(user="hermes")) == 10
+    out = capsys.readouterr().out
+    assert "echo 'admin ALL=(hermes) NOPASSWD: ALL' >" in out
+    assert "admin ALL=(hermes) ALL'" not in out
+
+
+def test_a_passwordless_hub_rule_without_linger_keeps_its_form(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, hub_linger=False, hub_passwordless=True)
+    assert run(args(user="hermes")) == 10
+    out = capsys.readouterr().out
+    assert "echo 'admin ALL=(talaria) NOPASSWD: ALL' >" in out
+    assert "admin ALL=(talaria) ALL'" not in out
+
+
+def test_a_password_rule_without_linger_stays_a_password_rule(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, linger=False)
+    assert run(args(user="hermes")) == 10
+    assert "echo 'admin ALL=(hermes) ALL' >" in capsys.readouterr().out
+
+
+def test_unreachable_after_a_good_sudo_v_falls_through_to_the_root_block(monkeypatch, tmp_path,
+                                                                         capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, sudo_ok=False, tty=True)
+    sh.on("sudo", "-n", "-u", "hermes", "true", rc=1)       # still no rule after the password
+    assert run(args(user="hermes")) == 10
+    out = capsys.readouterr().out
+    assert "ACTION REQUIRED" in out and "STOP" not in out
+    assert calls == [["sudo", "-v"]]
+
+
+def test_refresh_ticket_before_each_handoff_after_sudo_v(monkeypatch, tmp_path):
+    sh, run, calls = op_env(monkeypatch, tmp_path, sudo_ok=False, hub_sudo_ok=False, tty=True)
+    assert run(args(user="hermes")) == 0
+    marks = dict(zip([m[0] + str(i) for i, m in enumerate(sh.marks)], sh.marks))
+    refresh = [i for i, c in enumerate(sh.calls) if c == ["sudo", "-n", "-v"]]
+    handoffs = [m[1] for m in sh.marks if m[0] == "call"][1:]       # first is sudo -v
+    assert len(refresh) == 2 and len(handoffs) == 2
+    assert all(r + 1 == h for r, h in zip(refresh, handoffs)) and marks
+
+
+def test_no_refresh_without_sudo_v(monkeypatch, tmp_path):
+    sh, run, calls = op_env(monkeypatch, tmp_path, tty=True)
+    assert run(args(user="hermes")) == 0
+    assert not sh.called("sudo", "-n", "-v")
+
+
+def test_other_app_bot_guard_fires_under_a_password_rule(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, hub_installed=False, tty=True)
+    cv = SimpleNamespace(pw_name="clawvisor", pw_uid=1003, pw_gid=1003, pw_dir="/home/clawvisor")
+    sh.on("sudo", "-n", "-u", "clawvisor", "true",
+          fn=lambda a, i: Result(0 if sh.unlocked else 1, "", ""))
+    sh.on("sudo", "-n", "-u", "clawvisor", "test", "-e",
+          "/home/clawvisor/.config/systemd/user/talaria-telegram.service")
+    getpw = lambda n: cv if n == "clawvisor" else {"hermes": PW, "talaria": HUBPW}[n]
+    ld = tmp_path / "linger"
+    rc = setup.operator_phase(sh, args(user="hermes"), getpwnam=getpw, operator="admin",
+                              call=lambda argv: (setattr(sh, "unlocked", True), calls.append(argv), 0)[2],
+                              linger_dir=ld)
+    assert rc == 1 and "clawvisor still runs its own Talaria bot" in capsys.readouterr().out
+    assert calls == [["sudo", "-v"]]

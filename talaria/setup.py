@@ -336,12 +336,15 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         once (never without one: it would hang)."""
         ok = _can_sudo(sh, name)
         if not ok and not asked and _interactive():
-            asked.append(True)
-            call(["sudo", "-v"])
+            asked.append(call(["sudo", "-v"]))
             ok = _can_sudo(sh, name)
         return ok
 
-    def needs_password():
+    def needs_password(ok, name):
+        """STOP unless a root block can fix it: only no terminal, or a refused `sudo -v`,
+        means the person must run setup themselves."""
+        if ok or not lingers(name) or (_interactive() and asked and asked[0] == 0):
+            return None
         say("STOP", "setup needs your sudo password; run it in your own terminal")
         return 1
 
@@ -369,15 +372,16 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         app_lines = account_lines(user, operator, create=True, nopasswd=nopasswd)
     else:
         sudo_ok = reach(user)
-        if not sudo_ok and lingers(user):
-            return needs_password()
+        if needs_password(sudo_ok, user):
+            return 1
         installed = sudo_ok and _installed(sh, user, pw.pw_dir)
         if not args.user and not installed:
             say("FOUND", f"account {user} exists but Talaria is not installed for it")
             say("STOP", f"confirm with the person, then re-run with --user {user}")
             return 1
         if not sudo_ok or not lingers(user):
-            app_lines = account_lines(user, operator, create=False, nopasswd=nopasswd)  # pragma: no mutate  (None == False)
+            keep = sudo_ok and not nopasswd and _passwordless(sh, user)   # never change a rule
+            app_lines = account_lines(user, operator, create=False, nopasswd=nopasswd or keep)  # pragma: no mutate  (None == False)
         else:
             note_if_passwordless(user)
     hub_pw = _pw(getpwnam, hub)
@@ -386,17 +390,18 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         hub_lines = account_lines(hub, operator, create=True, nopasswd=nopasswd)
     else:
         hub_ok = reach(hub)
-        if not hub_ok and lingers(hub):
-            return needs_password()
+        if needs_password(hub_ok, hub):
+            return 1
         hub_installed = hub_ok and _installed(sh, hub, hub_pw.pw_dir)
         if not hub_ok or not lingers(hub):
-            hub_lines = account_lines(hub, operator, create=False, nopasswd=nopasswd)  # pragma: no mutate  (None == False)
+            keep = hub_ok and not nopasswd and _passwordless(sh, hub)
+            hub_lines = account_lines(hub, operator, create=False, nopasswd=nopasswd or keep)  # pragma: no mutate  (None == False)
         else:
             note_if_passwordless(hub)
     if hub_pw is None or not hub_installed:       # this run makes the hub: one bot per host
         for other in apps.NAMES:
             opw = _pw(getpwnam, other) if other != user else None
-            if opw and _can_sudo(sh, other) and sh.run(
+            if opw and reach(other) and sh.run(
                     ["sudo", "-n", "-u", other, "test", "-e",
                      f"{opw.pw_dir}/.config/systemd/user/talaria-telegram.service"],
                     check=False).returncode == 0:
@@ -457,6 +462,8 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         return 1
     rest = (["--app", app] if explicit_app else []) + \
         (["--adopt", args.adopt] if args.adopt else [])
+    if asked:
+        sh.run(["sudo", "-n", "-v"], check=False)     # keep the cached password alive
     rc = call(sudo_as(user, home) + _bus(pw)
               + [f"{home}/.local/bin/talaria", "setup", "--as-service", *rest])
     if rc != 0:
@@ -465,6 +472,8 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         rc = _migrate(sh, user, pw, hub, hub_pw, found, move or move_env)
         if rc != 0:
             return rc
+    if asked:
+        sh.run(["sudo", "-n", "-v"], check=False)
     rc = call(sudo_as(hub, hub_home) + _bus(hub_pw)
               + [f"{hub_home}/.local/bin/talaria", "setup", "--as-hub", "--register",
                  f"{app}:{user}"])
