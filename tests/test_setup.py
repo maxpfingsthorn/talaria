@@ -8,7 +8,7 @@ import pytest
 
 from talaria import setup, state
 from talaria.conf import parse_kv
-from tests.fakes import FakeShell, make_test_ctx
+from tests.fakes import FakeShell, Result, make_test_ctx
 
 
 def args(**kw):
@@ -30,6 +30,7 @@ def op_env(monkeypatch, tmp_path, *, user_exists=True, sudo_ok=True, linger=True
     sh = FakeShell()
     sh.on("sudo")   # catch-all first: in FakeShell the most recently added rule wins
     sh.on("podman", "--version", out="podman version 4.9.3\n")
+    sh.on("git", "--version", out="git version 2.43.0\n")
     sh.on("getenforce", out="Permissive\n")
     sh.on("sudo", "-n", "-u", "hermes", "true", rc=0 if sudo_ok else 1)
     sh.on("sudo", "-n", "-u", "hermes", "test", rc=0 if installed else 1)
@@ -38,6 +39,11 @@ def op_env(monkeypatch, tmp_path, *, user_exists=True, sudo_ok=True, linger=True
     sh.on("sudo", "-n", "-u", "talaria", "sudo", rc=probe_rc, err=probe_err)
     sh.on("git", "-C", str(setup.REPO), "describe", out=f"{tag}\n", rc=0 if tag else 128)
     sh.on("git", "-C", str(setup.REPO), "remote", out="https://github.com/o/talaria\n")
+    sh.on("git", "-C", str(setup.REPO), "rev-parse", "refs/tags/", out="")   # unused default
+    sh.on("git", "-C", str(setup.REPO), "rev-parse", f"refs/tags/{tag}", out="tagobj1\n")
+    for who, home in (("hermes", "/home/hermes"), ("talaria", "/home/talaria")):
+        sh.on(*setup.sudo_as(who, home), "git", "-C", f"{home}/.local/share/talaria", "rev-parse",
+              f"refs/tags/{tag}", out="tagobj1\n")
     s = setup.sudo_as("hermes", "/home/hermes")
     sh.on(*s, "test", "-e", "/home/hermes/.config/systemd/user/talaria-telegram.service",
           rc=0 if v04_units else 1)
@@ -231,8 +237,11 @@ def test_clawvisor_default_account_name_and_plan_text(monkeypatch, tmp_path, cap
     sh = FakeShell()
     sh.on("sudo")
     sh.on("podman", "--version", out="podman version 4.9.3\n")
+    sh.on("git", "--version", out="git version 2.43.0\n")
     sh.on("getenforce", out="Permissive\n")
     sh.on("git", "-C", str(setup.REPO), "describe", out="v0.1.0\n")
+    sh.on("git", "-C", str(setup.REPO), "rev-parse", out="tagobj1\n")
+    sh.on("sudo", fn=lambda argv, _in: Result(0, "tagobj1\n" if "rev-parse" in argv else "", ""))
     sh.on("git", "-C", str(setup.REPO), "remote", out="https://github.com/o/talaria\n")
     sh.on(*setup.sudo_as("clawvisor", PW.pw_dir), "test", rc=1)
     sh.on(*setup.sudo_as("clawvisor", PW.pw_dir), "grep", rc=1)
@@ -252,8 +261,11 @@ def test_clawvisor_handoff_carries_the_app_flag(monkeypatch, tmp_path):
     sh = FakeShell()
     sh.on("sudo")
     sh.on("podman", "--version", out="podman version 4.9.3\n")
+    sh.on("git", "--version", out="git version 2.43.0\n")
     sh.on("getenforce", out="Permissive\n")
     sh.on("git", "-C", str(setup.REPO), "describe", out="v0.1.0\n")
+    sh.on("git", "-C", str(setup.REPO), "rev-parse", out="tagobj1\n")
+    sh.on("sudo", fn=lambda argv, _in: Result(0, "tagobj1\n" if "rev-parse" in argv else "", ""))
     sh.on("git", "-C", str(setup.REPO), "remote", out="https://github.com/o/talaria\n")
     sh.on(*setup.sudo_as("clawvisor", PW.pw_dir), "test", rc=1)
     sh.on(*setup.sudo_as("clawvisor", PW.pw_dir), "grep", rc=1)
@@ -747,3 +759,94 @@ def test_install_at_a_branch_still_fetches_tags(monkeypatch, tmp_path):
     setup._install(sh, "hermes", "/home/hermes", "https://github.com/o/talaria", "main", True)
     fetch = [c for c in sh.calls if "fetch" in c]
     assert len(fetch) == 1 and fetch[0][-4:] == ["fetch", "-q", "--tags", "origin"]
+
+
+KEYLINE = ("85039+maxpfingsthorn@users.noreply.github.com namespaces=\"git\" "
+           "sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gAAAABHNzaDo=\n")
+
+
+def _refuse(*a, **k):
+    raise setup.trust.Untrusted("no good signature")
+
+
+def test_untrusted_tag_stops_names_the_keys_and_installs_nothing(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path)
+    sh.on("git", "-C", str(setup.REPO), "show", "HEAD:keys/allowed_signers", out=KEYLINE)
+    monkeypatch.setattr("talaria.trust.check", _refuse)
+    assert run(args(user="hermes")) == 1
+    out = capsys.readouterr().out
+    fp = setup.trust.fingerprints(KEYLINE)
+    assert len(fp) == 1
+    assert out == ("STOP: this checkout's tag is not signed by a trusted key\n"
+                   f"FOUND: trusted release key {fp[0]}\n")
+    assert not [c for c in sh.calls if "clone" in c or "fetch" in c] and not calls
+
+
+def test_untrusted_tag_without_a_keys_file_lists_no_keys(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path)
+    sh.on("git", "-C", str(setup.REPO), "show", "HEAD:keys/allowed_signers", rc=128)
+    monkeypatch.setattr("talaria.trust.check", _refuse)
+    assert run(args(user="hermes")) == 1
+    assert capsys.readouterr().out == "STOP: this checkout's tag is not signed by a trusted key\n"
+
+
+def test_plan_shows_the_untrusted_stop(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path)
+    sh.on("git", "-C", str(setup.REPO), "show", "HEAD:keys/allowed_signers", out="")
+    monkeypatch.setattr("talaria.trust.check", _refuse)
+    assert run(args(user="hermes", plan=True)) == 1
+    assert "STOP: this checkout's tag is not signed" in capsys.readouterr().out
+
+
+def test_trusted_tag_is_checked_in_the_operators_checkout(monkeypatch, tmp_path):
+    sh, run, _ = op_env(monkeypatch, tmp_path)
+    seen = []
+    monkeypatch.setattr("talaria.trust.check", lambda *a, **k: seen.append(a[1:]))
+    assert run(args(user="hermes")) == 0
+    assert seen == [(str(setup.REPO), "v0.1.0")]
+
+
+def test_dev_does_not_check_signatures(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, tag=None)
+    sh.on("git", "-C", str(setup.REPO), "rev-parse", out="abc123\n")
+    monkeypatch.setattr("talaria.trust.check", lambda *a, **k: pytest.fail("checked"))
+    assert run(args(user="hermes", dev=True)) == 0
+    assert "NOTE: --dev: release signatures are not checked\n" in capsys.readouterr().out
+    assert not [c for c in sh.calls if c[-2:-1] == ["rev-parse"] and "refs/tags" in c[-1]]
+
+
+def test_a_different_tag_object_in_the_account_stops_before_checkout(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path)
+    sh.on(*setup.sudo_as("hermes", "/home/hermes"), "git", "-C", "/home/hermes/.local/share/talaria",
+          "rev-parse", out="other\n")
+    assert run(args(user="hermes")) == 1
+    assert ("STOP: the v0.1.0 tag fetched for hermes is not the one this checkout verified; "
+            "nothing was checked out\n") in capsys.readouterr().out
+    assert not [c for c in sh.calls if "checkout" in c] and not calls
+
+
+def test_install_pins_the_tag_object_before_checkout():
+    sh = FakeShell()
+    sh.on("sudo")
+    sh.on(*setup.sudo_as("hermes", "/home/hermes"), "git", "-C", "/home/hermes/.local/share/talaria",
+          "rev-parse", out="abc\n")
+    assert setup._install(sh, "hermes", "/home/hermes", "https://x/y", "v1.0.0", True, "abc") is True
+    names = [c for c in sh.calls if "rev-parse" in c or "checkout" in c]
+    assert "rev-parse" in names[0] and "refs/tags/v1.0.0" in names[0] and "checkout" in names[1]
+    assert setup._install(sh, "hermes", "/home/hermes", "https://x/y", "v1.0.0", True, "zzz") is False
+
+
+def test_old_git_is_missing(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path)
+    sh.on("git", "--version", out="git version 2.30.0\n")
+    assert run(args()) == 10
+    assert capsys.readouterr().out == "MISSING: git >= 2.34 (found 2.30)\n"
+
+
+def test_missing_ssh_keygen_is_reported_with_hints(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(setup, "which", lambda t: None if t == "ssh-keygen" else f"/usr/bin/{t}")
+    assert run(args()) == 10
+    assert capsys.readouterr().out == (
+        "MISSING: ssh-keygen\n  hint: Debian/Ubuntu: apt install openssh-client"
+        " · Fedora/RHEL: dnf install openssh-clients · Arch: pacman -S openssh\n")

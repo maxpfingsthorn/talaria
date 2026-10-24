@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from talaria import adopt, apps, images, lock, rehearse, service, state, telegram, units
+from talaria import adopt, apps, images, lock, rehearse, service, state, telegram, trust, units
 from talaria.conf import check_bind, load_conf, parse_kv, write_env_value
 from talaria.ctx import Paths
 from talaria.disk import NOT_RENAMABLE, renamable
@@ -26,7 +26,7 @@ TOOLS = {  # tool: (Debian/Ubuntu, Fedora/RHEL, Arch)
     "podman": ("podman", "podman", "podman"), "git": ("git", "git", "git"),
     "tar": ("tar", "tar", "tar"), "gzip": ("gzip", "gzip", "gzip"),
     "systemd-run": ("systemd", "systemd", "systemd"), "loginctl": ("systemd", "systemd", "systemd"),
-    "sudo": ("sudo", "sudo", "sudo"),
+    "sudo": ("sudo", "sudo", "sudo"), "ssh-keygen": ("openssh-client", "openssh-clients", "openssh"),
 }
 which = shutil.which
 
@@ -43,6 +43,11 @@ def prerequisites(sh) -> list[str]:
             say("MISSING", tool)
             print(f"  hint: Debian/Ubuntu: apt install {deb} · Fedora/RHEL: dnf install {fed}"
                   f" · Arch: pacman -S {arch}")
+    if "git" not in missing:
+        m = re.search(r"(\d+)\.(\d+)", sh.run(["git", "--version"]).stdout)
+        if not m or (int(m[1]), int(m[2])) < (2, 34):
+            missing.append("git")
+            say("MISSING", f"git >= 2.34 (found {m[0] if m else 'unknown'})")
     if "podman" not in missing:
         m = re.search(r"(\d+)\.(\d+)", sh.run(["podman", "--version"]).stdout)
         if not m or (int(m[1]), int(m[2])) < (4, 9):
@@ -129,17 +134,28 @@ def _older_than_installed(sh, user: str, home: str, ref: str) -> str | None:
     return cur if SEMVER.match(cur) and semver_newer(cur, ref) else None
 
 
-def _install(sh, user: str, home: str, url: str, ref: str, installed: bool) -> None:
+def _install(sh, user: str, home: str, url: str, ref: str, installed: bool,
+             expect: str | None = None) -> bool:
+    """False (nothing checked out) if the tag fetched for `user` is not the tag object the
+    operator's checkout verified (`expect`)."""
     install, sudo = f"{home}/.local/share/talaria", sudo_as(user, home)
     if not installed:
         sh.run(sudo + ["git", "clone", "-q", url, install], timeout=600)
     fetch = (["fetch", "-q", "origin", f"+refs/tags/{ref}:refs/tags/{ref}"] if SEMVER.match(ref)
              else ["fetch", "-q", "--tags", "origin"])
     sh.run(sudo + ["git", "-C", install, *fetch], timeout=600)
+    if expect:
+        got = sh.run(sudo + ["git", "-C", install, "rev-parse", f"refs/tags/{ref}"],
+                     check=False).stdout.strip()
+        if got != expect:
+            say("STOP", f"the {ref} tag fetched for {user} is not the one this checkout verified; "
+                        "nothing was checked out")
+            return False
     sh.run(sudo + ["git", "-C", install, "checkout", "-q", ref])
     sh.run(sudo + ["mkdir", "-p", f"{home}/.local/bin"])
     sh.run(sudo + ["ln", "-sfn", f"{install}/bin/talaria", f"{home}/.local/bin/talaria"])
     say("OK", f"Talaria {ref} installed for {user}")
+    return True
 
 
 def install_url(url: str) -> str | None:
@@ -323,6 +339,20 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         say("STOP", "this checkout is not at a release tag; check out the latest tag "
                     "(or pass --dev)")
         return 1
+    expect = None
+    if args.dev:
+        say("NOTE", "--dev: release signatures are not checked")
+    else:
+        try:
+            trust.check(sh, str(REPO), ref)
+        except trust.Untrusted:
+            say("STOP", "this checkout's tag is not signed by a trusted key")
+            keys = sh.run(["git", "-C", str(REPO), "show", "HEAD:keys/allowed_signers"],
+                          check=False)
+            for fp in trust.fingerprints(keys.stdout if keys.returncode == 0 else ""):
+                say("FOUND", f"trusted release key {fp}")
+            return 1
+        expect = sh.run(["git", "-C", str(REPO), "rev-parse", f"refs/tags/{ref}"]).stdout.strip()
     url = str(REPO) if args.dev else install_url(
         sh.run(["git", "-C", str(REPO), "remote", "get-url", "origin"],
                check=False).stdout.strip() or str(REPO))
@@ -348,8 +378,10 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
             say("STOP", f"the hub {hub} already runs Talaria {newer}; this checkout is {ref}. "
                         "Check out the newer tag and run setup again")
             return 1
-    _install(sh, user, home, url, ref, installed)
-    _install(sh, hub, hub_home, url, ref, hub_installed)
+    if not _install(sh, user, home, url, ref, installed, expect):
+        return 1
+    if not _install(sh, hub, hub_home, url, ref, hub_installed, expect):
+        return 1
     probe = sh.run(["sudo", "-n", "-u", hub, "sudo", "-n", "-H", "-u", user,
                     f"{home}/.local/bin/talaria", "op", "hello"], check=False)
     if probe.returncode != 0:

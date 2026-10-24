@@ -5,6 +5,7 @@ Setup's behaviour *is* its messages and the commands it runs, so these tests pin
 import pytest
 
 from talaria import setup
+from tests.fakes import Result
 from tests.test_setup import args, op_env
 
 R = str(setup.REPO)
@@ -14,12 +15,13 @@ ENVU = ["env", "-u", "XDG_CONFIG_HOME", "-u", "XDG_DATA_HOME", "-u", "XDG_STATE_
         "XDG_CACHE_HOME"]
 SUDO = ["sudo", "-n", "-u", "hermes", "-H", *ENVU, "HOME=/home/hermes"]
 HSUDO = ["sudo", "-n", "-u", "talaria", "-H", *ENVU, "HOME=/home/talaria"]
-PRE = [(["podman", "--version"], None), (["getenforce"], None)]
+PRE = [(["git", "--version"], None), (["podman", "--version"], None), (["getenforce"], None)]
 CHECKS = [(["sudo", "-n", "-u", "hermes", "true"], None),
           (["sudo", "-n", "-u", "hermes", "test", "-e", INSTALL], None)]
 HUB_CHECKS = [(["sudo", "-n", "-u", "talaria", "true"], None),
               (["sudo", "-n", "-u", "talaria", "test", "-e", HUBINSTALL], None)]
-TAG = [(["git", "-C", R, "describe", "--tags", "--exact-match"], None)]
+TAG = [(["git", "-C", R, "describe", "--tags", "--exact-match"], None),
+       (["git", "-C", R, "rev-parse", "refs/tags/v0.1.0"], None)]
 ORIGIN = [(["git", "-C", R, "remote", "get-url", "origin"], None)]
 
 
@@ -28,6 +30,7 @@ def install_cmds(sudo, user, install, clone):
     return out + [
         (sudo + ["git", "-C", install, "fetch", "-q", "origin",
                       "+refs/tags/v0.1.0:refs/tags/v0.1.0"], 600),
+        (sudo + ["git", "-C", install, "rev-parse", "refs/tags/v0.1.0"], None),
         (sudo + ["git", "-C", install, "checkout", "-q", "v0.1.0"], None),
         (sudo + ["mkdir", "-p", f"/home/{user}/.local/bin"], None),
         (sudo + ["ln", "-sfn", f"{install}/bin/talaria", f"/home/{user}/.local/bin/talaria"], None)]
@@ -153,7 +156,7 @@ CASES = {
                  "block to run as root\n", PRE + CHECKS, []),
     "notag": (dict(tag=None), dict(user="hermes"), 1,
               "STOP: this checkout is not at a release tag; check out the latest tag "
-              "(or pass --dev)\n", PRE + CHECKS + HUB_CHECKS + TAG, []),
+              "(or pass --dev)\n", PRE + CHECKS + HUB_CHECKS + TAG[:1], []),
 }
 
 
@@ -185,7 +188,7 @@ def test_dev_install_exact(monkeypatch, tmp_path, capsys):
     sh, run, calls = op_env(monkeypatch, tmp_path, tag=None)
     sh.on("git", "-C", R, "rev-parse", out="abc123\n")
     assert run(args(user="hermes", dev=True)) == 0
-    assert capsys.readouterr().out == ("OK: Talaria abc123 installed for hermes\nOK: Talaria abc123 installed for talaria\nDONE\n")
+    assert capsys.readouterr().out == ("NOTE: --dev: release signatures are not checked\nOK: Talaria abc123 installed for hermes\nOK: Talaria abc123 installed for talaria\nDONE\n")
     cmds = list(zip(sh.calls, sh.timeouts))
     assert (["git", "-C", R, "rev-parse", "HEAD"], None) in cmds
     assert (SUDO + ["git", "clone", "-q", R, INSTALL], 600) in cmds
@@ -204,6 +207,7 @@ def test_handoff_returns_child_exit_code(monkeypatch, tmp_path):
     from tests.test_setup import PW
     sh, _, _ = op_env(monkeypatch, tmp_path)
     ld = tmp_path / "linger"
+    sh.on("sudo", fn=lambda argv, _in: Result(0, "tagobj1\n" if "rev-parse" in argv else "", ""))
     rc = setup.operator_phase(sh, args(user="hermes"), getpwnam=lambda n: PW, operator="admin",
                               call=lambda argv: 10, linger_dir=ld)
     assert rc == 10
