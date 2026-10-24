@@ -12,8 +12,9 @@ import tempfile
 from pathlib import Path
 
 NO_KEYS = "this install has no trusted release keys"
-_KEY_TYPES = ("ssh-ed25519", "sk-ssh-ed25519@openssh.com", "ecdsa-sha2-", "sk-ecdsa-sha2-nistp256@openssh.com",
-              "ssh-rsa")
+_KEY_TYPES = frozenset({"ssh-ed25519", "sk-ssh-ed25519@openssh.com", "ssh-rsa",
+                        "sk-ecdsa-sha2-nistp256@openssh.com",
+                        "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521"})
 
 
 class Untrusted(Exception):
@@ -33,7 +34,10 @@ def _reason(stderr: str) -> str:
 
 
 def verify_tag(sh, install_dir: str, tag: str, signers: str, tmp_dir: Path | None = None) -> None:
-    kind = sh.run(["git", "-C", install_dir, "cat-file", "-t", f"refs/tags/{tag}"], check=False)
+    ref = f"refs/tags/{tag}"
+    kind = sh.run(["git", "-C", install_dir, "cat-file", "-t", ref], check=False)
+    if kind.returncode != 0:
+        raise Untrusted(f"{tag} not found")
     if kind.stdout.strip() != "tag":
         # verify-tag would say little for these; a lightweight tag cannot carry a signature
         raise Untrusted(f"{tag} is a lightweight tag")
@@ -42,7 +46,7 @@ def verify_tag(sh, install_dir: str, tag: str, signers: str, tmp_dir: Path | Non
         with os.fdopen(fd, "w") as f:
             f.write(signers)
         r = sh.run(["git", "-C", install_dir, "-c", "gpg.format=ssh", "-c", "gpg.ssh.program=ssh-keygen",
-                    "-c", f"gpg.ssh.allowedSignersFile={name}", "verify-tag", tag], check=False)
+                    "-c", f"gpg.ssh.allowedSignersFile={name}", "verify-tag", ref], check=False)
     finally:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(name)
@@ -64,8 +68,12 @@ def fingerprints(signers: str) -> list[str]:
             continue
         toks = line.split()
         for i, t in enumerate(toks[:-1]):
-            if t.startswith(_KEY_TYPES):
-                digest = hashlib.sha256(base64.b64decode(toks[i + 1])).digest()
+            if t in _KEY_TYPES:
+                try:
+                    blob = base64.b64decode(toks[i + 1], validate=True)
+                except ValueError:
+                    break
+                digest = hashlib.sha256(blob).digest()
                 out.append("SHA256:" + base64.b64encode(digest).decode().rstrip("="))
                 break
     return out

@@ -83,7 +83,8 @@ def reason(repo, tag):
 def test_unsigned_annotated_tag_is_refused(repo, tmp_path):
     setup_signed(repo, tmp_path)
     run(*GIT, "tag", "-a", "v1", "-m", "x", cwd=repo)
-    assert reason(repo, "v1") != "v1 is a lightweight tag"
+    r = reason(repo, "v1")
+    assert "lightweight" not in r and "not found" not in r
 
 
 def test_lightweight_tag_is_refused(repo, tmp_path):
@@ -92,12 +93,18 @@ def test_lightweight_tag_is_refused(repo, tmp_path):
     assert "lightweight" in reason(repo, "v1")
 
 
+def test_missing_tag_is_refused_as_not_found(repo, tmp_path):
+    setup_signed(repo, tmp_path)
+    assert reason(repo, "v9") == "v9 not found"
+
+
 def test_unlisted_key_is_refused(repo, tmp_path):
     setup_signed(repo, tmp_path)
     other = tmp_path / "other"
     keygen(other)
     sign(repo, other, "v1")
-    assert "lightweight" not in reason(repo, "v1")
+    r = reason(repo, "v1")
+    assert "lightweight" not in r and "not found" not in r
 
 
 def test_expired_key_is_refused(repo, tmp_path):
@@ -113,8 +120,31 @@ def test_tag_adding_its_own_key_is_refused(repo, tmp_path):
     run(*GIT, "tag", "base", cwd=repo)
     commit_signers(repo, signer_line(pub1) + signer_line(pub2), "B")
     sign(repo, key2, "v1")
+    # positive control: with B's signers (what the tag itself carries) the signature is valid
+    trust.verify_tag(Shell(), str(repo), "v1", signer_line(pub1) + signer_line(pub2))
     run(*GIT, "checkout", "-q", "base", cwd=repo)   # the install's HEAD stays at A
     assert reason(repo, "v1")
+
+
+def test_verify_tag_gets_the_exact_ref(tmp_path):
+    seen = []
+
+    class Sh:
+        def run(self, argv, **kw):
+            seen.append(argv)
+            return Result(0, "tag\n")
+
+    trust.verify_tag(Sh(), "/x", "v1", "sig", tmp_dir=tmp_path)
+    assert seen[-1][-2:] == ["verify-tag", "refs/tags/v1"]
+
+
+def test_cat_file_failure_is_not_found_not_lightweight():
+    class Sh:
+        def run(self, argv, **kw):
+            return Result(128, "", "fatal: Not a valid object name refs/tags/v1\n")
+
+    with pytest.raises(trust.Untrusted, match="^v1 not found$"):
+        trust.verify_tag(Sh(), "/x", "v1", "sig")
 
 
 def test_missing_signers_file(repo):
@@ -203,3 +233,14 @@ def test_fingerprints(tmp_path):
     blob = pub.split()[1]
     assert want == "SHA256:" + base64.b64encode(
         hashlib.sha256(base64.b64decode(blob)).digest()).decode().rstrip("=")
+
+
+def test_fingerprints_ignore_certificates_and_bad_base64(tmp_path):
+    pub = keygen(tmp_path / "k")
+    want = run("ssh-keygen", "-lf", tmp_path / "k.pub").split()[1]
+    text = (f"a ssh-ed25519-cert-v01@openssh.com {pub.split()[1]}\n"
+            "a ssh-ed25519 not*base64!\n"
+            f"a ecdsa-sha2-nistp256 {pub.split()[1]}\n"
+            f"a namespaces=\"git\" ssh-ed25519 {pub.split()[1]}\n")
+    got = trust.fingerprints(text)
+    assert got == [want, want]
