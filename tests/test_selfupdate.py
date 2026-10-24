@@ -275,3 +275,15 @@ def test_self_update_refuses_when_the_tag_cannot_be_resolved(tmp_path, capsys):
     assert selfupdate.self_update(ctx, "v0.6.1", SHA) == 1
     assert "self-update refused" in capsys.readouterr().err
     assert not any("checkout" in c for c in ctx.sh.calls)
+
+
+def test_untrusted_dry_run_leaves_no_dry_run_dir(tmp_path, monkeypatch):
+    ctx = make_test_ctx(tmp_path)
+    ctx.sh.on("git")
+
+    def check(*a, **k):
+        raise trust.Untrusted("bad sig")
+    monkeypatch.setattr(trust, "check", check)
+    with pytest.raises(trust.Untrusted):
+        selfupdate.dry_run(ctx, "v0.6.0")
+    assert not list(ctx.paths.state_dir.glob("dry-run-*"))
