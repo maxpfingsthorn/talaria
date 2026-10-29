@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from talaria import adopt, apps, images, lock, rehearse, service, state, telegram, units
+from talaria import adopt, apps, images, lock, rehearse, service, state, telegram, trust, units
 from talaria.conf import check_bind, load_conf, parse_kv, write_env_value
 from talaria.ctx import Paths
 from talaria.disk import NOT_RENAMABLE, renamable
@@ -26,7 +26,7 @@ TOOLS = {  # tool: (Debian/Ubuntu, Fedora/RHEL, Arch)
     "podman": ("podman", "podman", "podman"), "git": ("git", "git", "git"),
     "tar": ("tar", "tar", "tar"), "gzip": ("gzip", "gzip", "gzip"),
     "systemd-run": ("systemd", "systemd", "systemd"), "loginctl": ("systemd", "systemd", "systemd"),
-    "sudo": ("sudo", "sudo", "sudo"),
+    "sudo": ("sudo", "sudo", "sudo"), "ssh-keygen": ("openssh-client", "openssh-clients", "openssh"),
 }
 which = shutil.which
 
@@ -43,6 +43,11 @@ def prerequisites(sh) -> list[str]:
             say("MISSING", tool)
             print(f"  hint: Debian/Ubuntu: apt install {deb} · Fedora/RHEL: dnf install {fed}"
                   f" · Arch: pacman -S {arch}")
+    if "git" not in missing:
+        m = re.search(r"(\d+)\.(\d+)", sh.run(["git", "--version"]).stdout)
+        if not m or (int(m[1]), int(m[2])) < (2, 34):
+            missing.append("git")
+            say("MISSING", f"git >= 2.34 (found {m[0] if m else 'unknown'})")
     if "podman" not in missing:
         m = re.search(r"(\d+)\.(\d+)", sh.run(["podman", "--version"]).stdout)
         if not m or (int(m[1]), int(m[2])) < (4, 9):
@@ -69,13 +74,17 @@ def _sudoers(rule: str, name: str) -> list[str]:
             f"install -m 440 -o root -g root \"$tmp\" /etc/sudoers.d/{name}", "rm -f \"$tmp\""]
 
 
-def account_lines(user: str, operator: str, create: bool) -> list[str]:
+def _operator_rule(user: str, operator: str, nopasswd: bool) -> str:
+    return f"'{operator} ALL=({user}) {'NOPASSWD: ' if nopasswd else ''}ALL'"
+
+
+def account_lines(user: str, operator: str, create: bool, nopasswd: bool = False) -> list[str]:
     lines = []
     if create:
         lines = [f"id {user} >/dev/null 2>&1 || useradd --create-home --shell /bin/bash {user}",
                  f"grep -q '^{user}:' /etc/subuid || echo 'WARNING: {user} has no subuid range; see README'"]
     return lines + [f"loginctl enable-linger {user}",
-                    *_sudoers(f"'{operator} ALL=({user}) NOPASSWD: ALL'", f"talaria-{user}")]
+                    *_sudoers(_operator_rule(user, operator, nopasswd), f"talaria-{user}")]
 
 
 def op_rule_lines(hub: str, user: str) -> list[str]:
@@ -112,8 +121,17 @@ def _pw(getpwnam, name):
         return None
 
 
+def _interactive() -> bool:
+    return sys.stdin.isatty()
+
+
 def _can_sudo(sh, user: str) -> bool:
     return sh.run(["sudo", "-n", "-u", user, "true"], check=False).returncode == 0
+
+
+def _passwordless(sh, user: str) -> bool:
+    """Whether `sudo -u user` needs no password; -k ignores any cached credentials."""
+    return sh.run(["sudo", "-k", "-n", "-u", user, "true"], check=False).returncode == 0
 
 
 def _installed(sh, user: str, home: str) -> bool:
@@ -129,17 +147,28 @@ def _older_than_installed(sh, user: str, home: str, ref: str) -> str | None:
     return cur if SEMVER.match(cur) and semver_newer(cur, ref) else None
 
 
-def _install(sh, user: str, home: str, url: str, ref: str, installed: bool) -> None:
+def _install(sh, user: str, home: str, url: str, ref: str, installed: bool,
+             expect: str | None = None) -> bool:
+    """False (nothing checked out) if the tag fetched for `user` is not the tag object the
+    operator's checkout verified (`expect`)."""
     install, sudo = f"{home}/.local/share/talaria", sudo_as(user, home)
     if not installed:
         sh.run(sudo + ["git", "clone", "-q", url, install], timeout=600)
     fetch = (["fetch", "-q", "origin", f"+refs/tags/{ref}:refs/tags/{ref}"] if SEMVER.match(ref)
              else ["fetch", "-q", "--tags", "origin"])
     sh.run(sudo + ["git", "-C", install, *fetch], timeout=600)
+    if expect:
+        got = sh.run(sudo + ["git", "-C", install, "rev-parse", f"refs/tags/{ref}"],
+                     check=False).stdout.strip()
+        if got != expect:
+            say("STOP", f"the {ref} tag fetched for {user} is not the one this checkout verified; "
+                        "nothing was checked out")
+            return False
     sh.run(sudo + ["git", "-C", install, "checkout", "-q", ref])
     sh.run(sudo + ["mkdir", "-p", f"{home}/.local/bin"])
     sh.run(sudo + ["ln", "-sfn", f"{install}/bin/talaria", f"{home}/.local/bin/talaria"])
     say("OK", f"Talaria {ref} installed for {user}")
+    return True
 
 
 def install_url(url: str) -> str | None:
@@ -228,6 +257,34 @@ def import_telegram(ctx, stream) -> int:
     return 0
 
 
+def _release(sh, args) -> tuple[str | None, str | None, int | None]:
+    """(ref, expected tag object, None) for this checkout, or (None, None, rc) after a STOP.
+    Runs before setup asks for anything as root: an untrusted checkout gets no paste."""
+    tag = sh.run(["git", "-C", str(REPO), "describe", "--tags", "--exact-match"], check=False)
+    if tag.returncode == 0:
+        ref = tag.stdout.strip()
+    elif args.dev:
+        ref = sh.run(["git", "-C", str(REPO), "rev-parse", "HEAD"]).stdout.strip()
+    else:
+        say("STOP", "this checkout is not at a release tag; check out the latest tag "
+                    "(or pass --dev)")
+        return None, None, 1
+    if args.dev:
+        say("NOTE", "--dev: release signatures are not checked")
+        return ref, None, None
+    try:
+        trust.check(sh, str(REPO), ref)
+    except trust.Untrusted as e:
+        say("STOP", "this checkout's tag is not signed by a trusted key")
+        say("NOTE", str(e))
+        keys = sh.run(["git", "-C", str(REPO), "show", "HEAD:keys/allowed_signers"], check=False)
+        for fp in trust.fingerprints(keys.stdout if keys.returncode == 0 else ""):
+            say("FOUND", f"trusted release key {fp}")
+        return None, None, 1
+    expect = sh.run(["git", "-C", str(REPO), "rev-parse", f"refs/tags/{ref}"]).stdout.strip()
+    return ref, expect, None
+
+
 def _talaria_account() -> Path | None:
     """The Talaria config that marks this login as the hub's account or an app's, if any."""
     p = Paths(Path.home())
@@ -266,38 +323,97 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
     if selinux_enforcing(sh):
         say("STOP", "SELinux is enforcing; Talaria v1 does not support that")
         return 1
+    ref, expect, rc = _release(sh, args)
+    if rc is not None:
+        return rc
+
     def lingers(name):
         return (Path(linger_dir) / name).exists()
+    flag = getattr(args, "operator_nopasswd", False)
+    # sudoers uses the last matching rule: a password rule written to talaria-<user> would
+    # override a blanket NOPASSWD (cloud default users, CI runners) and lock the operator out
+    elsewhere = not flag and sh.run(["sudo", "-k", "-n", "true"], check=False).returncode == 0
+    nopasswd = flag or elsewhere
+    if elsewhere and not args.plan:
+        say("NOTE", f"{operator} has passwordless sudo from elsewhere; Talaria's sudo rules "
+                    "stay passwordless")
+    asked = []                                    # `sudo -v` runs at most once per setup
+
+    def reach(name):
+        """Whether `sudo -n` works for `name`; on a terminal, `sudo -v` asks for the password
+        once (never without one: it would hang)."""
+        ok = _can_sudo(sh, name)
+        if not ok and not asked and _interactive():
+            asked.append(call(["sudo", "-v"]))
+            ok = _can_sudo(sh, name)
+        return ok
+
+    def needs_password(ok, name):
+        """STOP unless a root block can fix it: only no terminal, or a refused `sudo -v`,
+        means the person must run setup themselves."""
+        if ok or nopasswd or not lingers(name) or (_interactive() and asked and asked[0] == 0):
+            return None
+        if asked and asked[0] != 0 and _interactive():
+            say("NOTE", "sudo -v failed: check your password")
+        say("STOP", "setup needs your sudo password; run it in your own terminal")
+        return 1
+
+    notes = []
+
+    def note_if_passwordless(name):
+        if not nopasswd and _passwordless(sh, name):
+            notes.append(f"{operator} can act as {name} without a password; Talaria's default "
+                         "is now to ask for it. To tighten:\n"
+                         + root_block(_sudoers(_operator_rule(name, operator, False),
+                                               f"talaria-{name}")))
+
+    def plan_rules(*names):
+        for name in names:
+            how = ("passwordless (--operator-nopasswd)" if flag else
+                   "passwordless (operator has passwordless sudo)" if elsewhere
+                   else "password required")
+            say("PLAN", f"sudo rule for {operator} \u2192 {name}: {how}")
     pw = _pw(getpwnam, user)
     app_lines, installed = [], False  # pragma: no mutate  (a missing account always ends in the root paste before `installed` is read)
     if pw is None:
         if args.plan:
             say("PLAN", f"create the account {user}: setup prints a block to run as root")
             say("PLAN", f"then run setup again with --user {user} to install Talaria for it")
+            plan_rules(user, *([hub] if _pw(getpwnam, hub) is None else []))
             return 0
-        app_lines = account_lines(user, operator, create=True)
+        app_lines = account_lines(user, operator, create=True, nopasswd=nopasswd)
     else:
-        sudo_ok = _can_sudo(sh, user)
+        sudo_ok = reach(user)
+        if needs_password(sudo_ok, user):
+            return 1
         installed = sudo_ok and _installed(sh, user, pw.pw_dir)
         if not args.user and not installed:
             say("FOUND", f"account {user} exists but Talaria is not installed for it")
             say("STOP", f"confirm with the person, then re-run with --user {user}")
             return 1
         if not sudo_ok or not lingers(user):
-            app_lines = account_lines(user, operator, create=False)  # pragma: no mutate  (None == False)
+            keep = sudo_ok and not nopasswd and _passwordless(sh, user)   # never change a rule
+            app_lines = account_lines(user, operator, create=False, nopasswd=nopasswd or keep)  # pragma: no mutate  (None == False)
+        else:
+            note_if_passwordless(user)
     hub_pw = _pw(getpwnam, hub)
     hub_lines, hub_installed = [], False  # pragma: no mutate  (a missing hub always ends in the root paste before `hub_installed` is read)
     if hub_pw is None:
-        hub_lines = account_lines(hub, operator, create=True)
+        hub_lines = account_lines(hub, operator, create=True, nopasswd=nopasswd)
     else:
-        hub_ok = _can_sudo(sh, hub)
+        hub_ok = reach(hub)
+        if needs_password(hub_ok, hub):
+            return 1
         hub_installed = hub_ok and _installed(sh, hub, hub_pw.pw_dir)
         if not hub_ok or not lingers(hub):
-            hub_lines = account_lines(hub, operator, create=False)  # pragma: no mutate  (None == False)
+            keep = hub_ok and not nopasswd and _passwordless(sh, hub)
+            hub_lines = account_lines(hub, operator, create=False, nopasswd=nopasswd or keep)  # pragma: no mutate  (None == False)
+        else:
+            note_if_passwordless(hub)
     if hub_pw is None or not hub_installed:       # this run makes the hub: one bot per host
         for other in apps.NAMES:
             opw = _pw(getpwnam, other) if other != user else None
-            if opw and _can_sudo(sh, other) and sh.run(
+            if opw and reach(other) and sh.run(
                     ["sudo", "-n", "-u", other, "test", "-e",
                      f"{opw.pw_dir}/.config/systemd/user/talaria-telegram.service"],
                     check=False).returncode == 0:
@@ -309,20 +425,15 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         if args.plan:
             say("PLAN", f"accounts, linger and sudo rules for {hub} and {user}: setup prints "
                         "a block to run as root")
+            plan_rules(*([user] if app_lines else []), *([hub] if hub_lines else []))
             return 0
         again = f" with --user {user}" if pw is None else ""
         say("ACTION REQUIRED", f"{PASTE}{again}:\n"
             + root_block(hub_lines + app_lines + op_rule_lines(hub, user)))
         return 10
-    tag = sh.run(["git", "-C", str(REPO), "describe", "--tags", "--exact-match"], check=False)
-    if tag.returncode == 0:
-        ref = tag.stdout.strip()
-    elif args.dev:
-        ref = sh.run(["git", "-C", str(REPO), "rev-parse", "HEAD"]).stdout.strip()
-    else:
-        say("STOP", "this checkout is not at a release tag; check out the latest tag "
-                    "(or pass --dev)")
-        return 1
+    if not args.plan:
+        for text in notes:
+            say("NOTE", text)
     url = str(REPO) if args.dev else install_url(
         sh.run(["git", "-C", str(REPO), "remote", "get-url", "origin"],
                check=False).stdout.strip() or str(REPO))
@@ -348,8 +459,10 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
             say("STOP", f"the hub {hub} already runs Talaria {newer}; this checkout is {ref}. "
                         "Check out the newer tag and run setup again")
             return 1
-    _install(sh, user, home, url, ref, installed)
-    _install(sh, hub, hub_home, url, ref, hub_installed)
+    if not _install(sh, user, home, url, ref, installed, expect):
+        return 1
+    if not _install(sh, hub, hub_home, url, ref, hub_installed, expect):
+        return 1
     probe = sh.run(["sudo", "-n", "-u", hub, "sudo", "-n", "-H", "-u", user,
                     f"{home}/.local/bin/talaria", "op", "hello"], check=False)
     if probe.returncode != 0:
@@ -361,6 +474,8 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         return 1
     rest = (["--app", app] if explicit_app else []) + \
         (["--adopt", args.adopt] if args.adopt else [])
+    if asked:
+        sh.run(["sudo", "-n", "-v"], check=False)     # keep the cached password alive
     rc = call(sudo_as(user, home) + _bus(pw)
               + [f"{home}/.local/bin/talaria", "setup", "--as-service", *rest])
     if rc != 0:
@@ -369,6 +484,8 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
         rc = _migrate(sh, user, pw, hub, hub_pw, found, move or move_env)
         if rc != 0:
             return rc
+    if asked:
+        sh.run(["sudo", "-n", "-v"], check=False)
     rc = call(sudo_as(hub, hub_home) + _bus(hub_pw)
               + [f"{hub_home}/.local/bin/talaria", "setup", "--as-hub", "--register",
                  f"{app}:{user}"])

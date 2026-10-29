@@ -8,12 +8,13 @@ import pytest
 
 from talaria import setup, state
 from talaria.conf import parse_kv
-from tests.fakes import FakeShell, make_test_ctx
+from tests.fakes import FakeShell, Result, make_test_ctx
 
 
 def args(**kw):
     base = dict(plan=False, user=None, adopt=None, dev=False, app=None, as_service=False,
-                hub="talaria", as_hub=False, register=None, import_telegram=False)
+                hub="talaria", as_hub=False, register=None, import_telegram=False,
+                operator_nopasswd=False)
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -25,19 +26,34 @@ HUBPW = SimpleNamespace(pw_name="talaria", pw_uid=1002, pw_gid=1002, pw_dir="/ho
 def op_env(monkeypatch, tmp_path, *, user_exists=True, sudo_ok=True, linger=True,
            installed=False, tag="v0.1.0", hub_exists=True, hub_sudo_ok=True, hub_linger=True,
            hub_installed=True, probe_rc=0, probe_err="", v04_units=False, v04_token=False,
-           move_rc=0):
+           move_rc=0, passwordless=False, hub_passwordless=False, tty=False, v_rc=0,
+           elsewhere=False):
+    """`passwordless`: the operator's rule for the account has no password (`sudo -k -n`
+    works). `tty`: setup runs on a terminal. `v_rc`: result of `sudo -v`; a successful one
+    unlocks `sudo -n` for accounts that had `sudo_ok=False`."""
     monkeypatch.setattr(setup, "which", lambda t: f"/usr/bin/{t}")
+    monkeypatch.setattr(setup, "_interactive", lambda: tty)
     sh = FakeShell()
     sh.on("sudo")   # catch-all first: in FakeShell the most recently added rule wins
     sh.on("podman", "--version", out="podman version 4.9.3\n")
+    sh.on("git", "--version", out="git version 2.43.0\n")
     sh.on("getenforce", out="Permissive\n")
-    sh.on("sudo", "-n", "-u", "hermes", "true", rc=0 if sudo_ok else 1)
+    sh.unlocked = False
+    sh.on("sudo", "-k", "-n", "true", rc=0 if elsewhere else 1)    # the operator's own sudo
+    open_ = lambda ok: (lambda argv, _in: Result(0 if ok or sh.unlocked else 1, "", ""))
+    sh.on("sudo", "-n", "-u", "hermes", "true", fn=open_(sudo_ok))
+    sh.on("sudo", "-k", "-n", "-u", "hermes", "true", rc=0 if passwordless else 1)
+    sh.on("sudo", "-k", "-n", "-u", "talaria", "true", rc=0 if hub_passwordless else 1)
     sh.on("sudo", "-n", "-u", "hermes", "test", rc=0 if installed else 1)
-    sh.on("sudo", "-n", "-u", "talaria", "true", rc=0 if hub_sudo_ok else 1)
+    sh.on("sudo", "-n", "-u", "talaria", "true", fn=open_(hub_sudo_ok))
     sh.on("sudo", "-n", "-u", "talaria", "test", rc=0 if hub_installed else 1)
     sh.on("sudo", "-n", "-u", "talaria", "sudo", rc=probe_rc, err=probe_err)
     sh.on("git", "-C", str(setup.REPO), "describe", out=f"{tag}\n", rc=0 if tag else 128)
     sh.on("git", "-C", str(setup.REPO), "remote", out="https://github.com/o/talaria\n")
+    sh.on("git", "-C", str(setup.REPO), "rev-parse", f"refs/tags/{tag}", out="tagobj1\n")
+    for who, home in (("hermes", "/home/hermes"), ("talaria", "/home/talaria")):
+        sh.on(*setup.sudo_as(who, home), "git", "-C", f"{home}/.local/share/talaria", "rev-parse",
+              f"refs/tags/{tag}", out="tagobj1\n")
     s = setup.sudo_as("hermes", "/home/hermes")
     sh.on(*s, "test", "-e", "/home/hermes/.config/systemd/user/talaria-telegram.service",
           rc=0 if v04_units else 1)
@@ -61,6 +77,9 @@ def op_env(monkeypatch, tmp_path, *, user_exists=True, sudo_ok=True, linger=True
     def call(argv):
         calls.append(argv)
         sh.marks.append(("call", len(sh.calls)))
+        if argv == ["sudo", "-v"]:
+            sh.unlocked = v_rc == 0
+            return v_rc
         return 0
 
     def move(read, write):
@@ -100,7 +119,7 @@ def test_new_user_gets_one_root_block(monkeypatch, tmp_path, capsys):
     out = capsys.readouterr().out
     assert out.count("ACTION REQUIRED") == 1
     assert "id hermes >/dev/null 2>&1 || useradd --create-home --shell /bin/bash hermes" in out
-    assert "admin ALL=(hermes) NOPASSWD: ALL" in out and "loginctl enable-linger hermes" in out
+    assert "admin ALL=(hermes) ALL'" in out and "loginctl enable-linger hermes" in out
     assert 'talaria ALL=(hermes) NOPASSWD: $home/.local/bin/talaria op *' in out
 
 
@@ -112,10 +131,10 @@ def test_existing_user_needs_confirmation(monkeypatch, tmp_path, capsys):
 
 
 def test_existing_user_without_sudo_rule(monkeypatch, tmp_path, capsys):
-    sh, run, _ = op_env(monkeypatch, tmp_path, sudo_ok=False)
+    sh, run, _ = op_env(monkeypatch, tmp_path, sudo_ok=False, linger=False)
     assert run(args(user="hermes")) == 10
     out = capsys.readouterr().out
-    assert "useradd" not in out and "NOPASSWD" in out
+    assert "useradd" not in out and "admin ALL=(hermes) ALL'" in out
 
 
 def test_not_at_release_tag_stops_unless_dev(monkeypatch, tmp_path, capsys):
@@ -231,8 +250,14 @@ def test_clawvisor_default_account_name_and_plan_text(monkeypatch, tmp_path, cap
     sh = FakeShell()
     sh.on("sudo")
     sh.on("podman", "--version", out="podman version 4.9.3\n")
+    sh.on("git", "--version", out="git version 2.43.0\n")
     sh.on("getenforce", out="Permissive\n")
     sh.on("git", "-C", str(setup.REPO), "describe", out="v0.1.0\n")
+    sh.on("git", "-C", str(setup.REPO), "rev-parse", out="tagobj1\n")
+    sh.on("sudo", "-k", "-n", rc=1)
+    for who in ("clawvisor", "talaria"):
+        sh.on(*setup.sudo_as(who, PW.pw_dir), "git", "-C", f"{PW.pw_dir}/.local/share/talaria",
+              "rev-parse", "refs/tags/v0.1.0", out="tagobj1\n")
     sh.on("git", "-C", str(setup.REPO), "remote", out="https://github.com/o/talaria\n")
     sh.on(*setup.sudo_as("clawvisor", PW.pw_dir), "test", rc=1)
     sh.on(*setup.sudo_as("clawvisor", PW.pw_dir), "grep", rc=1)
@@ -252,8 +277,14 @@ def test_clawvisor_handoff_carries_the_app_flag(monkeypatch, tmp_path):
     sh = FakeShell()
     sh.on("sudo")
     sh.on("podman", "--version", out="podman version 4.9.3\n")
+    sh.on("git", "--version", out="git version 2.43.0\n")
     sh.on("getenforce", out="Permissive\n")
     sh.on("git", "-C", str(setup.REPO), "describe", out="v0.1.0\n")
+    sh.on("git", "-C", str(setup.REPO), "rev-parse", out="tagobj1\n")
+    sh.on("sudo", "-k", "-n", rc=1)
+    for who in ("clawvisor", "talaria"):
+        sh.on(*setup.sudo_as(who, PW.pw_dir), "git", "-C", f"{PW.pw_dir}/.local/share/talaria",
+              "rev-parse", "refs/tags/v0.1.0", out="tagobj1\n")
     sh.on("git", "-C", str(setup.REPO), "remote", out="https://github.com/o/talaria\n")
     sh.on(*setup.sudo_as("clawvisor", PW.pw_dir), "test", rc=1)
     sh.on(*setup.sudo_as("clawvisor", PW.pw_dir), "grep", rc=1)
@@ -591,7 +622,7 @@ def test_op_rule_paste_writes_the_real_home_and_no_glob(tmp_path):
 
 
 @pytest.mark.parametrize("kw,a", [(dict(user_exists=False), dict()),
-                                  (dict(sudo_ok=False), dict(user="hermes")),
+                                  (dict(sudo_ok=False, linger=False), dict(user="hermes")),
                                   (dict(hub_exists=False), dict(user="hermes"))])
 def test_e2e_extracts_exactly_what_setup_prints(monkeypatch, tmp_path, capsys, kw, a):
     from tests.e2e.conftest import root_block as extract
@@ -747,3 +778,355 @@ def test_install_at_a_branch_still_fetches_tags(monkeypatch, tmp_path):
     setup._install(sh, "hermes", "/home/hermes", "https://github.com/o/talaria", "main", True)
     fetch = [c for c in sh.calls if "fetch" in c]
     assert len(fetch) == 1 and fetch[0][-4:] == ["fetch", "-q", "--tags", "origin"]
+
+
+KEYLINE = ("85039+maxpfingsthorn@users.noreply.github.com namespaces=\"git\" "
+           "sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gAAAABHNzaDo=\n")
+
+
+def _refuse(*a, **k):
+    raise setup.trust.Untrusted("no good signature")
+
+
+def test_untrusted_tag_stops_names_the_keys_and_installs_nothing(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path)
+    sh.on("git", "-C", str(setup.REPO), "show", "HEAD:keys/allowed_signers", out=KEYLINE)
+    monkeypatch.setattr("talaria.trust.check", _refuse)
+    assert run(args(user="hermes")) == 1
+    out = capsys.readouterr().out
+    fp = setup.trust.fingerprints(KEYLINE)
+    assert len(fp) == 1
+    assert out == ("STOP: this checkout's tag is not signed by a trusted key\n"
+                   "NOTE: no good signature\n"
+                   f"FOUND: trusted release key {fp[0]}\n")
+    assert not [c for c in sh.calls if "clone" in c or "fetch" in c] and not calls
+
+
+def test_untrusted_tag_without_a_keys_file_lists_no_keys(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path)
+    sh.on("git", "-C", str(setup.REPO), "show", "HEAD:keys/allowed_signers", rc=128)
+    monkeypatch.setattr("talaria.trust.check", _refuse)
+    assert run(args(user="hermes")) == 1
+    assert capsys.readouterr().out == ("STOP: this checkout's tag is not signed by a trusted key\n"
+                                       "NOTE: no good signature\n")
+
+
+def test_plan_shows_the_untrusted_stop(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path)
+    sh.on("git", "-C", str(setup.REPO), "show", "HEAD:keys/allowed_signers", out="")
+    monkeypatch.setattr("talaria.trust.check", _refuse)
+    assert run(args(user="hermes", plan=True)) == 1
+    assert "STOP: this checkout's tag is not signed" in capsys.readouterr().out
+
+
+def test_trusted_tag_is_checked_in_the_operators_checkout(monkeypatch, tmp_path):
+    sh, run, _ = op_env(monkeypatch, tmp_path)
+    seen = []
+    monkeypatch.setattr("talaria.trust.check", lambda *a, **k: seen.append(a[1:]))
+    assert run(args(user="hermes")) == 0
+    assert seen == [(str(setup.REPO), "v0.1.0")]
+
+
+def test_dev_does_not_check_signatures(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, tag=None)
+    sh.on("git", "-C", str(setup.REPO), "rev-parse", out="abc123\n")
+    monkeypatch.setattr("talaria.trust.check", lambda *a, **k: pytest.fail("checked"))
+    assert run(args(user="hermes", dev=True)) == 0
+    assert "NOTE: --dev: release signatures are not checked\n" in capsys.readouterr().out
+    assert not [c for c in sh.calls if c[-2:-1] == ["rev-parse"] and "refs/tags" in c[-1]]
+
+
+def test_a_different_tag_object_in_the_account_stops_before_checkout(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path)
+    sh.on(*setup.sudo_as("hermes", "/home/hermes"), "git", "-C", "/home/hermes/.local/share/talaria",
+          "rev-parse", out="other\n")
+    assert run(args(user="hermes")) == 1
+    assert ("STOP: the v0.1.0 tag fetched for hermes is not the one this checkout verified; "
+            "nothing was checked out\n") in capsys.readouterr().out
+    assert not [c for c in sh.calls if "checkout" in c] and not calls
+
+
+def test_install_pins_the_tag_object_before_checkout():
+    sh = FakeShell()
+    sh.on("sudo")
+    sh.on(*setup.sudo_as("hermes", "/home/hermes"), "git", "-C", "/home/hermes/.local/share/talaria",
+          "rev-parse", out="abc\n")
+    assert setup._install(sh, "hermes", "/home/hermes", "https://x/y", "v1.0.0", True, "abc") is True
+    names = [c for c in sh.calls if "rev-parse" in c or "checkout" in c]
+    assert "rev-parse" in names[0] and "refs/tags/v1.0.0" in names[0] and "checkout" in names[1]
+    assert setup._install(sh, "hermes", "/home/hermes", "https://x/y", "v1.0.0", True, "zzz") is False
+
+
+def test_old_git_is_missing(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path)
+    sh.on("git", "--version", out="git version 2.30.0\n")
+    assert run(args()) == 10
+    assert capsys.readouterr().out == "MISSING: git >= 2.34 (found 2.30)\n"
+
+
+def test_missing_ssh_keygen_is_reported_with_hints(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(setup, "which", lambda t: None if t == "ssh-keygen" else f"/usr/bin/{t}")
+    assert run(args()) == 10
+    assert capsys.readouterr().out == (
+        "MISSING: ssh-keygen\n  hint: Debian/Ubuntu: apt install openssh-client"
+        " · Fedora/RHEL: dnf install openssh-clients · Arch: pacman -S openssh\n")
+
+
+NOTE_TEXT = ("NOTE: admin can act as {u} without a password; Talaria's default is now to ask "
+             "for it. To tighten:\n")
+
+
+def _rule_block(user, rule):
+    return setup.root_block(setup._sudoers(rule, f"talaria-{user}"))
+
+
+def test_fresh_rules_ask_for_a_password(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, user_exists=False, hub_exists=False)
+    assert run(args()) == 10
+    out = capsys.readouterr().out
+    assert "echo 'admin ALL=(hermes) ALL' >" in out and "echo 'admin ALL=(talaria) ALL' >" in out
+    assert "admin ALL=(hermes) NOPASSWD" not in out and "admin ALL=(talaria) NOPASSWD" not in out
+
+
+def test_operator_nopasswd_writes_the_passwordless_rules(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, user_exists=False, hub_exists=False)
+    assert run(args(operator_nopasswd=True)) == 10
+    out = capsys.readouterr().out
+    assert "echo 'admin ALL=(hermes) NOPASSWD: ALL' >" in out
+    assert "echo 'admin ALL=(talaria) NOPASSWD: ALL' >" in out
+
+
+def test_account_lines_rule_text():
+    assert "echo 'op ALL=(u) ALL' > \"$tmp\"" in setup.account_lines("u", "op", False)
+    assert "echo 'op ALL=(u) NOPASSWD: ALL' > \"$tmp\"" in setup.account_lines(
+        "u", "op", False, nopasswd=True)
+
+
+def test_existing_passwordless_rules_get_a_note_and_the_run_continues(monkeypatch, tmp_path,
+                                                                       capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, passwordless=True, hub_passwordless=True)
+    assert run(args(user="hermes")) == 0
+    out = capsys.readouterr().out
+    for u in ("hermes", "talaria"):
+        assert (NOTE_TEXT.format(u=u) + _rule_block(u, f"'admin ALL=({u}) ALL'") + "\n") in out
+    assert out.endswith("DONE\n") and "ACTION REQUIRED" not in out
+    assert [c for c in sh.calls if "checkout" in c]          # the install went ahead
+    assert not sh.called("sudo", "-v") and ["sudo", "-v"] not in calls
+
+
+def test_note_only_for_the_account_that_is_passwordless(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, hub_passwordless=True)
+    assert run(args(user="hermes")) == 0
+    out = capsys.readouterr().out
+    assert "admin can act as talaria without a password" in out
+    assert "admin can act as hermes" not in out
+
+
+def test_operator_nopasswd_keeps_passwordless_rules_quietly(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, passwordless=True, hub_passwordless=True)
+    assert run(args(user="hermes", operator_nopasswd=True)) == 0
+    assert "NOTE" not in capsys.readouterr().out
+    assert not sh.called("sudo", "-k")
+
+
+def test_no_terminal_and_no_cached_password_stops_without_sudo_v(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, sudo_ok=False, tty=False)
+    assert run(args(user="hermes")) == 1
+    assert capsys.readouterr().out == (
+        "STOP: setup needs your sudo password; run it in your own terminal\n")
+    assert ["sudo", "-v"] not in calls and not sh.called("sudo", "-v")
+
+
+def test_no_terminal_hub_without_cached_password_stops_too(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, hub_sudo_ok=False)
+    assert run(args(user="hermes")) == 1
+    assert "STOP: setup needs your sudo password" in capsys.readouterr().out
+    assert calls == []
+
+
+def test_a_terminal_runs_sudo_v_once_for_both_accounts(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, sudo_ok=False, hub_sudo_ok=False, tty=True)
+    assert run(args(user="hermes")) == 0
+    assert calls.count(["sudo", "-v"]) == 1
+    assert "STOP" not in capsys.readouterr().out
+
+
+def test_sudo_v_failing_on_a_terminal_stops_after_one_try(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, sudo_ok=False, hub_sudo_ok=False, tty=True,
+                            v_rc=1)
+    assert run(args(user="hermes")) == 1
+    assert capsys.readouterr().out == (
+        "NOTE: sudo -v failed: check your password\n"
+        "STOP: setup needs your sudo password; run it in your own terminal\n")
+    assert calls == [["sudo", "-v"]]
+
+
+def test_a_terminal_does_not_run_sudo_v_when_sudo_already_works(monkeypatch, tmp_path):
+    sh, run, calls = op_env(monkeypatch, tmp_path, tty=True)
+    assert run(args(user="hermes")) == 0
+    assert ["sudo", "-v"] not in calls
+
+
+def test_account_without_linger_still_gets_the_root_block(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, sudo_ok=False, linger=False)
+    assert run(args(user="hermes")) == 10
+    assert "ACTION REQUIRED" in capsys.readouterr().out and calls == []
+
+
+def test_plan_names_the_rule_each_new_account_gets(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, user_exists=False, hub_exists=False)
+    assert run(args(plan=True)) == 0
+    out = capsys.readouterr().out
+    assert out.endswith("PLAN: sudo rule for admin → hermes: password required\n"
+                        "PLAN: sudo rule for admin → talaria: password required\n")
+
+
+def test_plan_names_the_passwordless_opt_in(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, user_exists=False)
+    assert run(args(plan=True, operator_nopasswd=True)) == 0
+    out = capsys.readouterr().out
+    assert out.endswith("PLAN: sudo rule for admin → hermes: "
+                        "passwordless (--operator-nopasswd)\n")
+
+
+def test_plan_lists_only_accounts_that_get_a_new_rule(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, hub_exists=False)
+    assert run(args(user="hermes", plan=True)) == 0
+    out = capsys.readouterr().out
+    assert "sudo rule for admin → talaria: password required" in out
+    assert "→ hermes" not in out
+
+
+def test_untrusted_tag_stops_before_any_root_block_even_in_a_plan(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, user_exists=False, hub_exists=False)
+    sh.on("git", "-C", str(setup.REPO), "show", "HEAD:keys/allowed_signers", out="")
+    monkeypatch.setattr("talaria.trust.check", _refuse)
+    for plan in (True, False):
+        assert run(args(plan=plan)) == 1
+        out = capsys.readouterr().out
+        assert out == ("STOP: this checkout's tag is not signed by a trusted key\n"
+                       "NOTE: no good signature\n")
+    assert not [c for c in sh.calls if c[0] == "sudo"]
+
+
+def test_untrusted_tag_stops_before_the_sudo_stop_too(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, sudo_ok=False, tty=True)
+    sh.on("git", "-C", str(setup.REPO), "show", "HEAD:keys/allowed_signers", out="")
+    monkeypatch.setattr("talaria.trust.check", _refuse)
+    assert run(args(user="hermes")) == 1
+    assert "not signed by a trusted key" in capsys.readouterr().out and calls == []
+
+
+def test_a_passwordless_rule_without_linger_keeps_its_form(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, linger=False, passwordless=True)
+    assert run(args(user="hermes")) == 10
+    out = capsys.readouterr().out
+    assert "echo 'admin ALL=(hermes) NOPASSWD: ALL' >" in out
+    assert "admin ALL=(hermes) ALL'" not in out
+
+
+def test_a_passwordless_hub_rule_without_linger_keeps_its_form(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, hub_linger=False, hub_passwordless=True)
+    assert run(args(user="hermes")) == 10
+    out = capsys.readouterr().out
+    assert "echo 'admin ALL=(talaria) NOPASSWD: ALL' >" in out
+    assert "admin ALL=(talaria) ALL'" not in out
+
+
+def test_a_password_rule_without_linger_stays_a_password_rule(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, linger=False)
+    assert run(args(user="hermes")) == 10
+    assert "echo 'admin ALL=(hermes) ALL' >" in capsys.readouterr().out
+
+
+def test_unreachable_after_a_good_sudo_v_falls_through_to_the_root_block(monkeypatch, tmp_path,
+                                                                         capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, sudo_ok=False, tty=True)
+    sh.on("sudo", "-n", "-u", "hermes", "true", rc=1)       # still no rule after the password
+    assert run(args(user="hermes")) == 10
+    out = capsys.readouterr().out
+    assert "ACTION REQUIRED" in out and "STOP" not in out
+    assert calls == [["sudo", "-v"]]
+
+
+def test_refresh_ticket_before_each_handoff_after_sudo_v(monkeypatch, tmp_path):
+    sh, run, calls = op_env(monkeypatch, tmp_path, sudo_ok=False, hub_sudo_ok=False, tty=True)
+    assert run(args(user="hermes")) == 0
+    marks = dict(zip([m[0] + str(i) for i, m in enumerate(sh.marks)], sh.marks))
+    refresh = [i for i, c in enumerate(sh.calls) if c == ["sudo", "-n", "-v"]]
+    handoffs = [m[1] for m in sh.marks if m[0] == "call"][1:]       # first is sudo -v
+    assert len(refresh) == 2 and len(handoffs) == 2
+    assert all(r + 1 == h for r, h in zip(refresh, handoffs)) and marks
+
+
+def test_no_refresh_without_sudo_v(monkeypatch, tmp_path):
+    sh, run, calls = op_env(monkeypatch, tmp_path, tty=True)
+    assert run(args(user="hermes")) == 0
+    assert not sh.called("sudo", "-n", "-v")
+
+
+def test_other_app_bot_guard_fires_under_a_password_rule(monkeypatch, tmp_path, capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, hub_installed=False, tty=True)
+    cv = SimpleNamespace(pw_name="clawvisor", pw_uid=1003, pw_gid=1003, pw_dir="/home/clawvisor")
+    sh.on("sudo", "-n", "-u", "clawvisor", "true",
+          fn=lambda a, i: Result(0 if sh.unlocked else 1, "", ""))
+    sh.on("sudo", "-n", "-u", "clawvisor", "test", "-e",
+          "/home/clawvisor/.config/systemd/user/talaria-telegram.service")
+    getpw = lambda n: cv if n == "clawvisor" else {"hermes": PW, "talaria": HUBPW}[n]
+    ld = tmp_path / "linger"
+    rc = setup.operator_phase(sh, args(user="hermes"), getpwnam=getpw, operator="admin",
+                              call=lambda argv: (setattr(sh, "unlocked", True), calls.append(argv), 0)[2],
+                              linger_dir=ld)
+    assert rc == 1 and "clawvisor still runs its own Talaria bot" in capsys.readouterr().out
+    assert calls == [["sudo", "-v"]]
+
+
+def test_passwordless_sudo_from_elsewhere_keeps_fresh_rules_passwordless(monkeypatch, tmp_path,
+                                                                        capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, user_exists=False, hub_exists=False, elsewhere=True)
+    assert run(args()) == 10
+    out = capsys.readouterr().out
+    note = ("NOTE: admin has passwordless sudo from elsewhere; Talaria's sudo rules stay "
+            "passwordless\n")
+    assert out.startswith(note) and out.count("NOTE:") == 1
+    assert "echo 'admin ALL=(hermes) NOPASSWD: ALL' >" in out
+    assert "echo 'admin ALL=(talaria) NOPASSWD: ALL' >" in out
+
+
+def test_passwordless_sudo_from_elsewhere_gives_no_tighten_note(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, passwordless=True, hub_passwordless=True,
+                        elsewhere=True)
+    assert run(args(user="hermes")) == 0
+    out = capsys.readouterr().out
+    assert "To tighten" not in out and "can act as" not in out
+    assert out.count("NOTE:") == 1 and not sh.called("sudo", "-k", "-n", "-u")
+
+
+def test_the_operator_nopasswd_flag_skips_the_root_probe(monkeypatch, tmp_path):
+    sh, run, _ = op_env(monkeypatch, tmp_path, user_exists=False)
+    assert run(args(operator_nopasswd=True)) == 10
+    assert not sh.called("sudo", "-k", "-n", "true")
+
+
+def test_locked_out_lingering_account_is_repaired_by_operator_nopasswd(monkeypatch, tmp_path,
+                                                                      capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, sudo_ok=False)
+    assert run(args(user="hermes", operator_nopasswd=True)) == 10
+    out = capsys.readouterr().out
+    assert "STOP" not in out and "echo 'admin ALL=(hermes) NOPASSWD: ALL' >" in out
+
+
+def test_locked_out_account_is_repaired_when_sudo_is_passwordless_elsewhere(monkeypatch, tmp_path,
+                                                                           capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, sudo_ok=False, elsewhere=True)
+    assert run(args(user="hermes")) == 10
+    assert "echo 'admin ALL=(hermes) NOPASSWD: ALL' >" in capsys.readouterr().out
+
+
+def test_plan_line_when_the_operator_has_passwordless_sudo(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, user_exists=False, elsewhere=True)
+    assert run(args(plan=True)) == 0
+    out = capsys.readouterr().out
+    assert "PLAN: sudo rule for admin → hermes: passwordless (operator has passwordless sudo)\n" in out
+    assert "NOTE:" not in out

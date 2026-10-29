@@ -93,7 +93,7 @@ through a published host address (see [Clawvisor](docs/apps/clawvisor.md)).
 
 - Linux with systemd user units and linger (tested on Ubuntu 24.04).
 - Rootless podman ≥ 4.9 with Quadlet.
-- `git`, `python3` ≥ 3.10, GNU `tar`, `gzip`, `sudo`.
+- `git` ≥ 2.34, `ssh-keygen` (`openssh-client`), `python3` ≥ 3.10, GNU `tar`, `gzip`, `sudo`.
 - amd64 or arm64 (gbrain: amd64 only; it publishes no arm64 Linux build).
 - Hermes ≥ v2026.6.5 (existing installs older than that are refused).
 - SELinux in enforcing mode is not supported.
@@ -113,6 +113,18 @@ which runs the one Telegram bot and the daily check for every app on the host. B
 through one command you paste into your own terminal (sudo asks for your password). Clone
 over https as shown: setup installs Talaria for both accounts from your checkout's origin,
 and they have no SSH key.
+
+Setup installs only a release tag signed by one of the [release signing keys](#release-signing-keys):
+it checks your checkout's tag first and stops with `STOP: this checkout's tag is not signed by
+a trusted key` otherwise (`--dev` skips the check, for development). The sudo rules it
+adds for your login account ask for your password; `--operator-nopasswd` makes them
+passwordless. Rules that already exist are never changed: setup prints a `NOTE` with an
+optional root paste to tighten them. If your account has passwordless sudo from elsewhere (for example a blanket `NOPASSWD: ALL`
+on a cloud default user or a CI runner), setup notices (`sudo -k -n true` works) and keeps
+its rules passwordless too, because sudo uses the last matching rule and a password rule
+would lock that account out; it prints one NOTE and no tightening paste. Setup asks for the
+password once with `sudo -v`; without a terminal it stops with `STOP: setup needs your sudo
+password; run it in your own terminal`.
 
 `latest-release` reads the published stable GitHub Release, so a tag whose checks are
 still running is not selected. If the lookup fails, stop and retry; do not select a tag
@@ -215,6 +227,15 @@ half-changed data). As the service user (`sudo -u <user>` from another account):
 - [Design](docs/design.md): how the pieces fit, the update flow and its failure handling
 - [Changelog](CHANGELOG.md)
 
+### Release signing keys
+
+Release tags are signed with SSH keys; setup and self-update install a tag only if it is
+signed by one of these (also listed in `keys/allowed_signers`):
+
+- 1Password main (ed25519): `SHA256:ob49+O53abdllIuiNpG41DSh+LillBnxCp5+WQM4vBQ`
+- yubikey-1 (sk-ed25519): `SHA256:tbAvHjz+RsSsKDQqrUOQoA+VLfqvlFpuwjCbGOTwWQY`
+- yubikey-2 (sk-ed25519): `SHA256:o/yXZPCUepVc67iVKUK0Rg2St70Bc4FvL9rZg/c8h7Q`
+
 ## How it's built
 
 Talaria is written with AI coding assistants (Claude Code). The maintainer designs, reviews
@@ -244,15 +265,19 @@ uv run mutmut run && uv run mutmut export-cicd-stats && uv run python tests/muta
 
 CI runs the unit tests on every push and pull request. The end-to-end tests run on pull
 requests into `main`, on `main` itself, on release tags and on demand (Actions → ci → Run
-workflow). The contract test and mutation testing run weekly and on release; see
+workflow). The contract test and mutation testing run weekly and on the release pull request; see
 [`docs/mutation-report.md`](docs/mutation-report.md).
 
 How to contribute, and the rules that keep existing installs working, are in
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-Releases: a pull request from `develop` to `main`, which also needs `e2e`, then a `vX.Y.Z`
-tag on `main`, which runs CI, mutation testing and the contract test and publishes the
-GitHub release. Release tags cannot be moved or deleted.
+Releases: a pull request from `develop` to `main`, which runs every gate (unit tests, `e2e`,
+mutation testing, the contract test), then a `vX.Y.Z` tag on `main` signed by the maintainer
+on their own machine. The tag-push workflow checks the signature, the commit and the
+version, and publishes a source tarball with a build-provenance attestation; check it with
+`gh attestation verify talaria-vX.Y.Z.tar.gz --repo maxpfingsthorn/talaria`. That workflow
+catches mistakes, not a stolen credential: the signature checks in your installs are the
+defence. Release tags cannot be moved or deleted.
 
 Releases come at most once a week unless a fix is urgent. Each one has an entry in
 [`CHANGELOG.md`](CHANGELOG.md) written for the people running Talaria: what changes for

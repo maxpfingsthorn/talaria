@@ -32,6 +32,33 @@ update succeeds (the bot re-checks the app on each command, so it needs no resta
 afterwards). `/update vX.Y.Z` with the version the hub already runs is accepted while an app
 lags, and updates only the lagging apps; with none lagging it says so.
 
+### Refused updates
+
+From v0.8.0 on, an update installs a tag only if it is signed by a key in
+`keys/allowed_signers` of the install doing the check. A refusal changes nothing; the
+reason comes last, in parentheses:
+
+- app: `self-update refused: <tag> is not signed by a trusted key (<reason>)`;
+- hub: `Talaria <tag> was not installed: it is not signed by a trusted key (<reason>).
+  Nothing changed.`; the update offer then says `<App> would restart: unknown (not signed by
+  a trusted key)`.
+
+Do not update to that tag. A tag that is not signed, signed by another key, or one your
+install cannot fetch is refused; so is any install without `keys/allowed_signers`
+(`this install has no trusted release keys`). Check the release page and the fingerprints in
+the README; if the tag is genuine and signed by a key you trust, update by hand (re-clone
+and setup, below). v0.7.x installs have no check, so the update to v0.8.0 is trusted on
+GitHub alone.
+
+**Lost signing keys.** If every signing key is lost, installs refuse all future releases.
+Recovery is manual: clone the repository again, check out a tag you have verified yourself,
+and run `bin/talaria setup`: it checks that tag against the keys in the new checkout. Setup keeps your
+configuration, data and backups.
+
+**Key rotation.** Add the new key to `keys/allowed_signers` in a release signed by an
+existing key. Installs pick the new list up with that release, and trust it for the release
+after it.
+
 **v0.6.1.** The step from v0.6.0 to v0.6.1 is still run by v0.6.0's self-update code, so
 the new behaviour of a failed update (previous version restored, its setup re-run, only
 the wanted tag fetched) applies from the update after that. Self-update itself keeps

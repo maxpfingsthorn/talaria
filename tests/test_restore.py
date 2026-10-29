@@ -8,6 +8,15 @@ from talaria.shell import Shell
 from tests.fakes import make_test_ctx
 
 
+@pytest.fixture(autouse=True)
+def _scratch_cwd(tmp_path, monkeypatch):
+    """A mutant that drops a dir_fd or an absolute path makes restore touch the cwd: keep that
+    a scratch directory, never the mutation run's own working tree."""
+    cwd = tmp_path / "scratch-cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+
+
 def real_tar(ctx):
     ctx.sh.on("tar", fn=lambda argv, input: Shell().run(argv, check=False))
 

@@ -80,6 +80,25 @@ style question. A pull request that breaks one of them will be sent back.
   writes there must not follow symlinks (see `talaria/safefs.py` and the rehearsal copy in
   `talaria/rehearse.py`).
 
+## Releases
+
+Only the maintainer releases (at most once a week unless a fix is urgent).
+
+1. Add a `## vX.Y.Z (date)` entry to `CHANGELOG.md` for operators and bump `__version__`.
+2. Open a pull request `develop` → `main` and merge it with a merge commit when every gate is
+   green: unit tests, `e2e`, mutation testing (at least 85 %) and the contract test all run
+   on this pull request.
+3. On their own machine, the maintainer signs the tag with one of the keys in
+   `keys/allowed_signers`: `git tag -s vX.Y.Z origin/main -m "Talaria vX.Y.Z"`, and pushes it.
+4. The tag-push workflow runs `tools/verify-release-tag` (signature against the tagged
+   commit's `keys/allowed_signers`, commit on `main`, version equals tag) and publishes a
+   `git archive` tarball with a build-provenance attestation. It catches operator mistakes,
+   not a stolen credential; the signature checks in the installs are the defence.
+5. Replace the generated release notes with the changelog entry.
+
+Adding or removing a signing key goes in a release signed by a key the installs already
+trust. Tags cannot be moved or deleted.
+
 ## Licence
 
 By contributing, you agree that your contribution is licensed under the
