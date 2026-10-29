@@ -5,27 +5,29 @@
 set -euo pipefail
 
 tag="${1:?usage: verify-release-tag <tag>}"
+ref="refs/tags/$tag"
 
 refuse() {
     echo "release refused: $1" >&2
     exit 1
 }
 
-[ "$(git cat-file -t "refs/tags/$tag" 2>/dev/null || true)" = "tag" ] \
+[ "$(git cat-file -t "$ref" 2>/dev/null || true)" = "tag" ] \
     || refuse "$tag is not an annotated, signed tag"
 
 signers="$(mktemp)"
 trap 'rm -f "$signers"' EXIT
-git show "$tag^{commit}:keys/allowed_signers" >"$signers" 2>/dev/null \
+git show "$ref^{commit}:keys/allowed_signers" >"$signers" 2>/dev/null \
     || refuse "$tag has no keys/allowed_signers"
 git -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen -c "gpg.ssh.allowedSignersFile=$signers" \
-    verify-tag "$tag" >/dev/null 2>&1 \
+    verify-tag "$ref" >/dev/null 2>&1 \
     || refuse "$tag is not signed by a key in its keys/allowed_signers"
 
-git merge-base --is-ancestor "$tag^{commit}" origin/main \
+git merge-base --is-ancestor "$ref^{commit}" origin/main \
     || refuse "$tag is not on origin/main"
 
-version="$(git show "$tag^{commit}:talaria/__init__.py" 2>/dev/null \
-    | sed -n 's/^__version__ = "\(.*\)"$/\1/p')"
+src="$(git show "$ref^{commit}:talaria/__init__.py" 2>/dev/null)" \
+    || refuse "$tag has no talaria/__init__.py"
+version="$(printf '%s\n' "$src" | sed -n 's/^__version__ = "\(.*\)"$/\1/p')"
 [ "$version" = "${tag#v}" ] \
     || refuse "$tag does not match the version in the tagged commit (${version:-none})"

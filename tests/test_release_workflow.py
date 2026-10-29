@@ -64,10 +64,10 @@ def verify(repo, tag):
     return subprocess.run(["bash", str(SCRIPT), tag], cwd=repo, capture_output=True, text=True)
 
 
-def refused(repo, tag):
+def refused(repo, tag, reason):
     p = verify(repo, tag)
     assert p.returncode == 1, p.stdout + p.stderr
-    assert "release refused" in p.stdout + p.stderr
+    assert f"release refused: {reason}" in p.stderr, p.stderr
 
 
 @pytest.mark.real_trust
@@ -80,25 +80,40 @@ class TestVerifyReleaseTag:
 
     def test_unsigned_annotated_tag_is_refused(self, repo):
         run(*GIT, "tag", "-a", "v1.2.3", "-m", "x", cwd=repo)
-        refused(repo, "v1.2.3")
+        refused(repo, "v1.2.3", "v1.2.3 is not signed by a key in its keys/allowed_signers")
 
     def test_lightweight_tag_is_refused(self, repo):
         run(*GIT, "tag", "v1.2.3", cwd=repo)
-        refused(repo, "v1.2.3")
+        refused(repo, "v1.2.3", "v1.2.3 is not an annotated, signed tag")
 
     def test_unlisted_key_is_refused(self, repo, tmp_path):
         keygen(tmp_path / "other")
         sign(repo, tmp_path / "other", "v1.2.3")
-        refused(repo, "v1.2.3")
+        refused(repo, "v1.2.3", "v1.2.3 is not signed by a key in its keys/allowed_signers")
 
     def test_tag_not_on_main_is_refused(self, repo, tmp_path):
         run(*GIT, "commit", "-q", "--allow-empty", "-m", "unmerged", cwd=repo)
         sign(repo, tmp_path / "k1", "v1.2.3")
-        refused(repo, "v1.2.3")
+        refused(repo, "v1.2.3", "v1.2.3 is not on origin/main")
 
     def test_version_mismatch_is_refused(self, repo, tmp_path):
         sign(repo, tmp_path / "k1", "v1.2.4")
-        refused(repo, "v1.2.4")
+        refused(repo, "v1.2.4",
+                "v1.2.4 does not match the version in the tagged commit (1.2.3)")
+
+    def test_commit_without_signers_file_is_refused(self, repo, tmp_path):
+        run(*GIT, "rm", "-q", "-r", "keys", cwd=repo)
+        run(*GIT, "commit", "-q", "-m", "no keys", cwd=repo)
+        sign(repo, tmp_path / "k1", "v1.2.3")
+        refused(repo, "v1.2.3", "v1.2.3 has no keys/allowed_signers")
+
+    def test_commit_without_version_file_is_refused(self, repo, tmp_path):
+        run(*GIT, "rm", "-q", "-r", "talaria", cwd=repo)
+        run(*GIT, "commit", "-q", "-m", "no version", cwd=repo)
+        run(*GIT, "push", "-q", "origin", "HEAD:refs/heads/main", cwd=repo)
+        run(*GIT, "fetch", "-q", "origin", "main", cwd=repo)
+        sign(repo, tmp_path / "k1", "v1.2.3")
+        refused(repo, "v1.2.3", "v1.2.3 has no talaria/__init__.py")
 
     def test_version_is_read_from_the_tagged_commit(self, repo, tmp_path):
         sign(repo, tmp_path / "k1", "v1.2.3")
@@ -124,7 +139,11 @@ def test_release_publish_needs_verify_and_has_provenance_permissions():
     assert not {"ci", "mutation", "contract"} & set(jobs)
 
 
+GATE_IF = ("github.event_name == 'workflow_dispatch' || "
+           "(github.event_name == 'pull_request' && github.base_ref == 'main')")
+
+
 def test_ci_gates_run_on_the_release_pr():
     jobs = load("ci.yml")["jobs"]
     for name in ("mutation", "contract"):
-        assert "base_ref == 'main'" in jobs[name]["if"]
+        assert " ".join(jobs[name]["if"].split()) == GATE_IF
