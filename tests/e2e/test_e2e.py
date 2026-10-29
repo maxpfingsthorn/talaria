@@ -37,7 +37,7 @@ def cfg_version(user=USER):
 
 
 def test_01_fresh_setup_creates_the_hub(env):
-    r = sh(env["src"] / "bin/talaria", "setup", "--dev", check=False)
+    r = sh(env["src"] / "bin/talaria", "setup", "--dev", "--operator-nopasswd", check=False)
     assert r.returncode == 10 and "then run setup again with --user hermes" in r.stdout, r.stdout
     assert "talaria ALL=(hermes) NOPASSWD: $home/.local/bin/talaria op *" in r.stdout
     sh("bash", "-c", root_block(r.stdout))
@@ -161,7 +161,8 @@ def test_09_adopt_existing_install_under_its_own_hub(env):
     as_user("systemctl", "--user", "start", "old-hermes.service", user=user)
     wait_for(lambda: hermes_active_unit(user, "old-hermes.service"))
     seed_conf(user)
-    setup = [env["src"] / "bin/talaria", "setup", "--dev", "--user", user, "--hub", hub]
+    setup = [env["src"] / "bin/talaria", "setup", "--dev", "--operator-nopasswd", "--user", user,
+             "--hub", hub]
     r = sh(*setup, check=False)                 # creates the hub account (root paste)
     assert r.returncode == 10 and "useradd --create-home --shell /bin/bash hubadopt" in r.stdout
     sh("bash", "-c", root_block(r.stdout))

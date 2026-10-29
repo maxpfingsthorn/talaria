@@ -195,7 +195,10 @@ class AppEnv:
         until it exits 0 with output ending in DONE. Returns all output."""
         out = ""
         argv = [str(self.src / "bin/talaria"), "setup", "--dev", "--app", self.app,
-                "--user", self.user, *(["--hub", self.hub] if self.hub else []), *extra]
+                "--user", self.user, *(["--hub", self.hub] if self.hub else []),
+                # CI runners have no password: keep their sudo passwordless. The v0.4 code
+                # (hub=None) predates the flag and already writes NOPASSWD rules.
+                *(["--operator-nopasswd"] if self.hub else []), *extra]
         while True:
             p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                  text=True)
@@ -232,7 +235,7 @@ def cv_env(_base_env):
     the real upstream releases (no registry or dummy image, unlike Hermes's `env`)."""
     user = "cvtest"
     r = sh(_base_env["src"] / "bin/talaria", "setup", "--dev", "--app", "clawvisor",
-           "--user", user, check=False)
+           "--user", user, "--operator-nopasswd", check=False)
     assert r.returncode == 10, r.stdout
     sh("bash", "-c", root_block(r.stdout))
     wait_for(lambda: bus_ready(user))
@@ -251,7 +254,7 @@ def gb_env(_base_env):
     rel.publish("0.60.1.0", 1)
     user = "gbtest"
     r = sh(_base_env["src"] / "bin/talaria", "setup", "--dev", "--app", "gbrain",
-           "--user", user, check=False)
+           "--user", user, "--operator-nopasswd", check=False)
     assert r.returncode == 10, r.stdout
     sh("bash", "-c", root_block(r.stdout))
     wait_for(lambda: bus_ready(user))
