@@ -15,10 +15,10 @@ def dir_size(path) -> int:
     stack = [str(path)]
     while stack:
         try:
-            with os.scandir(stack.pop()) as it:
+            with os.scandir(stack.pop()) as it:  # pragma: no mutate  (scandir(None) walks the cwd forever)
                 for e in it:
                     if e.is_dir(follow_symlinks=False):
-                        stack.append(e.path)
+                        stack.append(e.path)  # pragma: no mutate  (append(None) walks the cwd forever)
                     elif e.is_file(follow_symlinks=False):
                         total += e.stat(follow_symlinks=False).st_size
         except (FileNotFoundError, PermissionError):
