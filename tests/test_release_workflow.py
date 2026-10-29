@@ -147,3 +147,11 @@ def test_ci_gates_run_on_the_release_pr():
     jobs = load("ci.yml")["jobs"]
     for name in ("mutation", "contract"):
         assert " ".join(jobs[name]["if"].split()) == GATE_IF
+
+
+def test_release_verify_fetches_the_tag_object_first():
+    steps = load("release.yml")["jobs"]["verify"]["steps"]
+    runs = [st.get("run", "") for st in steps]
+    fetch = next(i for i, r in enumerate(runs) if "refs/tags/$TAG" in r and "fetch --force" in r)
+    verify = next(i for i, r in enumerate(runs) if "verify-release-tag" in r)
+    assert fetch < verify and steps[fetch]["env"]["TAG"] == "${{ github.ref_name }}"

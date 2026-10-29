@@ -26,7 +26,8 @@ HUBPW = SimpleNamespace(pw_name="talaria", pw_uid=1002, pw_gid=1002, pw_dir="/ho
 def op_env(monkeypatch, tmp_path, *, user_exists=True, sudo_ok=True, linger=True,
            installed=False, tag="v0.1.0", hub_exists=True, hub_sudo_ok=True, hub_linger=True,
            hub_installed=True, probe_rc=0, probe_err="", v04_units=False, v04_token=False,
-           move_rc=0, passwordless=False, hub_passwordless=False, tty=False, v_rc=0):
+           move_rc=0, passwordless=False, hub_passwordless=False, tty=False, v_rc=0,
+           elsewhere=False):
     """`passwordless`: the operator's rule for the account has no password (`sudo -k -n`
     works). `tty`: setup runs on a terminal. `v_rc`: result of `sudo -v`; a successful one
     unlocks `sudo -n` for accounts that had `sudo_ok=False`."""
@@ -38,6 +39,7 @@ def op_env(monkeypatch, tmp_path, *, user_exists=True, sudo_ok=True, linger=True
     sh.on("git", "--version", out="git version 2.43.0\n")
     sh.on("getenforce", out="Permissive\n")
     sh.unlocked = False
+    sh.on("sudo", "-k", "-n", "true", rc=0 if elsewhere else 1)    # the operator's own sudo
     open_ = lambda ok: (lambda argv, _in: Result(0 if ok or sh.unlocked else 1, "", ""))
     sh.on("sudo", "-n", "-u", "hermes", "true", fn=open_(sudo_ok))
     sh.on("sudo", "-k", "-n", "-u", "hermes", "true", rc=0 if passwordless else 1)
@@ -795,6 +797,7 @@ def test_untrusted_tag_stops_names_the_keys_and_installs_nothing(monkeypatch, tm
     fp = setup.trust.fingerprints(KEYLINE)
     assert len(fp) == 1
     assert out == ("STOP: this checkout's tag is not signed by a trusted key\n"
+                   "NOTE: no good signature\n"
                    f"FOUND: trusted release key {fp[0]}\n")
     assert not [c for c in sh.calls if "clone" in c or "fetch" in c] and not calls
 
@@ -804,7 +807,8 @@ def test_untrusted_tag_without_a_keys_file_lists_no_keys(monkeypatch, tmp_path, 
     sh.on("git", "-C", str(setup.REPO), "show", "HEAD:keys/allowed_signers", rc=128)
     monkeypatch.setattr("talaria.trust.check", _refuse)
     assert run(args(user="hermes")) == 1
-    assert capsys.readouterr().out == "STOP: this checkout's tag is not signed by a trusted key\n"
+    assert capsys.readouterr().out == ("STOP: this checkout's tag is not signed by a trusted key\n"
+                                       "NOTE: no good signature\n")
 
 
 def test_plan_shows_the_untrusted_stop(monkeypatch, tmp_path, capsys):
@@ -953,6 +957,7 @@ def test_sudo_v_failing_on_a_terminal_stops_after_one_try(monkeypatch, tmp_path,
                             v_rc=1)
     assert run(args(user="hermes")) == 1
     assert capsys.readouterr().out == (
+        "NOTE: sudo -v failed: check your password\n"
         "STOP: setup needs your sudo password; run it in your own terminal\n")
     assert calls == [["sudo", "-v"]]
 
@@ -1000,7 +1005,8 @@ def test_untrusted_tag_stops_before_any_root_block_even_in_a_plan(monkeypatch, t
     for plan in (True, False):
         assert run(args(plan=plan)) == 1
         out = capsys.readouterr().out
-        assert out == "STOP: this checkout's tag is not signed by a trusted key\n"
+        assert out == ("STOP: this checkout's tag is not signed by a trusted key\n"
+                       "NOTE: no good signature\n")
     assert not [c for c in sh.calls if c[0] == "sudo"]
 
 
@@ -1074,3 +1080,53 @@ def test_other_app_bot_guard_fires_under_a_password_rule(monkeypatch, tmp_path, 
                               linger_dir=ld)
     assert rc == 1 and "clawvisor still runs its own Talaria bot" in capsys.readouterr().out
     assert calls == [["sudo", "-v"]]
+
+
+def test_passwordless_sudo_from_elsewhere_keeps_fresh_rules_passwordless(monkeypatch, tmp_path,
+                                                                        capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, user_exists=False, hub_exists=False, elsewhere=True)
+    assert run(args()) == 10
+    out = capsys.readouterr().out
+    note = ("NOTE: admin has passwordless sudo from elsewhere; Talaria's sudo rules stay "
+            "passwordless\n")
+    assert out.startswith(note) and out.count("NOTE:") == 1
+    assert "echo 'admin ALL=(hermes) NOPASSWD: ALL' >" in out
+    assert "echo 'admin ALL=(talaria) NOPASSWD: ALL' >" in out
+
+
+def test_passwordless_sudo_from_elsewhere_gives_no_tighten_note(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, passwordless=True, hub_passwordless=True,
+                        elsewhere=True)
+    assert run(args(user="hermes")) == 0
+    out = capsys.readouterr().out
+    assert "To tighten" not in out and "can act as" not in out
+    assert out.count("NOTE:") == 1 and not sh.called("sudo", "-k", "-n", "-u")
+
+
+def test_the_operator_nopasswd_flag_skips_the_root_probe(monkeypatch, tmp_path):
+    sh, run, _ = op_env(monkeypatch, tmp_path, user_exists=False)
+    assert run(args(operator_nopasswd=True)) == 10
+    assert not sh.called("sudo", "-k", "-n", "true")
+
+
+def test_locked_out_lingering_account_is_repaired_by_operator_nopasswd(monkeypatch, tmp_path,
+                                                                      capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, sudo_ok=False)
+    assert run(args(user="hermes", operator_nopasswd=True)) == 10
+    out = capsys.readouterr().out
+    assert "STOP" not in out and "echo 'admin ALL=(hermes) NOPASSWD: ALL' >" in out
+
+
+def test_locked_out_account_is_repaired_when_sudo_is_passwordless_elsewhere(monkeypatch, tmp_path,
+                                                                           capsys):
+    sh, run, calls = op_env(monkeypatch, tmp_path, sudo_ok=False, elsewhere=True)
+    assert run(args(user="hermes")) == 10
+    assert "echo 'admin ALL=(hermes) NOPASSWD: ALL' >" in capsys.readouterr().out
+
+
+def test_plan_line_when_the_operator_has_passwordless_sudo(monkeypatch, tmp_path, capsys):
+    sh, run, _ = op_env(monkeypatch, tmp_path, user_exists=False, elsewhere=True)
+    assert run(args(plan=True)) == 0
+    out = capsys.readouterr().out
+    assert "PLAN: sudo rule for admin → hermes: passwordless (operator has passwordless sudo)\n" in out
+    assert "NOTE:" not in out

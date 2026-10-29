@@ -21,8 +21,9 @@ What changes for you in each release. Update from the bot ("Update Talaria" or
 - **Your sudo rule asks for a password.** New rules for your login account no longer
   skip the password. Pass `--operator-nopasswd` to keep the old behaviour. Existing rules
   are never changed: setup prints a `NOTE` with a root paste that tightens them (optional).
-  If you have passwordless sudo from somewhere else (a blanket `NOPASSWD: ALL`), the NOTE
-  appears on every run and the paste does not remove that access. Setup asks for the
+  If you have passwordless sudo from somewhere else (a blanket `NOPASSWD: ALL`), setup
+  notices, keeps its rules passwordless (a password rule would override that and lock you
+  out), and prints one NOTE and no tightening paste. Setup asks for the
   password once (`sudo -v`) when it has a terminal, and stops with `STOP: setup needs your
   sudo password; run it in your own terminal` when it has none.
 

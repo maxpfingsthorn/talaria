@@ -24,6 +24,7 @@ CHECKS = CHECKS_BASE + [(["sudo", "-k", "-n", "-u", "hermes", "true"], None)]
 HUB_CHECKS = HUB_CHECKS_BASE + [(["sudo", "-k", "-n", "-u", "talaria", "true"], None)]
 TAG = [(["git", "-C", R, "describe", "--tags", "--exact-match"], None),
        (["git", "-C", R, "rev-parse", "refs/tags/v0.1.0"], None)]
+ROOT = [(['sudo', '-k', '-n', 'true'], None)]    # does the operator already have passwordless sudo?
 ORIGIN = [(["git", "-C", R, "remote", "get-url", "origin"], None)]
 
 
@@ -106,63 +107,63 @@ STOP_BOT = [(SUDO + BUS + ["systemctl", "--user", "disable", "--now", "talaria-t
 DROP_TOKEN = [(SUDO + ["sed", "-i", "-E", "/^TALARIA_TELEGRAM_(TOKEN|USER_ID)=/d", ENV], None)]
 MOVE = (SUDO + ["grep", "-E", "^TALARIA_TELEGRAM_(TOKEN|USER_ID)=", ENV],
         HSUDO + ["/home/talaria/.local/bin/talaria", "setup", "--as-hub", "--import-telegram"])
-BEFORE_HANDOFF = PRE + TAG + CHECKS + HUB_CHECKS + ORIGIN + MIGCHK + HUB_DESC + UPDATE + HUB_UPDATE + PROBE
+BEFORE_HANDOFF = PRE + TAG + ROOT + CHECKS + HUB_CHECKS + ORIGIN + MIGCHK + HUB_DESC + UPDATE + HUB_UPDATE + PROBE
 
 
 CASES = {
     "install": (dict(), dict(user="hermes", adopt="hermes-gateway.service"), 0,
                 INSTALLED + "DONE\n",
-                PRE + TAG + CHECKS + HUB_CHECKS + ORIGIN + MIGCHK + HUB_DESC + CLONE + UPDATE + HUB_UPDATE + PROBE,
+                PRE + TAG + ROOT + CHECKS + HUB_CHECKS + ORIGIN + MIGCHK + HUB_DESC + CLONE + UPDATE + HUB_UPDATE + PROBE,
                 [HANDOFF + ["--adopt", "hermes-gateway.service"], HUB_HANDOFF]),
     "installed": (dict(installed=True), dict(), 0, INSTALLED + "DONE\n",
-                  PRE + TAG + CHECKS + HUB_CHECKS + ORIGIN + MIGCHK + HUB_DESC + UPDATE + HUB_UPDATE + PROBE,
+                  PRE + TAG + ROOT + CHECKS + HUB_CHECKS + ORIGIN + MIGCHK + HUB_DESC + UPDATE + HUB_UPDATE + PROBE,
                   [HANDOFF, HUB_HANDOFF]),
     "hubfresh": (dict(installed=True, hub_installed=False), dict(), 0, INSTALLED + "DONE\n",
-                 PRE + TAG + CHECKS + HUB_CHECKS + ORIGIN + MIGCHK + UPDATE + HUB_CLONE + HUB_UPDATE
+                 PRE + TAG + ROOT + CHECKS + HUB_CHECKS + ORIGIN + MIGCHK + UPDATE + HUB_CLONE + HUB_UPDATE
                  + PROBE, [HANDOFF, HUB_HANDOFF]),
     "newuser": (dict(user_exists=False), dict(), 10,
                 ASK + " with --user hermes:\n" + root_cmd(acct("hermes", True) + OPRULE),
-                PRE + TAG + HUB_CHECKS, []),
+                PRE + TAG + ROOT + HUB_CHECKS, []),
     "newhost": (dict(user_exists=False, hub_exists=False), dict(), 10,
                 ASK + " with --user hermes:\n"
-                + root_cmd(acct("talaria", True) + acct("hermes", True) + OPRULE), PRE + TAG, []),
+                + root_cmd(acct("talaria", True) + acct("hermes", True) + OPRULE), PRE + TAG + ROOT, []),
     "nohub": (dict(hub_exists=False), dict(user="hermes"), 10,
-              ASK + ":\n" + root_cmd(acct("talaria", True) + OPRULE), PRE + TAG + CHECKS, []),
+              ASK + ":\n" + root_cmd(acct("talaria", True) + OPRULE), PRE + TAG + ROOT + CHECKS, []),
     "hubnolinger": (dict(hub_linger=False), dict(user="hermes"), 10,
                     ASK + ":\n" + root_cmd(acct("talaria", False) + OPRULE),
-                    PRE + TAG + CHECKS + HUB_CHECKS, []),
+                    PRE + TAG + ROOT + CHECKS + HUB_CHECKS, []),
     "hubnosudo": (dict(hub_sudo_ok=False, hub_linger=False), dict(user="hermes"), 10,
                   ASK + ":\n" + root_cmd(acct("talaria", False) + OPRULE),
-                  PRE + TAG + CHECKS + HUB_CHECKS_BASE[:1], []),
+                  PRE + TAG + ROOT + CHECKS + HUB_CHECKS_BASE[:1], []),
     "hubneedspw": (dict(hub_sudo_ok=False), dict(user="hermes"), 1, NEEDPW,
-                   PRE + TAG + CHECKS + HUB_CHECKS_BASE[:1], []),
+                   PRE + TAG + ROOT + CHECKS + HUB_CHECKS_BASE[:1], []),
     "confirm": (dict(), dict(), 1,
                 "FOUND: account hermes exists but Talaria is not installed for it\n"
                 "STOP: confirm with the person, then re-run with --user hermes\n",
-                PRE + TAG + CHECKS_BASE, []),
+                PRE + TAG + ROOT + CHECKS_BASE, []),
     "sudo": (dict(sudo_ok=False, linger=False), dict(user="hermes"), 10,
              ASK + ":\n" + root_cmd(acct("hermes", False) + OPRULE),
-             PRE + TAG + CHECKS_BASE[:1] + HUB_CHECKS, []),
+             PRE + TAG + ROOT + CHECKS_BASE[:1] + HUB_CHECKS, []),
     "needspw": (dict(sudo_ok=False), dict(user="hermes"), 1, NEEDPW,
-                PRE + TAG + CHECKS_BASE[:1], []),
+                PRE + TAG + ROOT + CHECKS_BASE[:1], []),
     "nolinger": (dict(linger=False), dict(user="hermes"), 10,
                  ASK + ":\n" + root_cmd(acct("hermes", False) + OPRULE),
-                 PRE + TAG + CHECKS + HUB_CHECKS, []),
+                 PRE + TAG + ROOT + CHECKS + HUB_CHECKS, []),
     "norule": (dict(probe_rc=1, probe_err="sudo: a password is required\n"), dict(user="hermes"),
                10, INSTALLED + ASK + ":\n" + root_cmd(OPRULE),
-               PRE + TAG + CHECKS + HUB_CHECKS + ORIGIN + MIGCHK + HUB_DESC + CLONE + UPDATE + HUB_UPDATE + PROBE, []),
+               PRE + TAG + ROOT + CHECKS + HUB_CHECKS + ORIGIN + MIGCHK + HUB_DESC + CLONE + UPDATE + HUB_UPDATE + PROBE, []),
     "plan": (dict(), dict(user="hermes", plan=True), 0,
              "PLAN: install Talaria v0.1.0 for hermes from https://github.com/o/talaria\n"
              "PLAN: then: detect Hermes (fresh or adopt), dashboard password, units, start "
              "Hermes, verify\n"
              "PLAN: then: install the same Talaria for the hub talaria and register hermes with "
              "it (Telegram bot token and pairing, once per host)\n",
-             PRE + TAG + CHECKS + HUB_CHECKS + ORIGIN + MIGCHK, []),
+             PRE + TAG + ROOT + CHECKS + HUB_CHECKS + ORIGIN + MIGCHK, []),
     "planroot": (dict(hub_exists=False), dict(user="hermes", plan=True), 0,
                  "PLAN: accounts, linger and sudo rules for talaria and hermes: setup prints a "
                  "block to run as root\n"
                  "PLAN: sudo rule for admin \u2192 talaria: password required\n",
-                 PRE + TAG + CHECKS, []),
+                 PRE + TAG + ROOT + CHECKS, []),
     "notag": (dict(tag=None), dict(user="hermes"), 1,
               "STOP: this checkout is not at a release tag; check out the latest tag "
               "(or pass --dev)\n", PRE + TAG[:1], []),

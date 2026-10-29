@@ -18,6 +18,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - run: git fetch origin main
+      - run: git fetch --force origin "+refs/tags/$TAG:refs/tags/$TAG"
+        env:
+          TAG: ${{ github.ref_name }}
       - run: bash tools/verify-release-tag "$TAG"
         env:
           TAG: ${{ github.ref_name }}

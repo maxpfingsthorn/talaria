@@ -119,9 +119,10 @@ it checks your checkout's tag first and stops with `STOP: this checkout's tag is
 a trusted key` otherwise (`--dev` skips the check, for development). The sudo rules it
 adds for your login account ask for your password; `--operator-nopasswd` makes them
 passwordless. Rules that already exist are never changed: setup prints a `NOTE` with an
-optional root paste to tighten them. If your account has passwordless sudo from elsewhere
-(for example a blanket `NOPASSWD: ALL` on a cloud default user or a CI runner), the NOTE
-appears on every run and the paste does not remove that access. Setup asks for the
+optional root paste to tighten them. If your account has passwordless sudo from elsewhere (for example a blanket `NOPASSWD: ALL`
+on a cloud default user or a CI runner), setup notices (`sudo -k -n true` works) and keeps
+its rules passwordless too, because sudo uses the last matching rule and a password rule
+would lock that account out; it prints one NOTE and no tightening paste. Setup asks for the
 password once with `sudo -v`; without a terminal it stops with `STOP: setup needs your sudo
 password; run it in your own terminal`.
 

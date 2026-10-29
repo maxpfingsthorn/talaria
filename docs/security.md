@@ -88,9 +88,9 @@ without a password (a rule from an older Talaria, or `--operator-nopasswd`), set
 `NOTE: <operator> can act as <user> without a password; Talaria's default is now to ask for
 it. To tighten:` followed by a root block to paste. Running it rewrites the rule to ask for
 your password; Talaria's own `talaria op` rule for the hub stays passwordless, as it must.
-If you also have passwordless sudo from elsewhere (a blanket `NOPASSWD: ALL`, common on
-cloud default users and CI runners), the NOTE appears on every run and the paste does not
-remove that access.
+If you also have passwordless sudo from elsewhere (a blanket `NOPASSWD: ALL`, common on cloud default users and CI runners), setup notices (`sudo -k -n true` works) and keeps
+its rules passwordless too, because sudo uses the last matching rule and a password rule
+would lock that account out; it prints one NOTE and no tightening paste.
 
 ## Removing the sudo rules
 

@@ -274,8 +274,9 @@ def _release(sh, args) -> tuple[str | None, str | None, int | None]:
         return ref, None, None
     try:
         trust.check(sh, str(REPO), ref)
-    except trust.Untrusted:
+    except trust.Untrusted as e:
         say("STOP", "this checkout's tag is not signed by a trusted key")
+        say("NOTE", str(e))
         keys = sh.run(["git", "-C", str(REPO), "show", "HEAD:keys/allowed_signers"], check=False)
         for fp in trust.fingerprints(keys.stdout if keys.returncode == 0 else ""):
             say("FOUND", f"trusted release key {fp}")
@@ -328,7 +329,14 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
 
     def lingers(name):
         return (Path(linger_dir) / name).exists()
-    nopasswd = getattr(args, "operator_nopasswd", False)
+    flag = getattr(args, "operator_nopasswd", False)
+    # sudoers uses the last matching rule: a password rule written to talaria-<user> would
+    # override a blanket NOPASSWD (cloud default users, CI runners) and lock the operator out
+    elsewhere = not flag and sh.run(["sudo", "-k", "-n", "true"], check=False).returncode == 0
+    nopasswd = flag or elsewhere
+    if elsewhere and not args.plan:
+        say("NOTE", f"{operator} has passwordless sudo from elsewhere; Talaria's sudo rules "
+                    "stay passwordless")
     asked = []                                    # `sudo -v` runs at most once per setup
 
     def reach(name):
@@ -343,8 +351,10 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
     def needs_password(ok, name):
         """STOP unless a root block can fix it: only no terminal, or a refused `sudo -v`,
         means the person must run setup themselves."""
-        if ok or not lingers(name) or (_interactive() and asked and asked[0] == 0):
+        if ok or nopasswd or not lingers(name) or (_interactive() and asked and asked[0] == 0):
             return None
+        if asked and asked[0] != 0 and _interactive():
+            say("NOTE", "sudo -v failed: check your password")
         say("STOP", "setup needs your sudo password; run it in your own terminal")
         return 1
 
@@ -359,7 +369,9 @@ def operator_phase(sh, args, *, getpwnam=pwd.getpwnam, operator=None, call=subpr
 
     def plan_rules(*names):
         for name in names:
-            how = "passwordless (--operator-nopasswd)" if nopasswd else "password required"
+            how = ("passwordless (--operator-nopasswd)" if flag else
+                   "passwordless (operator has passwordless sudo)" if elsewhere
+                   else "password required")
             say("PLAN", f"sudo rule for {operator} \u2192 {name}: {how}")
     pw = _pw(getpwnam, user)
     app_lines, installed = [], False  # pragma: no mutate  (a missing account always ends in the root paste before `installed` is read)
