@@ -52,7 +52,7 @@ GitHub alone.
 
 **Lost signing keys.** If every signing key is lost, installs refuse all future releases.
 Recovery is manual: clone the repository again, check out a tag you have verified yourself,
-and run `bin/talaria setup` (add `--dev` to skip the signature check). Setup keeps your
+and run `bin/talaria setup`: it checks that tag against the keys in the new checkout. Setup keeps your
 configuration, data and backups.
 
 **Key rotation.** Add the new key to `keys/allowed_signers` in a release signed by an
