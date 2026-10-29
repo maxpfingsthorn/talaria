@@ -3,10 +3,10 @@
 | Party | Trust |
 |---|---|
 | The paired Telegram account | trusted |
-| Your login account and coding agents running as it | fully trusted, through the sudo rule |
+| Your login account and coding agents running as it | fully trusted, through the sudo rule; sudo asks for your password by default (passwordless only with `--operator-nopasswd`) |
 | The Hermes agent, its data dir and everything in it | untrusted |
 | Upstream images and their output | untrusted beyond digest and revision checks (integrity against what the same release publishes, not an independent signature) |
-| This repository | trusted as cloned; install from the canonical URL at a tag |
+| This repository | trusted at the signing keys of your install (`keys/allowed_signers`); install from the canonical URL at a signed tag |
 | The hub account (`talaria`) | holds the bot token; may run only `talaria op …` as each app |
 | gbrain's public connector paths (Tailscale Funnel) | untrusted; DCR clients stay pending until you approve them in /admin |
 
@@ -51,12 +51,19 @@ from the working tree or from the new tag, so a tag cannot vouch for itself. A r
 or remove keys only if it is signed by a key the install already trusts; the new list applies
 to the release after it.
 
+Installs on v0.7.x have no such check, so the update to v0.8.0 is trusted on GitHub alone;
+from v0.8.0 on, every update is verified. The release workflow's own check (signature,
+`main`, version) catches the maintainer's mistakes, not a stolen credential; the checks in
+your installs are the defence. A refused tag changes nothing on the host (see
+[Operations](operations.md#refused-updates)).
+
 ## What setup changes
 
 - The hub account (default `talaria`) and the app's service account (default `hermes`),
   linger for both, and three sudo rules, each checked with `visudo` before it is installed:
   - `/etc/sudoers.d/talaria-<user>` and `/etc/sudoers.d/talaria-talaria`: your login account
-    may act as the app's account and as the hub;
+    may act as the app's account and as the hub, with your password (`--operator-nopasswd`:
+    without it);
   - `/etc/sudoers.d/talaria-talaria-<user>`: the hub may run
     `~<user>/.local/bin/talaria op …` as the app's account — nothing else.
 - For the hub:
@@ -73,6 +80,17 @@ to the release after it.
   backup first, and keeps the data where it is.
 - Setup never moves a Talaria install backwards: if the hub already runs a newer release
   than your checkout, it stops and asks you to check out the newer tag.
+
+## Tightening an existing sudo rule
+
+Setup never changes a rule that exists. If your account may act as an app account or the hub
+without a password (a rule from an older Talaria, or `--operator-nopasswd`), setup prints
+`NOTE: <operator> can act as <user> without a password; Talaria's default is now to ask for
+it. To tighten:` followed by a root block to paste. Running it rewrites the rule to ask for
+your password; Talaria's own `talaria op` rule for the hub stays passwordless, as it must.
+If you also have passwordless sudo from elsewhere (a blanket `NOPASSWD: ALL`, common on
+cloud default users and CI runners), the NOTE appears on every run and the paste does not
+remove that access.
 
 ## Removing the sudo rules
 

@@ -8,7 +8,9 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
    git clone https://github.com/maxpfingsthorn/talaria && cd talaria
    git checkout "$(bin/talaria latest-release)"
    ```
-   If the release lookup or checkout fails, stop and report it. Never fall back to the
+   Setup needs `git` ≥ 2.34 and `ssh-keygen`, and installs only a tag signed by the release
+   keys (see README, "Release signing keys"). If the release lookup or checkout fails, or
+   setup says the tag is not signed by a trusted key, stop and report it. Never fall back to the
    newest git tag: its release checks may not have passed.
 3. **Ask the person which app this install manages — Hermes, Clawvisor or gbrain — before
    running anything.** Don't assume: a host can run both, each as its own install.
@@ -29,7 +31,13 @@ You are a coding agent asked to "set up Talaria". Follow these steps exactly.
    (setup prints the exact command). A second app uses the same bot: no new token, no
    pairing.
    Show the pairing code; the person sends it to the bot.
-7. Re-run `bin/talaria setup` (with the same flags) until it prints `DONE`.
+7. You prepare and explain; **the person runs `setup` in their own terminal**, because it
+   asks for their sudo password once (`sudo -v`). **Never ask for the password and never
+   type it.** Without a terminal setup stops with `STOP: setup needs your sudo password`:
+   relay that. Do not pass `--operator-nopasswd` unless the person asks for passwordless
+   sudo; explain that the default is a password. Re-run `bin/talaria setup` (same flags)
+   until it prints `DONE`. A `NOTE:` that your login account can act as an account
+   without a password offers an optional root paste to tighten it; show it, do not run it.
 7a. If setup plans to "move the bot" from an app's account to the hub (an install from
    v0.4), explain it: the same bot and chat, no new pairing, the app is not restarted.
    `NOTE:` lines are informational; relay them.
