@@ -7,7 +7,7 @@ license = { text = "MIT" }
 dependencies = []
 
 [dependency-groups]
-dev = ["pytest>=8", "mutmut>=3.2", "pyyaml>=6", "shellcheck-py>=0.10", "ruff>=0.17,<0.18"]
+dev = ["pytest>=8", "mutmut>=3.2", "pyyaml>=6", "shellcheck-py>=0.10", "ruff>=0.17.1,<0.18"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
